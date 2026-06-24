@@ -13,7 +13,7 @@ const OCN = {
   modelos: {
     Polo: { label: 'Polo Track',  cor: '#B6BF69' },
     Argo: { label: 'Argo Drive',  cor: '#DBCB1E' },
-    Tera: { label: 'Tera',        cor: '#3ADB1E' },
+    Tera: { label: 'Tera',        cor: '#B9A7E5' },
   },
   corEsperado: '#282728',
 

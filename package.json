@@ -1,0 +1,15 @@
+{
+  "name": "ocn-kpis",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dashboard de KPIs da OCN — One Car Now",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

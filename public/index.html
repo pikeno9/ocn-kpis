@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OCN — Dashboard de KPIs</title>
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.47.0/iconfont/tabler-icons.min.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- ===================== HEADER ===================== -->
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-logo">OCN</div>
+      <div>
+        <div class="brand-name">One Car Now</div>
+        <div class="brand-sub">Dashboard de KPIs</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="header-date"><i class="ti ti-calendar"></i> <span id="hojeLabel">Jun 2026</span></div>
+      <button class="btn-admin" id="btnAdmin"><i class="ti ti-lock"></i> Admin</button>
+    </div>
+  </header>
+
+  <!-- ===================== ABAS PRINCIPAIS ===================== -->
+  <nav class="main-tabs">
+    <button class="main-tab active" data-sec="operacao"><i class="ti ti-settings-2"></i> Operação</button>
+    <button class="main-tab" data-sec="comercial"><i class="ti ti-chart-bar"></i> Comercial <span class="tab-badge">em breve</span></button>
+    <button class="main-tab" data-sec="rh"><i class="ti ti-users"></i> Recursos Humanos <span class="tab-badge">em breve</span></button>
+  </nav>
+
+  <main class="content">
+    <!-- ===================== OPERAÇÃO ===================== -->
+    <section class="section active" id="sec-operacao">
+      <div class="sub-tabs">
+        <button class="sub-tab active" data-sub="frota"><i class="ti ti-car"></i> Frota</button>
+        <button class="sub-tab" data-sub="ocorrencias"><i class="ti ti-alert-triangle"></i> Ocorrências</button>
+        <button class="sub-tab" data-sub="unit"><i class="ti ti-trending-up"></i> Unit Economics</button>
+      </div>
+
+      <!-- ---------- FROTA ---------- -->
+      <div class="subsection active" id="sub-frota">
+        <div class="section-head">
+          <div>
+            <div class="section-title"><i class="ti ti-car"></i> Frota — recebimento de veículos</div>
+            <div class="section-desc" id="frotaSub">Recebidos vs. esperado · por modelo · visão mensal (2026)</div>
+          </div>
+          <div class="crumb" id="frotaCrumb"><i class="ti ti-calendar"></i> ano de 2026</div>
+        </div>
+
+        <div class="kpi-grid" id="frotaKpis"></div>
+
+        <div class="card">
+          <div class="legend">
+            <span class="it"><span class="sw" style="background:#378ADD"></span> Polo Track</span>
+            <span class="it"><span class="sw" style="background:#D85A30"></span> Argo Drive</span>
+            <span class="it"><span class="sw" style="background:#534AB7"></span> Tera</span>
+            <span class="it"><span class="sw-line"></span> Esperado</span>
+            <button class="backbtn" id="backBtn"><i class="ti ti-arrow-left"></i> voltar à visão mensal</button>
+          </div>
+          <div class="chart-box" style="height:320px;">
+            <div class="toast" id="toast"></div>
+            <canvas id="chartMensal" role="img" aria-label="Recebido por modelo e esperado por mês"></canvas>
+          </div>
+          <div class="hint"><i class="ti ti-pointer"></i> clique na barra de um mês para ver o detalhe por semana</div>
+          <div class="note" id="frotaNota"></div>
+        </div>
+
+        <div class="card">
+          <div class="sub2-title"><i class="ti ti-chart-area-line"></i> Acumulado no ano</div>
+          <div class="sub2-desc">Total que já temos vs. total esperado até o fim do ano</div>
+          <div class="chart-box" style="height:280px;">
+            <canvas id="chartAcum" role="img" aria-label="Recebido acumulado por modelo e esperado acumulado"></canvas>
+          </div>
+          <div class="note">A distância entre as barras (recebido até hoje) e a linha (esperado, sobe até 775) mostra o gap a recuperar. Abril esperado = 50 (aderente ao recebido).</div>
+        </div>
+      </div>
+
+      <!-- ---------- OCORRÊNCIAS ---------- -->
+      <div class="subsection" id="sub-ocorrencias">
+        <div class="coming-soon">
+          <i class="ti ti-alert-triangle"></i>
+          <p>Ocorrências</p>
+          <span>Dados e KPIs serão configurados em breve</span>
+        </div>
+      </div>
+
+      <!-- ---------- UNIT ECONOMICS ---------- -->
+      <div class="subsection" id="sub-unit">
+        <div class="coming-soon">
+          <i class="ti ti-trending-up"></i>
+          <p>Unit Economics</p>
+          <span>Dados e KPIs serão configurados em breve</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== COMERCIAL ===================== -->
+    <section class="section" id="sec-comercial">
+      <div class="coming-soon">
+        <i class="ti ti-chart-dots"></i>
+        <p>Comercial</p>
+        <span>Frente a ser estruturada</span>
+      </div>
+    </section>
+
+    <!-- ===================== RH ===================== -->
+    <section class="section" id="sec-rh">
+      <div class="coming-soon">
+        <i class="ti ti-users-group"></i>
+        <p>Recursos Humanos</p>
+        <span>Frente a ser estruturada</span>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===================== MODAL ADMIN (stub v1) ===================== -->
+  <div class="modal-overlay" id="adminModal">
+    <div class="modal">
+      <h3>Acesso de administrador</h3>
+      <p>O login de admin para edição entra na próxima etapa (v2). Por enquanto o painel está em construção.</p>
+      <input type="password" placeholder="Senha de admin" disabled />
+      <div class="row">
+        <button id="adminClose">Fechar</button>
+        <button class="primary" disabled>Entrar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

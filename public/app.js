@@ -37,11 +37,17 @@
 
   // ---------- KPIs de topo ----------
   const k = OCN.kpis;
+  const Mref = OCN.mensal;
+  // Mês vigente: deriva da data atual (Abr=0 ... Dez=8), com clamp ao período
+  const vi = Math.max(0, Math.min(Mref.labels.length - 1, (new Date().getMonth() + 1) - 4));
+  const recVig = (Mref.recebido.Polo[vi] || 0) + (Mref.recebido.Argo[vi] || 0) + (Mref.recebido.Tera[vi] || 0);
+  const expVig = Mref.esperadoTotal[vi];
+  const pctVig = expVig ? Math.round((recVig / expVig) * 100) : null;
   document.getElementById('frotaKpis').innerHTML = `
     <div class="kpi-card"><div class="kpi-label"><i class="ti ti-car"></i> Recebidos no ano</div><div class="kpi-value">${k.recebidosAno}</div><div class="kpi-sub">${k.recebidosBreakdown}</div></div>
     <div class="kpi-card"><div class="kpi-label"><i class="ti ti-calendar-stats"></i> Esperado no ano</div><div class="kpi-value">${k.esperadoAno}</div><div class="kpi-sub">Abr–Dez (calendário)</div></div>
-    <div class="kpi-card"><div class="kpi-label"><i class="ti ti-percentage"></i> Realizado Mai+Jun</div><div class="kpi-value">${k.realizadoMaiJun}</div><div class="kpi-sub">${k.realizadoPct} do esperado</div></div>
-    <div class="kpi-card"><div class="kpi-label"><i class="ti ti-truck-delivery"></i> Próximo lote</div><div class="kpi-value">${k.proximoLote}</div><div class="kpi-sub">${k.proximoLoteDesc}</div></div>`;
+    <div class="kpi-card"><div class="kpi-label"><i class="ti ti-percentage"></i> Realizado ${Mref.full[vi]}</div><div class="kpi-value">${recVig} / ${expVig == null ? '—' : expVig}</div><div class="kpi-sub">${pctVig == null ? 'sem esperado no mês' : pctVig + '% do esperado'}</div></div>
+    <div class="kpi-card"><div class="kpi-label"><i class="ti ti-truck-delivery"></i> Próximo lote</div><div class="kpi-value">${k.proximoLoteData}</div><div class="kpi-sub">${k.proximoLoteDesc}</div></div>`;
 
   // ---------- helpers ----------
   function mdlStr(o) { return o ? Object.entries(o).map(([m, v]) => v + ' ' + m).join(' · ') : ''; }
@@ -51,6 +57,39 @@
 
   function barDS(model, data) {
     return { label: OCN.modelos[model].label, data, backgroundColor: COR[model], stack: 'r', borderRadius: 3, maxBarThickness: 48, order: 2, datalabels: dlBar };
+  }
+
+  // Padrão hachurado (diagonal) para indicar previsão
+  function hatch(color) {
+    const c = document.createElement('canvas'); c.width = 8; c.height = 8;
+    const x = c.getContext('2d');
+    x.strokeStyle = color; x.lineWidth = 1.5;
+    x.beginPath();
+    x.moveTo(0, 8); x.lineTo(8, 0);
+    x.moveTo(-2, 2); x.lineTo(2, -2);
+    x.moveTo(6, 10); x.lineTo(10, 6);
+    x.stroke();
+    return x.createPattern(c, 'repeat');
+  }
+
+  const PL = OCN.proximoLote;
+  function forecastDS(data) {
+    const cor = COR[PL.modelo];
+    return {
+      label: 'Previsão (próx. lote)', data, backgroundColor: hatch(cor), borderColor: cor, borderWidth: 1.5,
+      stack: 'r', borderRadius: 3, maxBarThickness: 48, order: 2,
+      datalabels: { color: cor, anchor: 'center', align: 'center', font: { size: 10, weight: 500 }, formatter: (v) => (v > 0 ? v : '') },
+    };
+  }
+  function forecastMonthly() {
+    const a = new Array(OCN.mensal.labels.length).fill(0);
+    if (PL) a[PL.mesIndex] = PL.qtd;
+    return a;
+  }
+  function forecastWeekly(mi) {
+    const a = new Array(OCN.semanal.labels.length).fill(0);
+    if (PL && mi === PL.mesIndex) a[PL.semanaIndex] = PL.qtd;
+    return a;
   }
   function lineDS(data, dashed) {
     return { label: 'Esperado', data, type: 'line', borderColor: NAVY, backgroundColor: NAVY, borderWidth: 2, borderDash: dashed ? [5, 4] : [], pointRadius: 4, pointHoverRadius: 6, tension: 0.25, spanGaps: false, order: 1, datalabels: dlLine };
@@ -96,11 +135,11 @@
   }
 
   function buildMonthly() {
-    return { type: 'bar', data: { labels: M.labels, datasets: [barDS('Polo', M.recebido.Polo), barDS('Argo', M.recebido.Argo), barDS('Tera', M.recebido.Tera), lineDS(M.esperadoTotal, true)] }, options: opts(true) };
+    return { type: 'bar', data: { labels: M.labels, datasets: [barDS('Polo', M.recebido.Polo), barDS('Argo', M.recebido.Argo), barDS('Tera', M.recebido.Tera), forecastDS(forecastMonthly()), lineDS(M.esperadoTotal, true)] }, options: opts(true) };
   }
   function buildWeekly(mi) {
     const rp = (W.recebido.Polo[mi] || Z), ra = (W.recebido.Argo[mi] || Z), rt = (W.recebido.Tera[mi] || Z);
-    return { type: 'bar', data: { labels: W.labels, datasets: [barDS('Polo', rp), barDS('Argo', ra), barDS('Tera', rt), lineDS(W.esperadoTotal[mi] || [null, null, null, null, null], true)] }, options: opts(false) };
+    return { type: 'bar', data: { labels: W.labels, datasets: [barDS('Polo', rp), barDS('Argo', ra), barDS('Tera', rt), forecastDS(forecastWeekly(mi)), lineDS(W.esperadoTotal[mi] || [null, null, null, null, null], true)] }, options: opts(false) };
   }
   function render(cfg) { if (chartMensal) chartMensal.destroy(); chartMensal = new Chart(document.getElementById('chartMensal'), cfg); }
 

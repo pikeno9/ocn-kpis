@@ -92,15 +92,19 @@ const OCN = {
   },
 
   // -------- KPIs de topo --------
+  // "Realizado <mês vigente>" é calculado automaticamente no app.js a partir
+  // do mês atual (recebido vs. esperado do mês corrente).
   kpis: {
     recebidosAno: 163,
     recebidosBreakdown: '76 Polo · 69 Argo · 18 Tera',
     esperadoAno: 775,
-    realizadoMaiJun: '113 / 120',
-    realizadoPct: '94%',
-    proximoLote: '02/07',
+    proximoLoteData: '02/07',
     proximoLoteDesc: '25 Polo',
   },
+
+  // -------- Próximo lote (previsão exibida no gráfico principal) --------
+  // Aparece como barra hachurada no mês/semana de chegada prevista.
+  proximoLote: { mesIndex: 3, semanaIndex: 0, modelo: 'Polo', qtd: 25, dataLabel: '02/07' },
 
   notaMensal:
     'Exceções: 33 Argo de 31/05 contados em Junho · 18 Tera + 1 Argo de 19/06 (linhas sem data na base) incluídos em Junho · Nov capado em 121 (excedente do lote 19/11 → Dez = 126) · Abril sem esperado no calendário.',

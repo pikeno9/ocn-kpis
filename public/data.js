@@ -11,11 +11,11 @@ const OCN = {
 
   // Identidade dos modelos (color-code)
   modelos: {
-    Polo: { label: 'Polo Track',  cor: '#378ADD' },
-    Argo: { label: 'Argo Drive',  cor: '#D85A30' },
-    Tera: { label: 'Tera',        cor: '#534AB7' },
+    Polo: { label: 'Polo Track',  cor: '#B6BF69' },
+    Argo: { label: 'Argo Drive',  cor: '#DBCB1E' },
+    Tera: { label: 'Tera',        cor: '#3ADB1E' },
   },
-  corEsperado: '#1a1a2e',
+  corEsperado: '#282728',
 
   // -------- VISAO MENSAL (grafico principal) --------
   mensal: {

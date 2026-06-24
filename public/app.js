@@ -51,7 +51,7 @@
 
   // ---------- helpers ----------
   function mdlStr(o) { return o ? Object.entries(o).map(([m, v]) => v + ' ' + m).join(' · ') : ''; }
-  const dlBar = { color: '#fff', anchor: 'center', align: 'center', font: { size: 10, weight: 500 }, formatter: (v) => (v > 0 ? v : '') };
+  const dlBar = { color: '#282728', anchor: 'center', align: 'center', font: { size: 10, weight: 500 }, formatter: (v) => (v > 0 ? v : '') };
   const dlLine = { color: NAVY, anchor: 'end', align: 'top', offset: 4, font: { size: 11, weight: 500 }, formatter: (v) => ((v || v === 0) ? v : '') };
   const Z = [0, 0, 0, 0, 0];
 
@@ -78,7 +78,7 @@
     return {
       label: 'Previsão (próx. lote)', data, backgroundColor: hatch(cor), borderColor: cor, borderWidth: 1.5,
       stack: 'r', borderRadius: 3, maxBarThickness: 48, order: 2,
-      datalabels: { color: cor, anchor: 'center', align: 'center', font: { size: 10, weight: 500 }, formatter: (v) => (v > 0 ? v : '') },
+      datalabels: { color: '#282728', anchor: 'center', align: 'center', font: { size: 10, weight: 500 }, formatter: (v) => (v > 0 ? v : '') },
     };
   }
   function forecastMonthly() {
@@ -147,7 +147,6 @@
     view = 'weekly'; cur = mi;
     document.getElementById('frotaSub').textContent = 'Detalhe semanal de ' + M.full[mi] + '/26 · por modelo';
     document.getElementById('frotaCrumb').innerHTML = '<i class="ti ti-calendar"></i> 2026 › <b>' + M.full[mi] + '</b>';
-    document.getElementById('frotaNota').textContent = W.notas[mi] || '';
     backBtn.style.display = 'inline-flex';
     render(buildWeekly(mi));
   }
@@ -155,13 +154,11 @@
     view = 'monthly'; cur = null;
     document.getElementById('frotaSub').textContent = 'Recebidos vs. esperado · por modelo · visão mensal (2026)';
     document.getElementById('frotaCrumb').innerHTML = '<i class="ti ti-calendar"></i> ano de 2026';
-    document.getElementById('frotaNota').textContent = OCN.notaMensal;
     backBtn.style.display = 'none';
     render(buildMonthly());
   }
   backBtn.addEventListener('click', goMonthly);
 
-  document.getElementById('frotaNota').textContent = OCN.notaMensal;
   render(buildMonthly());
 
   // ---------- chart acumulado ----------

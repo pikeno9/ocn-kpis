@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>OCN — Dashboard de KPIs</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link rel="preconnect" href="https://cdnjs.cloudflare.com" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.47.0/iconfont/tabler-icons.min.css" />
   <link rel="stylesheet" href="styles.css" />
@@ -54,9 +55,9 @@
 
         <div class="card">
           <div class="legend">
-            <span class="it"><span class="sw" style="background:#378ADD"></span> Polo Track</span>
-            <span class="it"><span class="sw" style="background:#D85A30"></span> Argo Drive</span>
-            <span class="it"><span class="sw" style="background:#534AB7"></span> Tera</span>
+            <span class="it"><span class="sw" style="background:#B6BF69"></span> Polo Track</span>
+            <span class="it"><span class="sw" style="background:#DBCB1E"></span> Argo Drive</span>
+            <span class="it"><span class="sw" style="background:#3ADB1E"></span> Tera</span>
             <span class="it"><span class="sw sw-fc"></span> Previsão (próx. lote)</span>
             <span class="it"><span class="sw-line"></span> Esperado</span>
             <button class="backbtn" id="backBtn"><i class="ti ti-arrow-left"></i> voltar à visão mensal</button>
@@ -66,7 +67,6 @@
             <canvas id="chartMensal" role="img" aria-label="Recebido por modelo e esperado por mês"></canvas>
           </div>
           <div class="hint"><i class="ti ti-pointer"></i> clique na barra de um mês para ver o detalhe por semana</div>
-          <div class="note" id="frotaNota"></div>
         </div>
 
         <div class="card">
@@ -75,7 +75,6 @@
           <div class="chart-box" style="height:280px;">
             <canvas id="chartAcum" role="img" aria-label="Recebido acumulado por modelo e esperado acumulado"></canvas>
           </div>
-          <div class="note">A distância entre as barras (recebido até hoje) e a linha (esperado, sobe até 775) mostra o gap a recuperar. Abril esperado = 50 (aderente ao recebido).</div>
         </div>
       </div>
 

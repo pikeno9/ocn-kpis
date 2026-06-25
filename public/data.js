@@ -131,13 +131,13 @@ const OCN = {
     foramOficina: 14,
     porTipo: [
       { label: 'Problema mecânico', valor: 9, cor: '#5A00F8' },
-      { label: 'Batida',            valor: 5, cor: '#8B5CF6' },
+      { label: 'Colisão',           valor: 5, cor: '#8B5CF6' },
       { label: 'Roubo',             valor: 3, cor: '#A78BFA' },
       { label: 'Perda total',       valor: 1, cor: '#C9B8F0' },
     ],
     // por tipo: com sinistro vs sem
     sinistroPorTipo: {
-      labels: ['Mecânico', 'Batida', 'Roubo', 'Perda total'],
+      labels: ['Mecânico', 'Colisão', 'Roubo', 'Perda total'],
       com: [0, 2, 0, 1],
       sem: [9, 3, 3, 0],
     },
@@ -154,15 +154,15 @@ const OCN = {
     // Duração esperada estimada a partir do churn (teto contratual de 12 meses)
     duracao: {
       nominalMeses: 12,
-      estimadaMeses: '8,4',
-      pctDoNominal: 70,       // 8,4 / 12
-      churnMensalPct: '6,3',
+      estimadaMeses: '8,9',
+      pctDoNominal: 74,       // 8,9 / 12
+      churnMensalPct: '5,3',
+      encerramentosChurn: 11, // exclui "troca de carro"
     },
     churn: [
       { label: 'Recuperação',             valor: 9, cor: '#5A00F8' },
-      { label: 'Troca de carro',          valor: 2, cor: '#8B5CF6' },
-      { label: 'Rescisão pelo motorista', valor: 1, cor: '#A78BFA' },
-      { label: 'Sinistro – PT',           valor: 1, cor: '#C9B8F0' },
+      { label: 'Rescisão pelo motorista', valor: 1, cor: '#8B5CF6' },
+      { label: 'Sinistro – PT',           valor: 1, cor: '#A78BFA' },
     ],
   },
 

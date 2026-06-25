@@ -202,9 +202,9 @@
 
   // ===================== OCORRÊNCIAS (lazy init) =====================
   let ocorReady = false;
-  // % em destaque (negrito), valor absoluto em segundo plano
+  // legenda vertical: rótulo à esquerda, % em destaque, absoluto secundário à direita
   function donutLegend(items, total) {
-    return items.map((it) => `<span class="dl-it"><span class="dl-sw" style="background:${it.cor}"></span>${it.label} <b>${Math.round((it.valor / total) * 100)}%</b> <span class="dl-pct">${it.valor}</span></span>`).join('');
+    return items.map((it) => `<span class="dl-it"><span class="dl-sw" style="background:${it.cor}"></span><span class="dl-label">${it.label}</span><span class="dl-val">${Math.round((it.valor / total) * 100)}%</span><span class="dl-abs">(${it.valor})</span></span>`).join('');
   }
   // cor de texto legível conforme luminância do fundo
   function txtOn(hex) {
@@ -220,7 +220,6 @@
     // KPIs
     document.getElementById('ocorKpis').innerHTML = `
       <div class="kpi-card"><div class="kpi-label"><i class="ti ti-alert-triangle"></i> Total de ocorrências</div><div class="kpi-value">${O.total}</div><div class="kpi-sub">${O.foramOficina} foram para oficina</div></div>
-      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-cars"></i> Frota afetada</div><div class="kpi-value">${O.frotaAfetadaPct}%</div><div class="kpi-sub">${O.frotaAfetadaN} de ${O.frotaTotalContrato} carros</div></div>
       <div class="kpi-card"><div class="kpi-label"><i class="ti ti-shield-half"></i> Com sinistro</div><div class="kpi-value">${O.comSinistro}</div><div class="kpi-sub">${O.comSinistroPct}% das ocorrências</div></div>
       <div class="kpi-card"><div class="kpi-label"><i class="ti ti-clock-hour-4"></i> Taxa</div><div class="kpi-value">${O.contratos.taxaCarroMes}</div><div class="kpi-sub">ocorrência / carro-mês</div></div>`;
 
@@ -229,7 +228,6 @@
     document.getElementById('ocorTaxaDesc').textContent = c.taxaTexto;
     document.getElementById('ocorContratos').innerHTML = `
       <div class="mini-stat"><div class="v">${c.totalContratos}</div><div class="l">contratos (${c.ativos} ativos)</div></div>
-      <div class="mini-stat"><div class="v">${c.carrosMes}</div><div class="l">carros-mês sob contrato</div></div>
       <div class="mini-stat"><div class="v">${c.taxaCarroMes}</div><div class="l">ocorr./carro-mês</div></div>
       <div class="mini-stat"><div class="v">${c.carrosDiaPorOcorr}</div><div class="l">carros-dia por ocorrência</div></div>`;
 
@@ -245,7 +243,7 @@
         <div style="height:100%;width:${D.pctDoNominal}%;background:#5A00F8;border-radius:6px;"></div>
       </div>
       <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-3);margin:5px 0 14px;"><span>0</span><span>${D.nominalMeses} meses</span></div>
-      <div style="font-size:12px;color:var(--text-2);line-height:1.55;">Baseado em churn mensal de <b style="color:var(--text)">${D.churnMensalPct}%</b> (${c.encerrados} encerramentos em ${c.carrosMes} carros-mês). Estimativa preliminar — janela de ~2,5 meses.</div>`;
+      <div style="font-size:12px;color:var(--text-2);line-height:1.55;">Baseado em churn mensal de <b style="color:var(--text)">${D.churnMensalPct}%</b> (${D.encerramentosChurn} encerramentos, excl. troca de carro). Estimativa preliminar — janela de ~2,5 meses.</div>`;
 
     // Donut por tipo
     document.getElementById('legendTipo').innerHTML = donutLegend(O.porTipo, O.total);
@@ -270,7 +268,7 @@
       options: {
         indexAxis: 'y', responsive: true, maintainAspectRatio: false,
         plugins: { legend: { display: false }, tooltip: { callbacks: { label: (x) => `${x.dataset.label}: ${x.parsed.x}` } } },
-        scales: { x: { stacked: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, precision: 0 } }, y: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } } },
+        scales: { x: { stacked: true, display: false }, y: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } } },
       },
     });
 

@@ -119,6 +119,23 @@ button { font-family: inherit; cursor: pointer; }
 .sub2-title { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
 .sub2-desc { font-size: 12px; color: var(--text-2); margin: 3px 0 14px; }
 
+/* ---- ocorrências: layout de análises ---- */
+.chart-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+@media (max-width: 680px) { .chart-2col { grid-template-columns: 1fr; } }
+.donut-legend { display: flex; flex-wrap: wrap; gap: 8px 14px; font-size: 12px; margin: 8px 0 10px; color: var(--text-2); }
+.dl-it { display: flex; align-items: center; gap: 6px; }
+.dl-sw { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+.dl-it b { color: var(--text); font-weight: 600; }
+.dl-pct { color: var(--text-3); }
+.mini-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.mini-stat { background: var(--surface-2); border-radius: var(--radius-sm); padding: 12px 14px; }
+.mini-stat .v { font-size: 20px; font-weight: 600; }
+.mini-stat .l { font-size: 11px; color: var(--text-2); margin-top: 4px; }
+.insights { list-style: none; }
+.insights li { font-size: 13px; color: var(--text); line-height: 1.55; padding: 9px 0 9px 20px; position: relative; border-top: 1px solid var(--border); }
+.insights li:first-child { border-top: none; }
+.insights li::before { content: ''; position: absolute; left: 3px; top: 15px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+
 /* ---- toast ---- */
 .toast {
   position: absolute; top: 8px; left: 50%; transform: translateX(-50%);

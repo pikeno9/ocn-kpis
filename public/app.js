@@ -24,6 +24,7 @@
       sec.querySelectorAll('.subsection').forEach((s) => s.classList.remove('active'));
       tab.classList.add('active');
       document.getElementById('sub-' + tab.dataset.sub).classList.add('active');
+      if (tab.dataset.sub === 'ocorrencias') initOcorrencias();
     });
   });
 
@@ -198,4 +199,73 @@
       },
     },
   });
+
+  // ===================== OCORRÊNCIAS (lazy init) =====================
+  let ocorReady = false;
+  function donutLegend(items, total) {
+    return items.map((it) => `<span class="dl-it"><span class="dl-sw" style="background:${it.cor}"></span>${it.label} <b>${it.valor}</b> <span class="dl-pct">${Math.round((it.valor / total) * 100)}%</span></span>`).join('');
+  }
+  function initOcorrencias() {
+    if (ocorReady) return;
+    ocorReady = true;
+    const O = OCN.ocorrencias;
+
+    // KPIs
+    document.getElementById('ocorKpis').innerHTML = `
+      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-alert-triangle"></i> Total de ocorrências</div><div class="kpi-value">${O.total}</div><div class="kpi-sub">${O.foramOficina} foram para oficina</div></div>
+      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-cars"></i> Frota afetada</div><div class="kpi-value">${O.frotaAfetadaPct}%</div><div class="kpi-sub">${O.frotaAfetadaN} de ${O.frotaTotalContrato} carros</div></div>
+      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-shield-half"></i> Com sinistro</div><div class="kpi-value">${O.comSinistro}</div><div class="kpi-sub">${O.comSinistroPct}% das ocorrências</div></div>
+      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-clock-hour-4"></i> Taxa</div><div class="kpi-value">${O.contratos.taxaCarroMes}</div><div class="kpi-sub">ocorrência / carro-mês</div></div>`;
+
+    // Probabilidade & contratos
+    document.getElementById('ocorTaxaDesc').textContent = O.contratos.taxaTexto + ' · base de ' + OCN.ocorrencias.contratos.ativos + ' contratos ativos.';
+    const c = O.contratos;
+    document.getElementById('ocorContratos').innerHTML = `
+      <div class="mini-stat"><div class="v">${c.ativos}</div><div class="l">contratos ativos</div></div>
+      <div class="mini-stat"><div class="v">${c.carrosMes}</div><div class="l">carros-mês ativos</div></div>
+      <div class="mini-stat"><div class="v">${c.mediaDias} d</div><div class="l">duração média</div></div>
+      <div class="mini-stat"><div class="v">${c.taxaCarroMes}</div><div class="l">ocorr./carro-mês</div></div>`;
+
+    // Insights
+    document.getElementById('ocorInsights').innerHTML = O.insights.map((t) => `<li>${t}</li>`).join('');
+
+    // Donut por tipo
+    document.getElementById('legendTipo').innerHTML = donutLegend(O.porTipo, O.total);
+    new Chart(document.getElementById('chartTipo'), {
+      type: 'doughnut',
+      data: { labels: O.porTipo.map((t) => t.label), datasets: [{ data: O.porTipo.map((t) => t.valor), backgroundColor: O.porTipo.map((t) => t.cor), borderColor: '#fff', borderWidth: 2 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false, cutout: '56%',
+        plugins: { legend: { display: false }, datalabels: { color: '#fff', font: { size: 12, weight: 600 }, formatter: (v) => v }, tooltip: { callbacks: { label: (x) => `${x.label}: ${x.parsed} (${Math.round((x.parsed / O.total) * 100)}%)` } } },
+      },
+    });
+
+    // Sinistro por tipo (barra empilhada horizontal)
+    const S = O.sinistroPorTipo;
+    document.getElementById('legendSinistro').innerHTML = `<span class="dl-it"><span class="dl-sw" style="background:#E24B4A"></span>Com sinistro</span><span class="dl-it"><span class="dl-sw" style="background:#D6D6D9"></span>Sem sinistro</span>`;
+    new Chart(document.getElementById('chartSinistro'), {
+      type: 'bar',
+      data: { labels: S.labels, datasets: [
+        { label: 'Com sinistro', data: S.com, backgroundColor: '#E24B4A', stack: 's', borderRadius: 3, datalabels: { display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, color: '#fff', font: { size: 11, weight: 600 }, formatter: (v) => v } },
+        { label: 'Sem sinistro', data: S.sem, backgroundColor: '#D6D6D9', stack: 's', borderRadius: 3, datalabels: { display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, color: '#5F5E5A', font: { size: 11, weight: 600 }, formatter: (v) => v } },
+      ] },
+      options: {
+        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (x) => `${x.dataset.label}: ${x.parsed.x}` } } },
+        scales: { x: { stacked: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, precision: 0 } }, y: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } } },
+      },
+    });
+
+    // Churn (motivo fim)
+    const churnTotal = O.churn.reduce((a, b) => a + b.valor, 0);
+    document.getElementById('legendChurn').innerHTML = donutLegend(O.churn, churnTotal);
+    new Chart(document.getElementById('chartChurn'), {
+      type: 'doughnut',
+      data: { labels: O.churn.map((t) => t.label), datasets: [{ data: O.churn.map((t) => t.valor), backgroundColor: O.churn.map((t) => t.cor), borderColor: '#fff', borderWidth: 2 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false, cutout: '56%',
+        plugins: { legend: { display: false }, datalabels: { color: '#fff', font: { size: 12, weight: 600 }, formatter: (v) => v }, tooltip: { callbacks: { label: (x) => `${x.label}: ${x.parsed} (${Math.round((x.parsed / churnTotal) * 100)}%)` } } },
+      },
+    });
+  }
 })();

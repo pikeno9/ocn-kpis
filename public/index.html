@@ -91,10 +91,47 @@
 
       <!-- ---------- OCORRÊNCIAS ---------- -->
       <div class="subsection" id="sub-ocorrencias">
-        <div class="coming-soon">
-          <i class="ti ti-alert-triangle"></i>
-          <p>Ocorrências</p>
-          <span>Dados e KPIs serão configurados em breve</span>
+        <div class="section-head">
+          <div>
+            <div class="section-title"><i class="ti ti-alert-triangle"></i> Ocorrências</div>
+            <div class="section-desc">Tipos, probabilidade por tempo de contrato e sinistros</div>
+          </div>
+          <div class="crumb"><i class="ti ti-database"></i> Ocorrencias + import_clientes</div>
+        </div>
+
+        <div class="kpi-grid" id="ocorKpis"></div>
+
+        <div class="card">
+          <div class="chart-2col">
+            <div>
+              <div class="sub2-title"><i class="ti ti-chart-pie"></i> Ocorrências por tipo</div>
+              <div class="donut-legend" id="legendTipo"></div>
+              <div class="chart-box" style="height:230px;"><canvas id="chartTipo" role="img" aria-label="Proporção de ocorrências por tipo"></canvas></div>
+            </div>
+            <div>
+              <div class="sub2-title"><i class="ti ti-shield-half"></i> Sinistro por tipo</div>
+              <div class="sub2-desc">Quais tipos acionaram seguro</div>
+              <div class="donut-legend" id="legendSinistro"></div>
+              <div class="chart-box" style="height:230px;"><canvas id="chartSinistro" role="img" aria-label="Ocorrências com e sem sinistro por tipo"></canvas></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="sub2-title"><i class="ti ti-clock-hour-4"></i> Probabilidade &amp; contratos</div>
+          <div class="sub2-desc" id="ocorTaxaDesc"></div>
+          <div class="mini-stats" id="ocorContratos"></div>
+          <div class="chart-2col" style="margin-top:6px;">
+            <div>
+              <div class="sub2-title" style="font-size:13px"><i class="ti ti-arrow-bar-down"></i> Motivo de encerramento de contrato</div>
+              <div class="donut-legend" id="legendChurn"></div>
+              <div class="chart-box" style="height:210px;"><canvas id="chartChurn" role="img" aria-label="Motivos de encerramento de contrato"></canvas></div>
+            </div>
+            <div>
+              <div class="sub2-title" style="font-size:13px"><i class="ti ti-bulb"></i> Principais insights</div>
+              <ul class="insights" id="ocorInsights"></ul>
+            </div>
+          </div>
         </div>
       </div>
 

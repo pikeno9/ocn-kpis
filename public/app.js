@@ -202,9 +202,9 @@
 
   // ===================== OCORRÊNCIAS (lazy init) =====================
   let ocorReady = false;
-  // legenda vertical: rótulo à esquerda, % em destaque, absoluto secundário à direita
-  function donutLegend(items, total) {
-    return items.map((it) => `<span class="dl-it"><span class="dl-sw" style="background:${it.cor}"></span><span class="dl-label">${it.label}</span><span class="dl-val">${Math.round((it.valor / total) * 100)}%</span><span class="dl-abs">(${it.valor})</span></span>`).join('');
+  // legenda simples: apenas cor + rótulo (percentuais ficam dentro da pizza)
+  function donutLegend(items) {
+    return items.map((it) => `<span class="dl-it"><span class="dl-sw" style="background:${it.cor}"></span><span class="dl-label">${it.label}</span></span>`).join('');
   }
   // cor de texto legível conforme luminância do fundo
   function txtOn(hex) {
@@ -246,7 +246,7 @@
       <div style="font-size:12px;color:var(--text-2);line-height:1.55;">Baseado em churn mensal de <b style="color:var(--text)">${D.churnMensalPct}%</b> (${D.encerramentosChurn} encerramentos, excl. troca de carro). Estimativa preliminar — janela de ~2,5 meses.</div>`;
 
     // Donut por tipo
-    document.getElementById('legendTipo').innerHTML = donutLegend(O.porTipo, O.total);
+    document.getElementById('legendTipo').innerHTML = donutLegend(O.porTipo);
     new Chart(document.getElementById('chartTipo'), {
       type: 'doughnut',
       data: { labels: O.porTipo.map((t) => t.label), datasets: [{ data: O.porTipo.map((t) => t.valor), backgroundColor: O.porTipo.map((t) => t.cor), borderColor: '#fff', borderWidth: 2 }] },
@@ -274,7 +274,7 @@
 
     // Churn (motivo fim)
     const churnTotal = O.churn.reduce((a, b) => a + b.valor, 0);
-    document.getElementById('legendChurn').innerHTML = donutLegend(O.churn, churnTotal);
+    document.getElementById('legendChurn').innerHTML = donutLegend(O.churn);
     new Chart(document.getElementById('chartChurn'), {
       type: 'doughnut',
       data: { labels: O.churn.map((t) => t.label), datasets: [{ data: O.churn.map((t) => t.valor), backgroundColor: O.churn.map((t) => t.cor), borderColor: '#fff', borderWidth: 2 }] },

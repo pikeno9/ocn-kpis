@@ -130,6 +130,9 @@ button { font-family: inherit; cursor: pointer; }
 .dl-abs { color: var(--text-3); min-width: 26px; text-align: right; }
 .legend-inline { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 12px; margin: 8px 0 10px; color: var(--text-2); }
 .legend-inline .dl-it { display: flex; align-items: center; gap: 6px; }
+.donut-row { display: flex; align-items: center; gap: 14px; margin-top: 6px; }
+.donut-row .donut-legend { margin: 0; flex: 0 0 auto; }
+.donut-row .donut-canvas { flex: 1 1 auto; position: relative; height: 200px; min-width: 0; }
 .mini-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-bottom: 18px; }
 .mini-stat { background: var(--surface-2); border-radius: var(--radius-sm); padding: 12px 14px; }
 .mini-stat .v { font-size: 20px; font-weight: 600; }

@@ -38,14 +38,6 @@
   <main class="content">
     <!-- ===================== OPERAÇÃO ===================== -->
     <section class="section active" id="sec-operacao">
-      <div class="op-overview">
-        <div class="op-overview-head">
-          <div class="op-overview-title">Visão geral da frota</div>
-          <div class="op-overview-sub" id="opOverviewSub"></div>
-        </div>
-        <div class="status-grid" id="opStatusGrid"></div>
-      </div>
-
       <div class="sub-tabs">
         <button class="sub-tab active" data-sub="frota"><i class="ti ti-car"></i> Frota</button>
         <button class="sub-tab" data-sub="ocorrencias"><i class="ti ti-alert-triangle"></i> Ocorrências</button>
@@ -60,6 +52,14 @@
             <div class="section-desc" id="frotaSub">Recebidos vs. esperado · por modelo · visão mensal (2026)</div>
           </div>
           <div class="crumb" id="frotaCrumb"><i class="ti ti-calendar"></i> ano de 2026</div>
+        </div>
+
+        <div class="fleet-section">
+          <div class="fleet-section-head">
+            <div class="fleet-section-title">Status atual da frota</div>
+            <div class="fleet-section-sub" id="fleetSub"></div>
+          </div>
+          <div class="fleet-grid" id="fleetGrid"></div>
         </div>
 
         <div class="kpi-grid" id="frotaKpis"></div>

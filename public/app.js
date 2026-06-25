@@ -35,16 +35,13 @@
     document.getElementById('adminModal').classList.remove('show')
   );
 
-  // ---------- Visão geral / big numbers de status ----------
+  // ---------- Status atual da frota / big numbers ----------
   const SF = OCN.statusFrota;
-  document.getElementById('opOverviewSub').textContent = SF.total + ' veículos cadastrados · status atual';
-  document.getElementById('opStatusGrid').innerHTML = SF.items.map((it) => `
-    <div class="status-card${it.valor === 0 ? ' is-zero' : ''}">
-      <div class="status-icon" style="background:${it.cor}1F;color:${it.cor}"><i class="ti ${it.icon}"></i></div>
-      <div>
-        <div class="status-num">${it.valor}</div>
-        <div class="status-label">${it.label}</div>
-      </div>
+  document.getElementById('fleetSub').textContent = SF.total + ' veículos cadastrados';
+  document.getElementById('fleetGrid').innerHTML = SF.items.map((it) => `
+    <div class="fleet-tile${it.valor === 0 ? ' is-zero' : ''}" style="background:${it.cor}14">
+      <div class="fleet-tile-num" style="color:${it.cor}">${it.valor}</div>
+      <div class="fleet-tile-label">${it.label}</div>
     </div>`).join('');
 
   // ---------- KPIs de topo ----------

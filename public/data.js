@@ -131,9 +131,9 @@ const OCN = {
     foramOficina: 14,
     porTipo: [
       { label: 'Problema mecânico', valor: 9, cor: '#5A00F8' },
-      { label: 'Batida',            valor: 5, cor: '#E0822B' },
-      { label: 'Roubo',             valor: 3, cor: '#3B82C4' },
-      { label: 'Perda total',       valor: 1, cor: '#E24B4A' },
+      { label: 'Batida',            valor: 5, cor: '#8B5CF6' },
+      { label: 'Roubo',             valor: 3, cor: '#A78BFA' },
+      { label: 'Perda total',       valor: 1, cor: '#C9B8F0' },
     ],
     // por tipo: com sinistro vs sem
     sinistroPorTipo: {
@@ -142,24 +142,27 @@ const OCN = {
       sem: [9, 3, 3, 0],
     },
     contratos: {
+      totalContratos: 174,
       ativos: 161,
-      carrosMes: 194,
-      carrosDia: 5824,
-      mediaDias: 36,
+      encerrados: 13,
+      carrosMes: 207,        // exposição total: 161 ativos + 13 encerrados
+      carrosDia: 6206,
+      carrosDiaPorOcorr: 345,
       taxaCarroMes: '0,09',
-      taxaTexto: '1 ocorrência a cada ~324 carros-dia de contrato',
+      taxaTexto: '1 ocorrência a cada ~345 carros-dia sob contrato (161 ativos + 13 encerrados).',
+    },
+    // Duração esperada estimada a partir do churn (teto contratual de 12 meses)
+    duracao: {
+      nominalMeses: 12,
+      estimadaMeses: '8,4',
+      pctDoNominal: 70,       // 8,4 / 12
+      churnMensalPct: '6,3',
     },
     churn: [
-      { label: 'Recuperação',            valor: 9, cor: '#E24B4A' },
-      { label: 'Troca de carro',         valor: 2, cor: '#3B82C4' },
-      { label: 'Rescisão pelo motorista', valor: 1, cor: '#E0822B' },
-      { label: 'Sinistro – PT',          valor: 1, cor: '#282728' },
-    ],
-    insights: [
-      'Metade das ocorrências (50%) são problemas mecânicos; colisões (batida + perda total) somam 33%.',
-      'Sinistro/seguro só foi acionado em colisões: a única perda total e 2 das 5 batidas. Nenhum problema mecânico ou roubo gerou sinistro.',
-      'Só 11% da frota (18 de 163 carros) teve alguma ocorrência no período.',
-      '69% dos encerramentos de contrato foram por Recuperação (retomada do veículo).',
+      { label: 'Recuperação',             valor: 9, cor: '#5A00F8' },
+      { label: 'Troca de carro',          valor: 2, cor: '#8B5CF6' },
+      { label: 'Rescisão pelo motorista', valor: 1, cor: '#A78BFA' },
+      { label: 'Sinistro – PT',           valor: 1, cor: '#C9B8F0' },
     ],
   },
 

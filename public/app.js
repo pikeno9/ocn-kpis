@@ -202,8 +202,15 @@
 
   // ===================== OCORRÊNCIAS (lazy init) =====================
   let ocorReady = false;
+  // % em destaque (negrito), valor absoluto em segundo plano
   function donutLegend(items, total) {
-    return items.map((it) => `<span class="dl-it"><span class="dl-sw" style="background:${it.cor}"></span>${it.label} <b>${it.valor}</b> <span class="dl-pct">${Math.round((it.valor / total) * 100)}%</span></span>`).join('');
+    return items.map((it) => `<span class="dl-it"><span class="dl-sw" style="background:${it.cor}"></span>${it.label} <b>${Math.round((it.valor / total) * 100)}%</b> <span class="dl-pct">${it.valor}</span></span>`).join('');
+  }
+  // cor de texto legível conforme luminância do fundo
+  function txtOn(hex) {
+    const c = hex.replace('#', '');
+    const r = parseInt(c.slice(0, 2), 16), g = parseInt(c.slice(2, 4), 16), b = parseInt(c.slice(4, 6), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.62 ? '#3A0BA3' : '#fff';
   }
   function initOcorrencias() {
     if (ocorReady) return;
@@ -218,16 +225,27 @@
       <div class="kpi-card"><div class="kpi-label"><i class="ti ti-clock-hour-4"></i> Taxa</div><div class="kpi-value">${O.contratos.taxaCarroMes}</div><div class="kpi-sub">ocorrência / carro-mês</div></div>`;
 
     // Probabilidade & contratos
-    document.getElementById('ocorTaxaDesc').textContent = O.contratos.taxaTexto + ' · base de ' + OCN.ocorrencias.contratos.ativos + ' contratos ativos.';
     const c = O.contratos;
+    document.getElementById('ocorTaxaDesc').textContent = c.taxaTexto;
     document.getElementById('ocorContratos').innerHTML = `
-      <div class="mini-stat"><div class="v">${c.ativos}</div><div class="l">contratos ativos</div></div>
-      <div class="mini-stat"><div class="v">${c.carrosMes}</div><div class="l">carros-mês ativos</div></div>
-      <div class="mini-stat"><div class="v">${c.mediaDias} d</div><div class="l">duração média</div></div>
-      <div class="mini-stat"><div class="v">${c.taxaCarroMes}</div><div class="l">ocorr./carro-mês</div></div>`;
+      <div class="mini-stat"><div class="v">${c.totalContratos}</div><div class="l">contratos (${c.ativos} ativos)</div></div>
+      <div class="mini-stat"><div class="v">${c.carrosMes}</div><div class="l">carros-mês sob contrato</div></div>
+      <div class="mini-stat"><div class="v">${c.taxaCarroMes}</div><div class="l">ocorr./carro-mês</div></div>
+      <div class="mini-stat"><div class="v">${c.carrosDiaPorOcorr}</div><div class="l">carros-dia por ocorrência</div></div>`;
 
-    // Insights
-    document.getElementById('ocorInsights').innerHTML = O.insights.map((t) => `<li>${t}</li>`).join('');
+    // Duração esperada de contrato
+    const D = O.duracao;
+    document.getElementById('duracaoPanel').innerHTML = `
+      <div style="display:flex;align-items:baseline;gap:8px;margin:12px 0 4px;">
+        <span style="font-size:34px;font-weight:600;color:#5A00F8;">~${D.estimadaMeses}</span>
+        <span style="font-size:14px;color:var(--text-2);">meses estimados</span>
+      </div>
+      <div style="font-size:12px;color:var(--text-2);margin-bottom:14px;">vs. ${D.nominalMeses} meses do contrato nominal</div>
+      <div style="height:10px;border-radius:6px;background:#EDE9FB;overflow:hidden;">
+        <div style="height:100%;width:${D.pctDoNominal}%;background:#5A00F8;border-radius:6px;"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-3);margin:5px 0 14px;"><span>0</span><span>${D.nominalMeses} meses</span></div>
+      <div style="font-size:12px;color:var(--text-2);line-height:1.55;">Baseado em churn mensal de <b style="color:var(--text)">${D.churnMensalPct}%</b> (${c.encerrados} encerramentos em ${c.carrosMes} carros-mês). Estimativa preliminar — janela de ~2,5 meses.</div>`;
 
     // Donut por tipo
     document.getElementById('legendTipo').innerHTML = donutLegend(O.porTipo, O.total);
@@ -236,18 +254,18 @@
       data: { labels: O.porTipo.map((t) => t.label), datasets: [{ data: O.porTipo.map((t) => t.valor), backgroundColor: O.porTipo.map((t) => t.cor), borderColor: '#fff', borderWidth: 2 }] },
       options: {
         responsive: true, maintainAspectRatio: false, cutout: '56%',
-        plugins: { legend: { display: false }, datalabels: { color: '#fff', font: { size: 12, weight: 600 }, formatter: (v) => v }, tooltip: { callbacks: { label: (x) => `${x.label}: ${x.parsed} (${Math.round((x.parsed / O.total) * 100)}%)` } } },
+        plugins: { legend: { display: false }, datalabels: { color: (ctx) => txtOn(ctx.dataset.backgroundColor[ctx.dataIndex]), font: { size: 13, weight: 600 }, formatter: (v) => Math.round((v / O.total) * 100) + '%' }, tooltip: { callbacks: { label: (x) => `${x.label}: ${Math.round((x.parsed / O.total) * 100)}% (${x.parsed})` } } },
       },
     });
 
-    // Sinistro por tipo (barra empilhada horizontal)
+    // Sinistro por tipo (barra empilhada horizontal) — tons de roxo
     const S = O.sinistroPorTipo;
-    document.getElementById('legendSinistro').innerHTML = `<span class="dl-it"><span class="dl-sw" style="background:#E24B4A"></span>Com sinistro</span><span class="dl-it"><span class="dl-sw" style="background:#D6D6D9"></span>Sem sinistro</span>`;
+    document.getElementById('legendSinistro').innerHTML = `<span class="dl-it"><span class="dl-sw" style="background:#5A00F8"></span>Com sinistro</span><span class="dl-it"><span class="dl-sw" style="background:#E0D8F7"></span>Sem sinistro</span>`;
     new Chart(document.getElementById('chartSinistro'), {
       type: 'bar',
       data: { labels: S.labels, datasets: [
-        { label: 'Com sinistro', data: S.com, backgroundColor: '#E24B4A', stack: 's', borderRadius: 3, datalabels: { display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, color: '#fff', font: { size: 11, weight: 600 }, formatter: (v) => v } },
-        { label: 'Sem sinistro', data: S.sem, backgroundColor: '#D6D6D9', stack: 's', borderRadius: 3, datalabels: { display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, color: '#5F5E5A', font: { size: 11, weight: 600 }, formatter: (v) => v } },
+        { label: 'Com sinistro', data: S.com, backgroundColor: '#5A00F8', stack: 's', borderRadius: 3, datalabels: { display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, color: '#fff', font: { size: 11, weight: 600 }, formatter: (v) => v } },
+        { label: 'Sem sinistro', data: S.sem, backgroundColor: '#E0D8F7', stack: 's', borderRadius: 3, datalabels: { display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, color: '#5A2BB0', font: { size: 11, weight: 600 }, formatter: (v) => v } },
       ] },
       options: {
         indexAxis: 'y', responsive: true, maintainAspectRatio: false,
@@ -264,7 +282,7 @@
       data: { labels: O.churn.map((t) => t.label), datasets: [{ data: O.churn.map((t) => t.valor), backgroundColor: O.churn.map((t) => t.cor), borderColor: '#fff', borderWidth: 2 }] },
       options: {
         responsive: true, maintainAspectRatio: false, cutout: '56%',
-        plugins: { legend: { display: false }, datalabels: { color: '#fff', font: { size: 12, weight: 600 }, formatter: (v) => v }, tooltip: { callbacks: { label: (x) => `${x.label}: ${x.parsed} (${Math.round((x.parsed / churnTotal) * 100)}%)` } } },
+        plugins: { legend: { display: false }, datalabels: { color: (ctx) => txtOn(ctx.dataset.backgroundColor[ctx.dataIndex]), font: { size: 13, weight: 600 }, formatter: (v) => Math.round((v / churnTotal) * 100) + '%' }, tooltip: { callbacks: { label: (x) => `${x.label}: ${Math.round((x.parsed / churnTotal) * 100)}% (${x.parsed})` } } },
       },
     });
   }

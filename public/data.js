@@ -111,12 +111,12 @@ const OCN = {
   statusFrota: {
     total: 163,
     items: [
-      { label: 'Alugados',      valor: 160, icon: 'ti-key',         cor: '#5A00F8' },
-      { label: 'Disponível',    valor: 1,   icon: 'ti-circle-check', cor: '#2FA84F' },
-      { label: 'Em preparação', valor: 0,   icon: 'ti-progress',     cor: '#3B82C4' },
-      { label: 'Oficina',       valor: 1,   icon: 'ti-tool',         cor: '#E0822B' },
-      { label: 'Perda total',   valor: 1,   icon: 'ti-car-crash',    cor: '#E24B4A' },
-      { label: 'Vendidos',      valor: 0,   icon: 'ti-cash',         cor: '#282728' },
+      { label: 'Alugados',      valor: 160, cor: '#DB2D2D' },
+      { label: 'Disponível',    valor: 1,   cor: '#2FA84F' },
+      { label: 'Em preparação', valor: 0,   cor: '#D4A017' },
+      { label: 'Oficina',       valor: 1,   cor: '#5A00F8' },
+      { label: 'Perda total',   valor: 1,   cor: '#282728' },
+      { label: 'Vendidos',      valor: 0,   cor: '#6B7280', listrado: true },
     ],
   },
 

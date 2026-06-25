@@ -38,11 +38,16 @@
   // ---------- Status atual da frota / big numbers ----------
   const SF = OCN.statusFrota;
   document.getElementById('fleetSub').textContent = SF.total + ' veículos cadastrados';
-  document.getElementById('fleetGrid').innerHTML = SF.items.map((it) => `
-    <div class="fleet-tile${it.valor === 0 ? ' is-zero' : ''}" style="background:${it.cor}14">
-      <div class="fleet-tile-num" style="color:${it.cor}">${it.valor}</div>
+  const stripe = 'repeating-linear-gradient(45deg, rgba(40,39,40,0.13) 0, rgba(40,39,40,0.13) 5px, rgba(40,39,40,0.04) 5px, rgba(40,39,40,0.04) 10px)';
+  document.getElementById('fleetGrid').innerHTML = SF.items.map((it) => {
+    const bg = it.listrado ? stripe : it.cor + '14';
+    const numCor = it.listrado ? '#282728' : it.cor;
+    return `
+    <div class="fleet-tile${it.valor === 0 ? ' is-zero' : ''}" style="background:${bg}">
+      <div class="fleet-tile-num" style="color:${numCor}">${it.valor}</div>
       <div class="fleet-tile-label">${it.label}</div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
   // ---------- KPIs de topo ----------
   const k = OCN.kpis;

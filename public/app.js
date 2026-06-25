@@ -2,7 +2,22 @@
 (function () {
   Chart.register(ChartDataLabels);
 
+  // Busca dados ao vivo da API; em falha, usa o snapshot fallback (data.js)
+  (async function boot() {
+    let OCN = window.OCN_FALLBACK || null;
+    try {
+      const r = await fetch('/api/data', { cache: 'no-store' });
+      if (r.ok) OCN = await r.json();
+    } catch (e) { /* mantém fallback */ }
+    if (!OCN) { console.error('OCN: sem dados'); return; }
+    start(OCN);
+  })();
+
+  function start(OCN) {
   const NAVY = OCN.corEsperado;
+  // mostra a data da última atualização no header
+  const hl = document.getElementById('hojeLabel');
+  if (hl && OCN.atualizadoEm) hl.textContent = 'atualizado ' + OCN.atualizadoEm;
   const COR = { Polo: OCN.modelos.Polo.cor, Argo: OCN.modelos.Argo.cor, Tera: OCN.modelos.Tera.cor };
   const TXT2 = '#6b7280';
 
@@ -283,5 +298,6 @@
         plugins: { legend: { display: false }, datalabels: { color: (ctx) => txtOn(ctx.dataset.backgroundColor[ctx.dataIndex]), font: { size: 13, weight: 600 }, formatter: (v) => Math.round((v / churnTotal) * 100) + '%' }, tooltip: { callbacks: { label: (x) => `${x.label}: ${Math.round((x.parsed / churnTotal) * 100)}% (${x.parsed})` } } },
       },
     });
+  }
   }
 })();

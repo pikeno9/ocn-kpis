@@ -5,7 +5,8 @@
 // "import_data" e do calendario de recebimento (PPTX), em 24/06/2026.
 // =====================================================================
 
-const OCN = {
+// Fallback (último snapshot conhecido) — usado se a API /api/data falhar.
+window.OCN_FALLBACK = {
   ano: 2026,
   atualizadoEm: '24/06/2026',
 

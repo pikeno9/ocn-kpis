@@ -72,7 +72,7 @@ button { font-family: inherit; cursor: pointer; }
 .fleet-section-title { font-size: 15px; font-weight: 600; }
 .fleet-section-sub { font-size: 12px; color: var(--text-2); }
 .fleet-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-.fleet-tile { border-radius: var(--radius); padding: 16px 18px; transition: transform 0.12s; }
+.fleet-tile { border-radius: var(--radius); padding: 16px 18px; transition: transform 0.12s; text-align: center; }
 .fleet-tile:hover { transform: translateY(-2px); }
 .fleet-tile-num { font-size: 30px; font-weight: 600; line-height: 1; }
 .fleet-tile-label { font-size: 12.5px; margin-top: 8px; color: var(--text-2); }
@@ -82,7 +82,7 @@ button { font-family: inherit; cursor: pointer; }
 .sub-tabs { display: flex; gap: 8px; margin-bottom: 22px; flex-wrap: wrap; }
 .sub-tab {
   padding: 7px 16px; font-size: 13px; font-weight: 500; border-radius: var(--radius-sm);
-  border: 1px solid var(--border-2); background: var(--surface); color: var(--text-2); display: flex; align-items: center; gap: 6px;
+  border: 1px solid var(--border-2); background: var(--surface); color: var(--text-2); display: flex; align-items: center; justify-content: center; gap: 6px;
 }
 .sub-tab:hover { border-color: var(--accent); color: var(--text); }
 .sub-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
@@ -98,8 +98,8 @@ button { font-family: inherit; cursor: pointer; }
 
 /* ---- kpi cards ---- */
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 22px; }
-.kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
-.kpi-label { font-size: 12px; color: var(--text-2); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; text-align: center; }
+.kpi-label { font-size: 12px; color: var(--text-2); margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; }
 .kpi-value { font-size: 23px; font-weight: 600; }
 .kpi-sub { font-size: 11px; color: var(--text-3); margin-top: 3px; }
 

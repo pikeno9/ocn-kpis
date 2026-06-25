@@ -148,6 +148,7 @@ const OCN = {
       carrosMes: 207,        // exposição total: 161 ativos + 13 encerrados
       carrosDia: 6206,
       carrosDiaPorOcorr: 345,
+      rescindidos: 11,        // encerrados excluindo troca de carro
       taxaCarroMes: '0,09',
       taxaTexto: '1 ocorrência a cada ~345 carros-dia sob contrato (161 ativos + 13 encerrados).',
     },

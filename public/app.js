@@ -229,7 +229,7 @@
     document.getElementById('ocorContratos').innerHTML = `
       <div class="mini-stat"><div class="v">${c.totalContratos}</div><div class="l">contratos (${c.ativos} ativos)</div></div>
       <div class="mini-stat"><div class="v">${c.taxaCarroMes}</div><div class="l">ocorr./carro-mês</div></div>
-      <div class="mini-stat"><div class="v">${c.carrosDiaPorOcorr}</div><div class="l">carros-dia por ocorrência</div></div>`;
+      <div class="mini-stat"><div class="v">${c.rescindidos}</div><div class="l">contratos rescindidos</div></div>`;
 
     // Duração esperada de contrato
     const D = O.duracao;

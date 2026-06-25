@@ -66,6 +66,18 @@ button { font-family: inherit; cursor: pointer; }
 .section { display: none; }
 .section.active { display: block; }
 
+/* ---- visão geral / big numbers ---- */
+.op-overview { margin-bottom: 24px; }
+.op-overview-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.op-overview-title { font-size: 16px; font-weight: 600; }
+.op-overview-sub { font-size: 12px; color: var(--text-2); }
+.status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 12px; }
+.status-card { display: flex; align-items: center; gap: 13px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+.status-icon { width: 42px; height: 42px; border-radius: 11px; display: flex; align-items: center; justify-content: center; font-size: 21px; flex-shrink: 0; }
+.status-num { font-size: 27px; font-weight: 600; line-height: 1; color: var(--text); }
+.status-label { font-size: 12px; color: var(--text-2); margin-top: 5px; }
+.status-card.is-zero .status-num { color: var(--text-3); }
+
 /* ---- sub tabs ---- */
 .sub-tabs { display: flex; gap: 8px; margin-bottom: 22px; flex-wrap: wrap; }
 .sub-tab {

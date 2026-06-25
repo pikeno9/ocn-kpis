@@ -35,6 +35,18 @@
     document.getElementById('adminModal').classList.remove('show')
   );
 
+  // ---------- Visão geral / big numbers de status ----------
+  const SF = OCN.statusFrota;
+  document.getElementById('opOverviewSub').textContent = SF.total + ' veículos cadastrados · status atual';
+  document.getElementById('opStatusGrid').innerHTML = SF.items.map((it) => `
+    <div class="status-card${it.valor === 0 ? ' is-zero' : ''}">
+      <div class="status-icon" style="background:${it.cor}1F;color:${it.cor}"><i class="ti ${it.icon}"></i></div>
+      <div>
+        <div class="status-num">${it.valor}</div>
+        <div class="status-label">${it.label}</div>
+      </div>
+    </div>`).join('');
+
   // ---------- KPIs de topo ----------
   const k = OCN.kpis;
   const Mref = OCN.mensal;

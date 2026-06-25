@@ -106,6 +106,20 @@ const OCN = {
   // Aparece como barra hachurada no mês/semana de chegada prevista.
   proximoLote: { mesIndex: 3, semanaIndex: 0, modelo: 'Polo', qtd: 25, dataLabel: '02/07' },
 
+  // -------- Big numbers de status da frota (coluna Q "status" da import_data) --------
+  // Vendido e Em preparação ainda não existem como status na base (=0 por ora).
+  statusFrota: {
+    total: 163,
+    items: [
+      { label: 'Alugados',      valor: 160, icon: 'ti-key',         cor: '#5A00F8' },
+      { label: 'Disponível',    valor: 1,   icon: 'ti-circle-check', cor: '#2FA84F' },
+      { label: 'Em preparação', valor: 0,   icon: 'ti-progress',     cor: '#3B82C4' },
+      { label: 'Oficina',       valor: 1,   icon: 'ti-tool',         cor: '#E0822B' },
+      { label: 'Perda total',   valor: 1,   icon: 'ti-car-crash',    cor: '#E24B4A' },
+      { label: 'Vendidos',      valor: 0,   icon: 'ti-cash',         cor: '#282728' },
+    ],
+  },
+
   notaMensal:
     'Exceções: 33 Argo de 31/05 contados em Junho · 18 Tera + 1 Argo de 19/06 (linhas sem data na base) incluídos em Junho · Nov capado em 121 (excedente do lote 19/11 → Dez = 126) · Abril sem esperado no calendário.',
 };

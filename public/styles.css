@@ -69,6 +69,38 @@ button { font-family: inherit; cursor: pointer; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ---- Unit Economics ---- */
+.ue-fleets { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.ue-fleet-btn {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  padding: 8px 14px; border: 1px solid var(--border-2); border-radius: var(--radius-sm);
+  background: var(--surface); cursor: pointer; transition: background .12s, border-color .12s;
+}
+.ue-fleet-btn:hover { border-color: var(--accent); }
+.ue-fleet-btn.active { background: var(--accent); border-color: var(--accent); }
+.ue-fleet-btn .n { font-weight: 600; font-size: 13px; color: var(--text); }
+.ue-fleet-btn .m { font-size: 11px; color: var(--text-2); }
+.ue-fleet-btn.active .n, .ue-fleet-btn.active .m { color: #fff; }
+.ue-head { margin-bottom: 12px; }
+.ue-fleet-title { font-family: var(--font-display); font-size: 16px; font-weight: 600; }
+.ue-fleet-sub { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+.ue-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.ue-table { border-collapse: collapse; width: 100%; font-size: 12px; white-space: nowrap; }
+.ue-table th, .ue-table td { padding: 7px 12px; text-align: right; border-bottom: 1px solid var(--border); }
+.ue-table thead th { background: var(--surface-2); font-weight: 600; color: var(--text-2); font-size: 11px; position: sticky; top: 0; }
+.ue-rowlabel { text-align: left !important; position: sticky; left: 0; z-index: 1; background: var(--surface); font-weight: 500; min-width: 190px; }
+.ue-table thead .ue-rowlabel { background: var(--surface-2); z-index: 2; }
+.ue-orc { color: var(--text-2); }
+.ue-totalInflow td, .ue-totalOutflow td { font-weight: 600; border-top: 1px solid var(--border-2); background: var(--surface-2); }
+.ue-totalInflow .ue-orc, .ue-totalOutflow .ue-orc { color: var(--text); }
+.ue-net td { font-weight: 700; background: var(--purple-soft); }
+.ue-net .ue-orc { color: var(--accent); }
+.ue-acc td { font-weight: 600; border-top: 1px solid var(--border-2); }
+.ue-acc .ue-orc { color: var(--text); }
+.ue-foot { font-size: 11px; color: var(--text-2); margin-top: 10px; line-height: 1.5; }
+.ue-tag { display: inline-block; padding: 1px 7px; border-radius: 999px; font-weight: 600; margin-right: 4px; }
+.ue-tag-orc { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border-2); }
+
 /* ---- main tabs ---- */
 .main-tabs {
   display: flex; gap: 4px; padding: 0 32px; background: var(--surface);

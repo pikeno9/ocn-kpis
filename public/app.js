@@ -52,6 +52,7 @@
       tab.classList.add('active');
       document.getElementById('sub-' + tab.dataset.sub).classList.add('active');
       if (tab.dataset.sub === 'ocorrencias') initOcorrencias();
+      if (tab.dataset.sub === 'unit') initUnit();
     });
   });
 
@@ -306,6 +307,54 @@
         plugins: { legend: { display: false }, datalabels: { color: (ctx) => txtOn(ctx.dataset.backgroundColor[ctx.dataIndex]), font: { size: 13, weight: 600 }, formatter: (v) => Math.round((v / churnTotal) * 100) + '%' }, tooltip: { callbacks: { label: (x) => `${x.label}: ${Math.round((x.parsed / churnTotal) * 100)}% (${x.parsed})` } } },
       },
     });
+  }
+
+  // ===================== UNIT ECONOMICS (lazy init) =====================
+  let unitReady = false;
+  function initUnit() {
+    if (unitReady) return;
+    unitReady = true;
+    const U = OCN.ue;
+    const fleetsEl = document.getElementById('ueFleets');
+    if (!U || !U.fleets || !U.fleets.length) {
+      fleetsEl.innerHTML = '<div style="color:var(--text-2);font-size:13px">Sem dados de Unit Economics.</div>';
+      return;
+    }
+    let current = U.fleets[0].id;
+
+    fleetsEl.innerHTML = U.fleets
+      .map((f) => `<button class="ue-fleet-btn" data-id="${f.id}"><span class="n">${f.label}</span><span class="m">${f.modelLabel} · ${f.cars} carros</span></button>`)
+      .join('');
+    fleetsEl.querySelectorAll('.ue-fleet-btn').forEach((b) =>
+      b.addEventListener('click', () => { current = b.dataset.id; renderFleet(); })
+    );
+
+    const ueFmt = (v) => (v === null || v === undefined) ? '' : (v < 0 ? '(' + Math.abs(Math.round(v)).toLocaleString('en-US') + ')' : Math.round(v).toLocaleString('en-US'));
+
+    function renderFleet() {
+      const f = U.fleets.find((x) => x.id === current);
+      fleetsEl.querySelectorAll('.ue-fleet-btn').forEach((b) => b.classList.toggle('active', b.dataset.id === current));
+      document.getElementById('ueHead').innerHTML =
+        `<div class="ue-fleet-title">${f.label} — ${f.modelLabel}</div>` +
+        `<div class="ue-fleet-sub">${f.cars} carros · contrato de ${U.periods} meses · valores por veículo (USD)</div>`;
+      const orc = U.orcado[f.model];
+      const tbl = document.getElementById('ueTable');
+      if (!orc) { tbl.innerHTML = '<tbody><tr><td>Sem orçado para ' + f.modelLabel + '</td></tr></tbody>'; return; }
+
+      let html = '<thead><tr><th class="ue-rowlabel">Linha</th>';
+      for (let p = 1; p <= U.periods; p++) html += `<th>M${p}</th>`;
+      html += '</tr></thead><tbody>';
+      orc.lines.forEach((l) => {
+        html += `<tr class="ue-row ue-${l.group}"><td class="ue-rowlabel">${l.label}</td>`;
+        l.values.forEach((v) => { html += `<td class="ue-cell"><span class="ue-orc">${ueFmt(v)}</span></td>`; });
+        html += '</tr>';
+      });
+      html += '</tbody>';
+      tbl.innerHTML = html;
+      document.getElementById('ueFoot').innerHTML =
+        '<span class="ue-tag ue-tag-orc">Orçado (inicial)</span> os números em segundo plano são o cashflow orçado antes da operação. A entrada de valores realizados/projetados (admin) entra em seguida.';
+    }
+    renderFleet();
   }
   }
 })();

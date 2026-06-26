@@ -1,9 +1,11 @@
-const express = require('express');
 const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
+const express = require('express');
 const cookieParser = require('cookie-parser');
 const cron = require('node-cron');
-const { fetchAllTabs } = require('./lib/sheet');
+const { fetchAllTabs, fetchUeTabs } = require('./lib/sheet');
 const compute = require('./lib/compute');
+const ue = require('./lib/ue');
 const C = require('./config/static');
 const auth = require('./config/auth');
 
@@ -21,8 +23,9 @@ app.use(express.json());
 let cache = { data: null, updatedAt: null, ok: false, error: null };
 async function refresh() {
   try {
-    const sheets = await fetchAllTabs(C.TABS);
+    const [sheets, ueSheets] = await Promise.all([fetchAllTabs(C.TABS), fetchUeTabs(C.UE_TABS)]);
     const data = compute.build(sheets, refDate());
+    data.ue = ue.build(ueSheets, sheets.importData);
     cache = { data, updatedAt: new Date().toISOString(), ok: true, error: null };
     console.log(`[refresh] OK — ${data.kpis.recebidosAno} carros, ${data.ocorrencias.total} ocorrências (${cache.updatedAt})`);
   } catch (e) {

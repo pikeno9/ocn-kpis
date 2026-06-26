@@ -15,8 +15,8 @@ const TABS = {
 
 // Unit Economics — abas de cashflow orçado (por veículo), uma por modelo
 const UE_TABS = { Polo: 'UE - Polo', Argo: 'UE - Argo', Tera: 'UE - Tera' };
-const UE_PERIODS = 12; // contrato de 12 meses
-const UE_SAFRA_COL = 13; // coluna "Safra" em import_data = identifica a frota/lote
+const UE_PERIODS = 12; // M1-M12; M0 = setup inicial (coluna 2 das abas UE)
+const UE_FLEET_COL = 14; // coluna "O" (frota) em import_data = identifica a frota (1..n)
 
 // Identidade dos modelos (color-code)
 const modelos = {
@@ -125,7 +125,7 @@ const churnExcluir = ['troca de carro', 'troca'];
 const contratoNominalMeses = 12;
 
 module.exports = {
-  SHEET_ID, TABS, UE_TABS, UE_PERIODS, UE_SAFRA_COL, modelos, corEsperado, mapModelo,
+  SHEET_ID, TABS, UE_TABS, UE_PERIODS, UE_FLEET_COL, modelos, corEsperado, mapModelo,
   spilloverDates, undatedReceivedDate,
   mLabels, mFull, esperado, semanaLabels, esperadoSemanal,
   proximoLote, notaMensal,

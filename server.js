@@ -87,7 +87,7 @@ app.post('/api/ue/value', requireAdmin, async (req, res) => {
   const period = parseInt(b.period, 10);
   const value = Number(b.value);
   const kind = b.kind === 'proj' ? 'proj' : 'real';
-  if (!fleet || !line || !(period >= 1 && period <= 24) || !isFinite(value)) {
+  if (!fleet || !line || !(period >= 0 && period <= 24) || !isFinite(value)) {
     return res.status(400).json({ error: 'dados inválidos' });
   }
   try { await store.set({ fleetId: fleet, line, period, value, kind, user: req.user.login }); res.json({ ok: true }); }
@@ -98,7 +98,7 @@ app.post('/api/ue/value/delete', requireAdmin, async (req, res) => {
   const fleet = String(b.fleet || '').trim();
   const line = String(b.line || '').trim();
   const period = parseInt(b.period, 10);
-  if (!fleet || !line || !(period >= 1)) return res.status(400).json({ error: 'dados inválidos' });
+  if (!fleet || !line || !(period >= 0)) return res.status(400).json({ error: 'dados inválidos' });
   try { await store.del({ fleetId: fleet, line, period }); res.json({ ok: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });

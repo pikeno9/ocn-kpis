@@ -326,7 +326,8 @@
     let entered = {}; // "line@@period" -> {value, kind}
     const ekey = (l, p) => l + '@@' + p;
 
-    const ueFmt = (v) => (v === null || v === undefined) ? '' : (v < 0 ? '(' + Math.abs(Math.round(v)).toLocaleString('en-US') + ')' : Math.round(v).toLocaleString('en-US'));
+    const fmtNum = (v) => Math.abs(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+    const ueFmt = (v) => (v === null || v === undefined) ? '' : (v < 0 ? '(' + fmtNum(v) + ')' : fmtNum(v));
     const parseInput = (raw) => {
       raw = String(raw).trim().replace(/,/g, '');
       if (raw === '') return null;
@@ -338,8 +339,9 @@
     };
     const orcVal = (line, period) => {
       const l = (U.orcado[model] && U.orcado[model].lines.find((x) => x.label === line));
-      return l ? l.values[period - 1] : null;
+      return l ? l.values[period] : null; // period 0..12 (M0..M12)
     };
+    const isLeaf = (g) => g === 'inflow' || g === 'outflow';
 
     fleetsEl.innerHTML = U.fleets
       .map((f) => `<button class="ue-fleet-btn" data-id="${f.id}"><span class="n">${f.label}</span><span class="m">${f.modelLabel} · ${f.cars} carros</span></button>`)
@@ -348,7 +350,7 @@
       b.addEventListener('click', () => { current = b.dataset.id; loadFleet(); })
     );
 
-    function cellInner(line, period) {
+    function cellLeaf(line, period) {
       const e = entered[ekey(line, period)];
       const orc = orcVal(line, period);
       let s = '';
@@ -356,7 +358,38 @@
       if (orc !== null && orc !== undefined) s += `<span class="ue-orc">${ueFmt(orc)}</span>`;
       return s;
     }
-    function fillCell(td) { td.innerHTML = cellInner(td.dataset.line, +td.dataset.period); }
+    function cellTotal(t) {
+      let s = '';
+      if (t && t.hasMain) s += `<span class="ue-main ue-${t.kind}">${ueFmt(t.eff)}</span>`;
+      if (t && t.orc !== null && t.orc !== undefined) s += `<span class="ue-orc">${ueFmt(t.orc)}</span>`;
+      return s;
+    }
+    // Totalizadores: orçado vem da planilha; efetivo = soma das linhas (entrada ou orçado) por período
+    function computeTotals(lines) {
+      const P = U.periods;
+      const leavesOf = (g) => lines.filter((l) => l.group === g);
+      const sheet = (label, p) => { const l = lines.find((x) => x.label === label); return l ? l.values[p] : null; };
+      const res = { totalInflow: [], totalOutflow: [], net: [], acc: [] };
+      let accEff = 0, accEnt = false, accProj = false;
+      for (let p = 0; p <= P; p++) {
+        let inEnt = false, inProj = false, inSum = 0;
+        leavesOf('inflow').forEach((l) => { const e = entered[ekey(l.label, p)]; if (e) { inEnt = true; inSum += e.value; if (e.kind === 'proj') inProj = true; } else { const o = l.values[p]; inSum += (o == null ? 0 : o); } });
+        let ouEnt = false, ouProj = false, ouSum = 0;
+        leavesOf('outflow').forEach((l) => { const e = entered[ekey(l.label, p)]; if (e) { ouEnt = true; ouSum += e.value; if (e.kind === 'proj') ouProj = true; } else { const o = l.values[p]; ouSum += (o == null ? 0 : o); } });
+        const inOrc = sheet('Total Inflow', p), ouOrc = sheet('Total Outflow', p), netOrc = sheet('Net monthly cashflow', p);
+        const inEff = inEnt ? inSum : (inOrc == null ? 0 : inOrc);
+        const ouEff = ouEnt ? ouSum : (ouOrc == null ? 0 : ouOrc);
+        const netEnt = inEnt || ouEnt;
+        const netEff = netEnt ? (inEff + ouEff) : (netOrc == null ? 0 : netOrc);
+        const netProj = inProj || ouProj;
+        res.totalInflow[p] = { orc: inOrc, eff: inEff, hasMain: inEnt, kind: inProj ? 'proj' : 'real' };
+        res.totalOutflow[p] = { orc: ouOrc, eff: ouEff, hasMain: ouEnt, kind: ouProj ? 'proj' : 'real' };
+        res.net[p] = { orc: netOrc, eff: netEff, hasMain: netEnt, kind: netProj ? 'proj' : 'real' };
+        accEff += netEff; accEnt = accEnt || netEnt; accProj = accProj || netProj;
+        res.acc[p] = { orc: sheet('Acc Cashflow', p), eff: accEff, hasMain: accEnt, kind: accProj ? 'proj' : 'real' };
+      }
+      return res;
+    }
 
     async function loadFleet() {
       const f = U.fleets.find((x) => x.id === current);
@@ -377,25 +410,32 @@
       const orc = U.orcado[f.model];
       const tbl = document.getElementById('ueTable');
       if (!orc) { tbl.innerHTML = '<tbody><tr><td>Sem orçado para ' + f.modelLabel + '</td></tr></tbody>'; return; }
-      let html = '<thead><tr><th class="ue-rowlabel">Linha</th>';
+      const T = computeTotals(orc.lines);
+      const gmap = { totalInflow: T.totalInflow, totalOutflow: T.totalOutflow, net: T.net, acc: T.acc };
+      let html = '<thead><tr><th class="ue-rowlabel">Linha</th><th>M0</th>';
       for (let p = 1; p <= U.periods; p++) html += `<th>M${p}</th>`;
       html += '</tr></thead><tbody>';
       orc.lines.forEach((l) => {
         html += `<tr class="ue-row ue-${l.group}"><td class="ue-rowlabel">${l.label}</td>`;
-        for (let p = 1; p <= U.periods; p++) {
-          html += `<td class="ue-cell${isAdmin ? ' ue-editable' : ''}" data-line="${l.label.replace(/"/g, '&quot;')}" data-period="${p}">${cellInner(l.label, p)}</td>`;
+        for (let p = 0; p <= U.periods; p++) {
+          if (isLeaf(l.group)) {
+            html += `<td class="ue-cell${isAdmin ? ' ue-editable' : ''}" data-line="${l.label.replace(/"/g, '&quot;')}" data-period="${p}">${cellLeaf(l.label, p)}</td>`;
+          } else {
+            html += `<td class="ue-cell ue-computed">${cellTotal(gmap[l.group][p])}</td>`;
+          }
         }
         html += '</tr>';
       });
       html += '</tbody>';
       tbl.innerHTML = html;
-      if (isAdmin) tbl.querySelectorAll('.ue-editable').forEach((td) => td.addEventListener('click', () => openEditor(td)));
+      if (isAdmin) tbl.querySelectorAll('.ue-editable').forEach((td) => td.addEventListener('click', () => openEditor(td, f)));
       document.getElementById('ueFoot').innerHTML =
         '<span class="ue-tag ue-tag-real">Realizado</span><span class="ue-tag ue-tag-proj">Projetado</span><span class="ue-tag ue-tag-orc">Orçado</span>' +
-        (isAdmin ? ' Clique numa célula para preencher o realizado/projetado. Vazio + Enter apaga.' : ' Valores realizados (preto) e projetados (roxo) sobre o orçado (cinza).');
+        ' M0 = setup inicial · Totais, Net e Acc são calculados automaticamente.' +
+        (isAdmin ? ' Clique numa linha-item para preencher; vazio + Enter apaga.' : '');
     }
 
-    function openEditor(td) {
+    function openEditor(td, f) {
       if (td.querySelector('.ue-input')) return;
       const line = td.dataset.line, period = +td.dataset.period;
       const e = entered[ekey(line, period)] || {};
@@ -425,11 +465,11 @@
             await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fleet: current, line, period, value: val, kind }) });
           }
         } catch (err) { /* mantém estado local */ }
-        fillCell(td);
+        renderTable(f);
       }
       input.addEventListener('keydown', (ev) => {
         if (ev.key === 'Enter') { ev.preventDefault(); commit(); }
-        else if (ev.key === 'Escape') { done = true; fillCell(td); }
+        else if (ev.key === 'Escape') { done = true; renderTable(f); }
       });
       input.addEventListener('blur', () => { setTimeout(commit, 120); });
     }

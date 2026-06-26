@@ -94,28 +94,28 @@ button { font-family: inherit; cursor: pointer; }
 .ue-totalInflow td, .ue-totalOutflow td { font-weight: 600; border-top: 1px solid var(--border-2); background: var(--surface-2); }
 .ue-totalInflow .ue-orc, .ue-totalOutflow .ue-orc { color: var(--text); }
 .ue-net td { font-weight: 700; background: var(--purple-soft); }
-.ue-net .ue-orc { color: var(--accent); }
+.ue-net .ue-orc { color: var(--text); }
 .ue-acc td { font-weight: 600; border-top: 1px solid var(--border-2); }
 .ue-acc .ue-orc { color: var(--text); }
 .ue-foot { font-size: 11px; color: var(--text-2); margin-top: 10px; line-height: 1.5; }
 .ue-tag { display: inline-block; padding: 1px 7px; border-radius: 999px; font-weight: 600; margin-right: 4px; }
 .ue-tag-orc { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border-2); }
 .ue-tag-real { background: #1d1d1b; color: #fff; }
-.ue-tag-proj { background: #180140; color: #fff; }
+.ue-tag-proj { background: #6D28D9; color: #fff; }
 /* célula com realizado/projetado sobre o orçado */
 .ue-cell { vertical-align: top; }
 .ue-editable { cursor: pointer; }
 .ue-editable:hover { background: var(--purple-soft); }
 .ue-main { display: block; font-weight: 700; line-height: 1.25; }
 .ue-real { color: #1d1d1b; }
-.ue-proj { color: #180140; }
+.ue-proj { color: #6D28D9; }
 .ue-main + .ue-orc { font-size: 10px; opacity: .7; }
 .ue-editor { display: flex; flex-direction: column; gap: 3px; align-items: flex-end; }
 .ue-input { width: 66px; padding: 2px 5px; font-size: 12px; border: 1px solid var(--accent); border-radius: 4px; text-align: right; font-family: var(--font); }
 .ue-kinds { display: flex; gap: 2px; }
 .ue-kbtn { font-size: 9px; padding: 1px 5px; border: 1px solid var(--border-2); background: #fff; border-radius: 3px; cursor: pointer; line-height: 1.4; }
 .ue-kbtn.on[data-k="real"] { background: #1d1d1b; color: #fff; border-color: #1d1d1b; }
-.ue-kbtn.on[data-k="proj"] { background: #180140; color: #fff; border-color: #180140; }
+.ue-kbtn.on[data-k="proj"] { background: #6D28D9; color: #fff; border-color: #6D28D9; }
 
 /* ---- main tabs ---- */
 .main-tabs {

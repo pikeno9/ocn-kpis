@@ -17,7 +17,7 @@
   const NAVY = OCN.corEsperado;
   // mostra a data da última atualização no header
   const hl = document.getElementById('hojeLabel');
-  if (hl && OCN.atualizadoEm) hl.textContent = 'atualizado ' + OCN.atualizadoEm;
+  if (hl && OCN.atualizadoEm) hl.textContent = OCN.atualizadoEm;
   const COR = { Polo: OCN.modelos.Polo.cor, Argo: OCN.modelos.Argo.cor, Tera: OCN.modelos.Tera.cor };
   const TXT2 = '#6b7280';
 

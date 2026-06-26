@@ -9,22 +9,28 @@
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="favicon-180.png" />
   <link rel="preconnect" href="https://cdnjs.cloudflare.com" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Lexend+Deca:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.47.0/iconfont/tabler-icons.min.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <!-- ===================== HEADER ===================== -->
   <header class="app-header">
-    <div class="brand">
-      <div class="brand-logo">OCN</div>
-      <div>
-        <div class="brand-name">One Car Now</div>
-        <div class="brand-sub">Dashboard de KPIs</div>
+    <div class="app-brand">
+      <img src="brand/ocn-logo-white.png" alt="OCN" class="app-brand__logo" />
+      <div class="app-brand__text">
+        <h1>Dashboard de KPIs</h1>
+        <p>One Car Now</p>
       </div>
     </div>
-    <div class="header-right">
-      <div class="header-date"><i class="ti ti-calendar"></i> <span id="hojeLabel">Jun 2026</span></div>
-      <button class="btn-admin" id="btnAdmin"><i class="ti ti-lock"></i> Admin</button>
+    <div class="app-user">
+      <div class="app-user__info">
+        <div class="email" id="hojeLabel">—</div>
+        <div class="role">última atualização</div>
+      </div>
+      <button class="app-user__logout" id="btnAdmin">Admin</button>
     </div>
   </header>
 

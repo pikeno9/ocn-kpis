@@ -6,6 +6,7 @@ const cron = require('node-cron');
 const { fetchAllTabs, fetchUeTabs } = require('./lib/sheet');
 const compute = require('./lib/compute');
 const ue = require('./lib/ue');
+const store = require('./lib/store');
 const C = require('./config/static');
 const auth = require('./config/auth');
 
@@ -70,11 +71,44 @@ app.get('/api/refresh', async (_req, res) => {
 });
 app.get('/api/me', (req, res) => res.json({ user: req.user }));
 
+// ---------- Unit Economics: valores realizados/projetados ----------
+function requireAdmin(req, res, next) {
+  if (req.user && req.user.role === 'admin') return next();
+  return res.status(403).json({ error: 'apenas administradores podem editar' });
+}
+app.get('/api/ue/values', async (req, res) => {
+  try { res.json({ values: await store.getFleet(String(req.query.fleet || '')) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/ue/value', requireAdmin, async (req, res) => {
+  const b = req.body || {};
+  const fleet = String(b.fleet || '').trim();
+  const line = String(b.line || '').trim();
+  const period = parseInt(b.period, 10);
+  const value = Number(b.value);
+  const kind = b.kind === 'proj' ? 'proj' : 'real';
+  if (!fleet || !line || !(period >= 1 && period <= 24) || !isFinite(value)) {
+    return res.status(400).json({ error: 'dados inválidos' });
+  }
+  try { await store.set({ fleetId: fleet, line, period, value, kind, user: req.user.login }); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/ue/value/delete', requireAdmin, async (req, res) => {
+  const b = req.body || {};
+  const fleet = String(b.fleet || '').trim();
+  const line = String(b.line || '').trim();
+  const period = parseInt(b.period, 10);
+  if (!fleet || !line || !(period >= 1)) return res.status(400).json({ error: 'dados inválidos' });
+  try { await store.del({ fleetId: fleet, line, period }); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('*', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 app.listen(PORT, async () => {
   console.log(`OCN KPIs rodando na porta ${PORT}`);
+  try { await store.init(); } catch (e) { console.error('[store] init falhou:', e.message); }
   await refresh();
   cron.schedule(CRON_SCHEDULE, refresh, { timezone: 'America/Sao_Paulo' });
   console.log(`[cron] agendado: "${CRON_SCHEDULE}" (America/Sao_Paulo)`);

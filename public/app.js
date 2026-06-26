@@ -315,46 +315,126 @@
     if (unitReady) return;
     unitReady = true;
     const U = OCN.ue;
+    const isAdmin = !!(OCN._meta && OCN._meta.user && OCN._meta.user.role === 'admin');
     const fleetsEl = document.getElementById('ueFleets');
     if (!U || !U.fleets || !U.fleets.length) {
       fleetsEl.innerHTML = '<div style="color:var(--text-2);font-size:13px">Sem dados de Unit Economics.</div>';
       return;
     }
     let current = U.fleets[0].id;
+    let model = U.fleets[0].model;
+    let entered = {}; // "line@@period" -> {value, kind}
+    const ekey = (l, p) => l + '@@' + p;
+
+    const ueFmt = (v) => (v === null || v === undefined) ? '' : (v < 0 ? '(' + Math.abs(Math.round(v)).toLocaleString('en-US') + ')' : Math.round(v).toLocaleString('en-US'));
+    const parseInput = (raw) => {
+      raw = String(raw).trim().replace(/,/g, '');
+      if (raw === '') return null;
+      const neg = /^\(.*\)$/.test(raw);
+      raw = raw.replace(/[()$\s]/g, '');
+      const n = parseFloat(raw);
+      if (isNaN(n)) return NaN;
+      return neg ? -n : n;
+    };
+    const orcVal = (line, period) => {
+      const l = (U.orcado[model] && U.orcado[model].lines.find((x) => x.label === line));
+      return l ? l.values[period - 1] : null;
+    };
 
     fleetsEl.innerHTML = U.fleets
       .map((f) => `<button class="ue-fleet-btn" data-id="${f.id}"><span class="n">${f.label}</span><span class="m">${f.modelLabel} · ${f.cars} carros</span></button>`)
       .join('');
     fleetsEl.querySelectorAll('.ue-fleet-btn').forEach((b) =>
-      b.addEventListener('click', () => { current = b.dataset.id; renderFleet(); })
+      b.addEventListener('click', () => { current = b.dataset.id; loadFleet(); })
     );
 
-    const ueFmt = (v) => (v === null || v === undefined) ? '' : (v < 0 ? '(' + Math.abs(Math.round(v)).toLocaleString('en-US') + ')' : Math.round(v).toLocaleString('en-US'));
+    function cellInner(line, period) {
+      const e = entered[ekey(line, period)];
+      const orc = orcVal(line, period);
+      let s = '';
+      if (e) s += `<span class="ue-main ue-${e.kind}">${ueFmt(e.value)}</span>`;
+      if (orc !== null && orc !== undefined) s += `<span class="ue-orc">${ueFmt(orc)}</span>`;
+      return s;
+    }
+    function fillCell(td) { td.innerHTML = cellInner(td.dataset.line, +td.dataset.period); }
 
-    function renderFleet() {
+    async function loadFleet() {
       const f = U.fleets.find((x) => x.id === current);
+      model = f.model;
       fleetsEl.querySelectorAll('.ue-fleet-btn').forEach((b) => b.classList.toggle('active', b.dataset.id === current));
       document.getElementById('ueHead').innerHTML =
         `<div class="ue-fleet-title">${f.label} — ${f.modelLabel}</div>` +
-        `<div class="ue-fleet-sub">${f.cars} carros · contrato de ${U.periods} meses · valores por veículo (USD)</div>`;
+        `<div class="ue-fleet-sub">${f.cars} carros · contrato de ${U.periods} meses · valores por veículo (USD)${isAdmin ? ' · <b>admin</b>: clique numa célula para editar' : ''}</div>`;
+      entered = {};
+      try {
+        const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(current), { cache: 'no-store' });
+        if (r.ok) { const d = await r.json(); (d.values || []).forEach((v) => { entered[ekey(v.line, v.period)] = { value: v.value, kind: v.kind }; }); }
+      } catch (e) { /* segue com orçado */ }
+      renderTable(f);
+    }
+
+    function renderTable(f) {
       const orc = U.orcado[f.model];
       const tbl = document.getElementById('ueTable');
       if (!orc) { tbl.innerHTML = '<tbody><tr><td>Sem orçado para ' + f.modelLabel + '</td></tr></tbody>'; return; }
-
       let html = '<thead><tr><th class="ue-rowlabel">Linha</th>';
       for (let p = 1; p <= U.periods; p++) html += `<th>M${p}</th>`;
       html += '</tr></thead><tbody>';
       orc.lines.forEach((l) => {
         html += `<tr class="ue-row ue-${l.group}"><td class="ue-rowlabel">${l.label}</td>`;
-        l.values.forEach((v) => { html += `<td class="ue-cell"><span class="ue-orc">${ueFmt(v)}</span></td>`; });
+        for (let p = 1; p <= U.periods; p++) {
+          html += `<td class="ue-cell${isAdmin ? ' ue-editable' : ''}" data-line="${l.label.replace(/"/g, '&quot;')}" data-period="${p}">${cellInner(l.label, p)}</td>`;
+        }
         html += '</tr>';
       });
       html += '</tbody>';
       tbl.innerHTML = html;
+      if (isAdmin) tbl.querySelectorAll('.ue-editable').forEach((td) => td.addEventListener('click', () => openEditor(td)));
       document.getElementById('ueFoot').innerHTML =
-        '<span class="ue-tag ue-tag-orc">Orçado (inicial)</span> os números em segundo plano são o cashflow orçado antes da operação. A entrada de valores realizados/projetados (admin) entra em seguida.';
+        '<span class="ue-tag ue-tag-real">Realizado</span><span class="ue-tag ue-tag-proj">Projetado</span><span class="ue-tag ue-tag-orc">Orçado</span>' +
+        (isAdmin ? ' Clique numa célula para preencher o realizado/projetado. Vazio + Enter apaga.' : ' Valores realizados (preto) e projetados (roxo) sobre o orçado (cinza).');
     }
-    renderFleet();
+
+    function openEditor(td) {
+      if (td.querySelector('.ue-input')) return;
+      const line = td.dataset.line, period = +td.dataset.period;
+      const e = entered[ekey(line, period)] || {};
+      let kind = e.kind || 'real';
+      td.innerHTML =
+        `<div class="ue-editor"><input class="ue-input" type="text" value="${e.value != null ? e.value : ''}" />` +
+        `<div class="ue-kinds"><button type="button" class="ue-kbtn ${kind === 'real' ? 'on' : ''}" data-k="real">Real</button>` +
+        `<button type="button" class="ue-kbtn ${kind === 'proj' ? 'on' : ''}" data-k="proj">Proj</button></div></div>`;
+      const input = td.querySelector('.ue-input');
+      input.focus(); input.select();
+      td.querySelectorAll('.ue-kbtn').forEach((b) => b.addEventListener('mousedown', (ev) => {
+        ev.preventDefault();
+        kind = b.dataset.k;
+        td.querySelectorAll('.ue-kbtn').forEach((x) => x.classList.toggle('on', x === b));
+        input.focus();
+      }));
+      let done = false;
+      async function commit() {
+        if (done) return; done = true;
+        const val = parseInput(input.value);
+        try {
+          if (val === null) {
+            delete entered[ekey(line, period)];
+            await fetch('/api/ue/value/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fleet: current, line, period }) });
+          } else if (!isNaN(val)) {
+            entered[ekey(line, period)] = { value: val, kind };
+            await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fleet: current, line, period, value: val, kind }) });
+          }
+        } catch (err) { /* mantém estado local */ }
+        fillCell(td);
+      }
+      input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') { ev.preventDefault(); commit(); }
+        else if (ev.key === 'Escape') { done = true; fillCell(td); }
+      });
+      input.addEventListener('blur', () => { setTimeout(commit, 120); });
+    }
+
+    loadFleet();
   }
   }
 })();

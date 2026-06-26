@@ -20,9 +20,9 @@ const UE_FLEET_COL = 14; // coluna "O" (frota) em import_data = identifica a fro
 
 // Identidade dos modelos (color-code)
 const modelos = {
-  Polo: { label: 'Polo Track', cor: '#B6BF69' },
-  Argo: { label: 'Argo Drive', cor: '#DBCB1E' },
-  Tera: { label: 'Tera', cor: '#B9A7E5' },
+  Polo: { label: 'Polo Track', cor: '#B6BF69', foto: 'cars/polo.png' },
+  Argo: { label: 'Argo Drive', cor: '#DBCB1E', foto: 'cars/argo.webp' },
+  Tera: { label: 'Tera', cor: '#B9A7E5', foto: 'cars/tera.png' },
 };
 const corEsperado = '#282728';
 

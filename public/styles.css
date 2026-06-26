@@ -7,7 +7,7 @@
   --purple-deep: #180140;
   --purple-soft: #f1ebff;
   --gradient-purple: linear-gradient(135deg, #5A00F8 0%, #180140 100%);
-  --bg: #f9f9f7;
+  --bg: #e9e9ec;
   --surface: #ffffff;
   --surface-2: #f6f6f7;
   --text: #282728;
@@ -91,21 +91,29 @@ button { font-family: inherit; cursor: pointer; }
 .ue-switch input:checked { background: var(--accent); }
 .ue-switch input::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: #fff; border-radius: 50%; transition: left .15s; }
 .ue-switch input:checked::after { left: 18px; }
-.ue-proj-btn { font-size: 12px; font-weight: 500; padding: 7px 12px; border-radius: var(--radius-sm); border: 1px solid var(--accent); background: #fff; color: var(--accent); cursor: pointer; font-family: var(--font); }
-.ue-proj-btn:hover { background: var(--purple-soft); }
+.ue-fleet-head { display: flex; align-items: center; gap: 14px; }
+.ue-car-photo { width: 118px; height: 66px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); display: grid; place-items: center; overflow: hidden; flex: 0 0 auto; }
+.ue-car-photo img { width: 100%; height: 100%; object-fit: contain; padding: 4px 7px; }
 .ue-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
-.ue-table { border-collapse: collapse; width: 100%; font-size: 12px; white-space: nowrap; }
-.ue-table th, .ue-table td { padding: 7px 12px; text-align: right; border-bottom: 1px solid var(--border); }
-.ue-table thead th { background: var(--surface-2); font-weight: 600; color: var(--text-2); font-size: 11px; position: sticky; top: 0; }
-.ue-rowlabel { text-align: left !important; position: sticky; left: 0; z-index: 1; background: var(--surface); font-weight: 500; min-width: 190px; }
+.ue-table { border-collapse: collapse; width: 100%; font-size: 11px; white-space: nowrap; }
+.ue-table th, .ue-table td { padding: 5px 8px; text-align: right; border-bottom: 1px solid var(--border); }
+.ue-table thead th { background: var(--surface-2); font-weight: 600; color: var(--text-2); font-size: 10px; position: sticky; top: 0; }
+.ue-rowlabel { text-align: left !important; position: sticky; left: 0; z-index: 1; background: var(--surface); font-weight: 500; min-width: 156px; }
 .ue-table thead .ue-rowlabel { background: var(--surface-2); z-index: 2; }
 .ue-orc { color: var(--text-2); }
+/* hierarquia: linhas-item (dados que compõem a conta) recuadas e leves; calculadas em negrito com barra */
+.ue-leaf .ue-rowlabel { padding-left: 22px; font-weight: 400; color: var(--text-2); }
+.ue-leaf .ue-rowlabel::before { content: ''; position: absolute; left: 11px; top: calc(50% - 1px); width: 5px; height: 2px; border-radius: 2px; background: var(--border-2); }
+.ue-calc .ue-rowlabel { font-weight: 700; color: var(--text); border-left: 3px solid var(--accent); padding-left: 9px; }
 .ue-totalInflow td, .ue-totalOutflow td { font-weight: 600; border-top: 1px solid var(--border-2); background: var(--surface-2); }
 .ue-totalInflow .ue-orc, .ue-totalOutflow .ue-orc { color: var(--text); }
 .ue-net td { font-weight: 700; background: var(--purple-soft); }
 .ue-net .ue-orc { color: var(--text); }
-.ue-acc td { font-weight: 600; border-top: 1px solid var(--border-2); }
+.ue-acc td { font-weight: 700; border-top: 1px solid var(--border-2); background: #e7ddf9; }
 .ue-acc .ue-orc { color: var(--text); }
+/* coluna Total à direita */
+.ue-totalcol { border-left: 2px solid var(--border-2); font-weight: 700; }
+.ue-table thead th.ue-totalcol { color: var(--text); }
 .ue-foot { font-size: 11px; color: var(--text-2); margin-top: 10px; line-height: 1.5; }
 .ue-tag { display: inline-block; padding: 1px 7px; border-radius: 999px; font-weight: 600; margin-right: 4px; }
 .ue-tag-orc { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border-2); }

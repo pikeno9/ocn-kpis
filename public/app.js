@@ -351,93 +351,103 @@
       b.addEventListener('click', () => { current = b.dataset.id; loadFleet(); })
     );
 
-    function cellLeaf(line, period) {
+    // média dos meses realizados de uma linha (base da projeção automática)
+    function realizedAvg(line) {
+      let sum = 0, n = 0;
+      for (let p = 0; p <= U.periods; p++) { const e = entered[ekey(line, p)]; if (e && e.kind === 'real') { sum += e.value; n++; } }
+      return n ? sum / n : null;
+    }
+    // valor efetivo de uma célula-item: entrada manual (real/proj) OU projeção automática (média dos realizados)
+    function eff(line, period) {
       const e = entered[ekey(line, period)];
+      if (e) return { value: e.value, kind: e.kind };
+      const orc = orcVal(line, period);
+      if (orc == null) return null;
+      const avg = realizedAvg(line);
+      if (avg == null) return null;
+      return { value: avg, kind: 'proj' };
+    }
+    function cellLeaf(line, period) {
+      const e = eff(line, period);
       const orc = orcVal(line, period);
       let s = '';
       if (e) s += `<span class="ue-main ue-${e.kind}">${ueFmt(e.value)}</span>`;
-      if (orc !== null && orc !== undefined) s += `<span class="ue-orc">${ueFmt(orc)}</span>`;
+      if (orc != null) s += `<span class="ue-orc">${ueFmt(orc)}</span>`;
       return s;
     }
-    function cellTotal(t) {
+    function cellVal(t) { // totalizador (computado) ou coluna Total
       let s = '';
       if (t && t.hasMain) s += `<span class="ue-main ue-${t.kind}">${ueFmt(t.eff)}</span>`;
-      if (t && t.orc !== null && t.orc !== undefined) s += `<span class="ue-orc">${ueFmt(t.orc)}</span>`;
+      if (t && t.orc != null) s += `<span class="ue-orc">${ueFmt(t.orc)}</span>`;
       return s;
     }
-    // Totalizadores: orçado vem da planilha; efetivo = soma das linhas (entrada ou orçado) por período
+    function sectionEff(lines, group, p) {
+      let sum = 0, anyMain = false, anyProj = false;
+      lines.filter((l) => l.group === group).forEach((l) => {
+        const e = eff(l.label, p);
+        if (e) { sum += e.value; anyMain = true; if (e.kind === 'proj') anyProj = true; }
+        else { const o = orcVal(l.label, p); sum += (o == null ? 0 : o); }
+      });
+      return { sum, anyMain, kind: anyProj ? 'proj' : 'real' };
+    }
+    // Totalizadores por período (orçado da planilha; efetivo = soma realizado/projetado)
     function computeTotals(lines) {
       const P = U.periods;
-      const leavesOf = (g) => lines.filter((l) => l.group === g);
       const sheet = (label, p) => { const l = lines.find((x) => x.label === label); return l ? l.values[p] : null; };
-      const res = { totalInflow: [], totalOutflow: [], net: [], acc: [] };
+      const per = { totalInflow: [], totalOutflow: [], net: [], acc: [] };
       let accEff = 0, accEnt = false, accProj = false;
       for (let p = 0; p <= P; p++) {
-        let inEnt = false, inProj = false, inSum = 0;
-        leavesOf('inflow').forEach((l) => { const e = entered[ekey(l.label, p)]; if (e) { inEnt = true; inSum += e.value; if (e.kind === 'proj') inProj = true; } else { const o = l.values[p]; inSum += (o == null ? 0 : o); } });
-        let ouEnt = false, ouProj = false, ouSum = 0;
-        leavesOf('outflow').forEach((l) => { const e = entered[ekey(l.label, p)]; if (e) { ouEnt = true; ouSum += e.value; if (e.kind === 'proj') ouProj = true; } else { const o = l.values[p]; ouSum += (o == null ? 0 : o); } });
+        const inE = sectionEff(lines, 'inflow', p);
+        const ouE = sectionEff(lines, 'outflow', p);
         const inOrc = sheet('Total Inflow', p), ouOrc = sheet('Total Outflow', p), netOrc = sheet('Net monthly cashflow', p);
-        const inEff = inEnt ? inSum : (inOrc == null ? 0 : inOrc);
-        const ouEff = ouEnt ? ouSum : (ouOrc == null ? 0 : ouOrc);
-        const netEnt = inEnt || ouEnt;
+        const inEff = inE.anyMain ? inE.sum : (inOrc == null ? 0 : inOrc);
+        const ouEff = ouE.anyMain ? ouE.sum : (ouOrc == null ? 0 : ouOrc);
+        const netEnt = inE.anyMain || ouE.anyMain;
         const netEff = netEnt ? (inEff + ouEff) : (netOrc == null ? 0 : netOrc);
-        const netProj = inProj || ouProj;
-        res.totalInflow[p] = { orc: inOrc, eff: inEff, hasMain: inEnt, kind: inProj ? 'proj' : 'real' };
-        res.totalOutflow[p] = { orc: ouOrc, eff: ouEff, hasMain: ouEnt, kind: ouProj ? 'proj' : 'real' };
-        res.net[p] = { orc: netOrc, eff: netEff, hasMain: netEnt, kind: netProj ? 'proj' : 'real' };
+        const netProj = (inE.anyMain && inE.kind === 'proj') || (ouE.anyMain && ouE.kind === 'proj');
+        per.totalInflow[p] = { orc: inOrc, eff: inEff, hasMain: inE.anyMain, kind: inE.kind };
+        per.totalOutflow[p] = { orc: ouOrc, eff: ouEff, hasMain: ouE.anyMain, kind: ouE.kind };
+        per.net[p] = { orc: netOrc, eff: netEff, hasMain: netEnt, kind: netProj ? 'proj' : 'real' };
         accEff += netEff; accEnt = accEnt || netEnt; accProj = accProj || netProj;
-        res.acc[p] = { orc: sheet('Acc Cashflow', p), eff: accEff, hasMain: accEnt, kind: accProj ? 'proj' : 'real' };
+        per.acc[p] = { orc: sheet('Acc Cashflow', p), eff: accEff, hasMain: accEnt, kind: accProj ? 'proj' : 'real' };
       }
-      return res;
+      return per;
+    }
+    // coluna "Total": soma dos períodos; para Acc, o total é o valor final (M12)
+    function colTotal(arr, isAcc) {
+      const P = U.periods;
+      if (isAcc) return arr[P];
+      let orc = 0, effv = 0, hasMain = false, anyProj = false;
+      for (let p = 0; p <= P; p++) { const c = arr[p]; orc += (c.orc == null ? 0 : c.orc); effv += (c.hasMain ? c.eff : (c.orc == null ? 0 : c.orc)); if (c.hasMain) { hasMain = true; if (c.kind === 'proj') anyProj = true; } }
+      return { orc, eff: effv, hasMain, kind: anyProj ? 'proj' : 'real' };
+    }
+    function leafTotal(line) {
+      const P = U.periods;
+      let orc = 0, effv = 0, hasMain = false, anyProj = false;
+      for (let p = 0; p <= P; p++) { const o = orcVal(line, p); const oc = (o == null ? 0 : o); orc += oc; const e = eff(line, p); if (e) { effv += e.value; hasMain = true; if (e.kind === 'proj') anyProj = true; } else effv += oc; }
+      return { orc, eff: effv, hasMain, kind: anyProj ? 'proj' : 'real' };
     }
 
     async function loadFleet() {
       const f = U.fleets.find((x) => x.id === current);
       model = f.model;
+      const foto = (OCN.modelos[f.model] || {}).foto;
       fleetsEl.querySelectorAll('.ue-fleet-btn').forEach((b) => b.classList.toggle('active', b.dataset.id === current));
       document.getElementById('ueHead').innerHTML =
-        `<div class="ue-headrow"><div>` +
-        `<div class="ue-fleet-title">${f.label} — ${f.modelLabel}</div>` +
-        `<div class="ue-fleet-sub">${f.cars} carros · contrato de ${U.periods} meses · valores por veículo (USD)</div>` +
-        `</div>` +
-        (isAdmin ? `<div class="ue-admin-ctrls">
-          <label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Modo manual</span></label>
-          <button class="ue-proj-btn" id="ueProjetar" title="Preenche os meses sem realizado com a média dos realizados">Projetar meses futuros</button>
-        </div>` : '') +
+        `<div class="ue-headrow">` +
+          `<div class="ue-fleet-head">` +
+            (foto ? `<div class="ue-car-photo"><img src="${foto}" alt="${f.modelLabel}"/></div>` : '') +
+            `<div><div class="ue-fleet-title">${f.label} — ${f.modelLabel}</div>` +
+            `<div class="ue-fleet-sub">${f.cars} carros · contrato de ${U.periods} meses · valores por veículo (USD)</div></div>` +
+          `</div>` +
+          (isAdmin ? `<label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Modo manual</span></label>` : '') +
         `</div>`;
-      if (isAdmin) {
-        document.getElementById('ueManual').addEventListener('change', (e) => { manualMode = e.target.checked; renderTable(f); });
-        document.getElementById('ueProjetar').addEventListener('click', () => runProjection(f));
-      }
+      if (isAdmin) document.getElementById('ueManual').addEventListener('change', (e) => { manualMode = e.target.checked; renderTable(f); });
       entered = {};
       try {
         const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(current), { cache: 'no-store' });
         if (r.ok) { const d = await r.json(); (d.values || []).forEach((v) => { entered[ekey(v.line, v.period)] = { value: v.value, kind: v.kind }; }); }
       } catch (e) { /* segue com orçado */ }
-      renderTable(f);
-    }
-
-    // Projeção: para cada linha-item com algum realizado, preenche os demais períodos
-    // (onde o orçado espera valor e não há realizado) com a média dos realizados, como projetado.
-    async function runProjection(f) {
-      const orc = U.orcado[f.model];
-      const items = [];
-      orc.lines.filter((l) => isLeaf(l.group)).forEach((l) => {
-        const reals = [];
-        for (let p = 0; p <= U.periods; p++) { const e = entered[ekey(l.label, p)]; if (e && e.kind === 'real') reals.push(e.value); }
-        if (!reals.length) return;
-        const avg = Math.round((reals.reduce((a, b) => a + b, 0) / reals.length) * 100) / 100;
-        for (let p = 0; p <= U.periods; p++) {
-          if (orcVal(l.label, p) == null) continue;
-          const e = entered[ekey(l.label, p)];
-          if (e && e.kind === 'real') continue;
-          entered[ekey(l.label, p)] = { value: avg, kind: 'proj' };
-          items.push({ line: l.label, period: p, value: avg, kind: 'proj' });
-        }
-      });
-      if (!items.length) { alert('Nenhum valor realizado para projetar. Ligue o "Modo manual" e preencha ao menos um mês realizado.'); return; }
-      try { await fetch('/api/ue/values/bulk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fleet: current, items }) }); } catch (e) { /* mantém local */ }
       renderTable(f);
     }
 
@@ -450,16 +460,19 @@
       const editable = isAdmin && manualMode;
       let html = '<thead><tr><th class="ue-rowlabel">Linha</th><th>M0</th>';
       for (let p = 1; p <= U.periods; p++) html += `<th>M${p}</th>`;
-      html += '</tr></thead><tbody>';
+      html += '<th class="ue-totalcol">Total</th></tr></thead><tbody>';
       orc.lines.forEach((l) => {
-        html += `<tr class="ue-row ue-${l.group}"><td class="ue-rowlabel">${l.label}</td>`;
+        const leaf = isLeaf(l.group);
+        html += `<tr class="ue-row ue-${l.group} ${leaf ? 'ue-leaf' : 'ue-calc'}"><td class="ue-rowlabel">${l.label}</td>`;
         for (let p = 0; p <= U.periods; p++) {
-          if (isLeaf(l.group)) {
+          if (leaf) {
             html += `<td class="ue-cell${editable ? ' ue-editable' : ''}" data-line="${l.label.replace(/"/g, '&quot;')}" data-period="${p}">${cellLeaf(l.label, p)}</td>`;
           } else {
-            html += `<td class="ue-cell ue-computed">${cellTotal(gmap[l.group][p])}</td>`;
+            html += `<td class="ue-cell ue-computed">${cellVal(gmap[l.group][p])}</td>`;
           }
         }
+        const tot = leaf ? leafTotal(l.label) : colTotal(gmap[l.group], l.group === 'acc');
+        html += `<td class="ue-cell ue-totalcol">${cellVal(tot)}</td>`;
         html += '</tr>';
       });
       html += '</tbody>';
@@ -467,8 +480,8 @@
       if (editable) tbl.querySelectorAll('.ue-editable').forEach((td) => td.addEventListener('click', () => openEditor(td, f)));
       document.getElementById('ueFoot').innerHTML =
         '<span class="ue-tag ue-tag-real">Realizado</span><span class="ue-tag ue-tag-proj">Projetado</span><span class="ue-tag ue-tag-orc">Orçado</span>' +
-        ' M0 = setup inicial · Totais, Net e Acc são calculados automaticamente.' +
-        (isAdmin ? (editable ? ' <b>Modo manual ligado</b>: clique numa linha-item para preencher; vazio + Enter apaga.' : ' Ligue o “Modo manual” para editar células.') : '');
+        ' Linhas recuadas = dados da conta · linhas em negrito com barra = calculadas (Totais, Net, Acc). M0 = setup. Projeção = média dos meses realizados (automática).' +
+        (isAdmin ? (editable ? ' <b>Modo manual ligado</b>: clique numa linha-item para preencher; vazio + Enter apaga.' : ' Ligue o “Modo manual” para sobrescrever valores.') : '');
     }
 
     function openEditor(td, f) {

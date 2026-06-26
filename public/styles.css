@@ -48,11 +48,26 @@ button { font-family: inherit; cursor: pointer; }
   cursor: pointer; background: #ffffff1f; border: 1px solid #ffffff40; font-family: inherit;
 }
 .app-user__logout:hover { background: #ffffff33; }
+.header-meta { font-size: 11px; color: #ffffffb3; white-space: nowrap; }
 @media (max-width: 640px) {
   .app-header { padding: 12px 16px; }
   .app-brand__logo { height: 26px; }
-  .app-brand__text p, .app-user__info { display: none; }
+  .app-brand__text p, .app-user__info, .header-meta { display: none; }
 }
+
+/* ---- tela de loading ---- */
+.app-loading {
+  position: fixed; inset: 0; z-index: 99999;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px;
+  background: var(--gradient-purple); color: #fff;
+}
+.app-loading.hidden { display: none; }
+.app-loading-logo { width: 190px; height: auto; opacity: .95; }
+.app-loading-spinner {
+  width: 32px; height: 32px; border: 3px solid rgba(255,255,255,.25);
+  border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ---- main tabs ---- */
 .main-tabs {

@@ -16,6 +16,12 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <!-- ===================== LOADING ===================== -->
+  <div class="app-loading" id="appLoading">
+    <img src="brand/ocn-logo-white.png" alt="OCN" class="app-loading-logo" />
+    <div class="app-loading-spinner"></div>
+  </div>
+
   <!-- ===================== HEADER ===================== -->
   <header class="app-header">
     <div class="app-brand">
@@ -26,11 +32,12 @@
       </div>
     </div>
     <div class="app-user">
+      <div class="header-meta">atualizado <span id="hojeLabel">—</span></div>
       <div class="app-user__info">
-        <div class="email" id="hojeLabel">—</div>
-        <div class="role">última atualização</div>
+        <div class="email" id="userName">—</div>
+        <div class="role" id="userRole"></div>
       </div>
-      <button class="app-user__logout" id="btnAdmin">Admin</button>
+      <button class="app-user__logout" id="btnLogout">Sair</button>
     </div>
   </header>
 
@@ -172,19 +179,6 @@
       </div>
     </section>
   </main>
-
-  <!-- ===================== MODAL ADMIN (stub v1) ===================== -->
-  <div class="modal-overlay" id="adminModal">
-    <div class="modal">
-      <h3>Acesso de administrador</h3>
-      <p>O login de admin para edição entra na próxima etapa (v2). Por enquanto o painel está em construção.</p>
-      <input type="password" placeholder="Senha de admin" disabled />
-      <div class="row">
-        <button id="adminClose">Fechar</button>
-        <button class="primary" disabled>Entrar</button>
-      </div>
-    </div>
-  </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>

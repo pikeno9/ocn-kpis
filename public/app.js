@@ -7,6 +7,7 @@
     let OCN = window.OCN_FALLBACK || null;
     try {
       const r = await fetch('/api/data', { cache: 'no-store' });
+      if (r.status === 401) { window.location.href = '/login'; return; }
       if (r.ok) OCN = await r.json();
     } catch (e) { /* mantém fallback */ }
     if (!OCN) { console.error('OCN: sem dados'); return; }
@@ -18,6 +19,17 @@
   // mostra a data da última atualização no header
   const hl = document.getElementById('hojeLabel');
   if (hl && OCN.atualizadoEm) hl.textContent = OCN.atualizadoEm;
+  // usuário logado + botão Sair
+  const meta = OCN._meta || {};
+  if (meta.user) {
+    const un = document.getElementById('userName'); if (un) un.textContent = meta.user.name || meta.user.login;
+    const ur = document.getElementById('userRole'); if (ur) ur.textContent = (meta.user.role || '').toUpperCase();
+  }
+  const btnLogout = document.getElementById('btnLogout');
+  if (btnLogout) btnLogout.addEventListener('click', async () => {
+    try { await fetch('/api/logout', { method: 'POST' }); } catch (e) {}
+    window.location.href = '/login';
+  });
   const COR = { Polo: OCN.modelos.Polo.cor, Argo: OCN.modelos.Argo.cor, Tera: OCN.modelos.Tera.cor };
   const TXT2 = '#6b7280';
 
@@ -42,14 +54,6 @@
       if (tab.dataset.sub === 'ocorrencias') initOcorrencias();
     });
   });
-
-  // ---------- modal admin (stub) ----------
-  document.getElementById('btnAdmin').addEventListener('click', () =>
-    document.getElementById('adminModal').classList.add('show')
-  );
-  document.getElementById('adminClose').addEventListener('click', () =>
-    document.getElementById('adminModal').classList.remove('show')
-  );
 
   // ---------- Status atual da frota / big numbers ----------
   const SF = OCN.statusFrota;
@@ -214,6 +218,10 @@
       },
     },
   });
+
+  // esconde a tela de loading quando o dashboard está pronto
+  const _ld = document.getElementById('appLoading');
+  if (_ld) _ld.classList.add('hidden');
 
   // ===================== OCORRÊNCIAS (lazy init) =====================
   let ocorReady = false;

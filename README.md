@@ -32,10 +32,32 @@ ocn-kpis-site/
     └── data.js          # snapshot fallback
 ```
 
-## Variáveis de ambiente (opcionais)
+## Autenticação (site inteiro atrás de login)
+O site é protegido por login (id + senha). Credenciais ficam em variáveis de ambiente — nunca no código (repo público).
+
+**Configurar (no Railway → Variables):**
+1. Gere o hash de cada senha localmente:
+   ```bash
+   npm run hash -- "a-senha-do-usuario"
+   ```
+2. Monte `AUTH_USERS` (JSON em uma linha) com os hashes:
+   ```
+   AUTH_USERS=[{"login":"enrico","name":"Enrico","role":"admin","hash":"$2a$10$..."}]
+   ```
+3. Gere e defina `SESSION_SECRET`:
+   ```bash
+   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+   ```
+4. Redeploy. Pronto: `/login` valida e cria um cookie de sessão (httpOnly, 7 dias).
+
+> Em produção (Railway), se `AUTH_USERS` não estiver definido, **ninguém loga** (fail-closed). Localmente, sem `AUTH_USERS`, há um usuário de dev `dev`/`dev` (nunca ativo no Railway).
+
+## Variáveis de ambiente
+- `AUTH_USERS` — JSON dos usuários com hash bcrypt (obrigatório em produção).
+- `SESSION_SECRET` — segredo que assina o cookie de sessão (defina um valor fixo forte).
 - `PORT` — porta (Railway injeta automaticamente).
-- `CRON_SCHEDULE` — agenda do refresh. Default `0 5 * * *` (05:00 America/Sao_Paulo). Ex.: `0 */6 * * *` para 6/6h.
-- `REFERENCE_DATE` — data de referência para os cálculos (ex.: `2026-06-24`). Default: hoje. Útil para testes.
+- `CRON_SCHEDULE` — agenda do refresh. Default `0 5 * * *` (05:00 America/Sao_Paulo). Ex.: `0 */6 * * *`.
+- `REFERENCE_DATE` — data de referência para os cálculos (ex.: `2026-06-24`). Default: hoje.
 
 ## Endpoints
 - `GET /api/data` — KPIs computados (+ `_meta.updatedAt`, `_meta.live`).

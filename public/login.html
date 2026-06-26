@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Entrar — OCN KPIs</title>
+  <link rel="icon" href="favicon.ico" sizes="any" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Lexend+Deca:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ocn-purple:#5A00F8; --ocn-purple-deep:#180140; --ocn-graphite:#282728; --ocn-ink:#1d1d1b;
+      --ocn-gray-300:#c3c2c2; --ocn-gray-500:#6b7280; --ocn-gray-700:#4d5259; --ocn-white:#fff;
+      --gradient-purple:linear-gradient(135deg,#5A00F8 0%,#180140 100%);
+      --radius-sm:8px; --radius-lg:16px;
+      --font-body:'Lexend Deca',system-ui,-apple-system,'Segoe UI',sans-serif;
+      --font-display:'Plus Jakarta Sans',system-ui,sans-serif;
+      --shadow-lg:0 12px 28px #1801401f; --shadow-md:0 4px 12px #18014014; --shadow-glow:0 0 0 4px #5a00f826;
+    }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--gradient-purple); padding:24px; font-family:var(--font-body); }
+    .login-card { background:var(--ocn-white); width:100%; max-width:420px; border-radius:var(--radius-lg); padding:36px 32px 32px; box-shadow:var(--shadow-lg); }
+    .login-header { text-align:center; margin-bottom:28px; }
+    .login-logo { width:150px; height:auto; margin:0 auto 14px; display:block; }
+    .login-header h1 { font-family:var(--font-display); font-size:21px; font-weight:700; color:var(--ocn-ink); margin:0 0 4px; }
+    .login-header p { font-size:13px; color:var(--ocn-gray-500); }
+    form { display:flex; flex-direction:column; gap:14px; }
+    label { display:block; font-size:13px; font-weight:500; color:var(--ocn-gray-700); margin-bottom:6px; }
+    input { width:100%; padding:11px 12px; border:1px solid var(--ocn-gray-300); border-radius:var(--radius-sm); font-size:15px; font-family:var(--font-body); color:var(--ocn-graphite); background:var(--ocn-white); transition:border-color .2s, box-shadow .2s; }
+    input:focus { outline:none; border-color:var(--ocn-purple); box-shadow:var(--shadow-glow); }
+    button[type=submit] { margin-top:8px; padding:12px 16px; border:none; border-radius:var(--radius-sm); background:var(--ocn-purple); color:var(--ocn-white); font-family:var(--font-display); font-size:15px; font-weight:600; cursor:pointer; transition:background .2s, box-shadow .2s; display:flex; align-items:center; justify-content:center; gap:8px; }
+    button[type=submit]:hover:not(:disabled) { background:var(--ocn-purple-deep); box-shadow:var(--shadow-md); }
+    button[type=submit]:disabled { opacity:.6; cursor:not-allowed; }
+    .link-button { background:none; border:none; color:var(--ocn-purple); cursor:pointer; font-size:13px; font-family:var(--font-body); text-decoration:underline; padding:0; margin-top:2px; align-self:flex-start; }
+    .link-button:hover { color:var(--ocn-purple-deep); }
+    .alert { display:none; padding:10px 14px; border-radius:var(--radius-sm); font-size:13px; margin-bottom:14px; background:#fdeaea; color:#b3261e; border:1px solid #f5c2c0; }
+    .alert.show { display:block; }
+    .footer-note { font-size:11px; color:var(--ocn-gray-500); text-align:center; margin-top:22px; line-height:1.5; }
+    .spin { display:inline-block; width:16px; height:16px; border:2px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%; animation:spin .6s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="login-header">
+      <img src="brand/ocn-logo.png" alt="OCN" class="login-logo" />
+      <h1>Dashboard de KPIs</h1>
+      <p>Entre com seu login e senha</p>
+    </div>
+    <div id="alert" class="alert"></div>
+    <form id="login-form">
+      <div>
+        <label for="login">Login</label>
+        <input type="text" id="login" name="login" required autocomplete="username" placeholder="seu.login" />
+      </div>
+      <div>
+        <label for="password">Senha</label>
+        <input type="password" id="password" name="password" required autocomplete="current-password" />
+      </div>
+      <button type="submit" id="btn-submit">Entrar</button>
+      <button type="button" class="link-button" id="btn-reset">Esqueci minha senha</button>
+    </form>
+    <div class="footer-note">Acesso restrito ao time OCN. Dúvidas? Fale com o administrador.</div>
+  </div>
+
+  <script>
+    const form = document.getElementById('login-form');
+    const btn = document.getElementById('btn-submit');
+    const alertBox = document.getElementById('alert');
+    function showAlert(msg) { alertBox.textContent = msg; alertBox.classList.add('show'); }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      alertBox.classList.remove('show');
+      btn.disabled = true;
+      const original = btn.innerHTML;
+      btn.innerHTML = '<span class="spin"></span> Entrando...';
+      try {
+        const r = await fetch('/api/login', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ login: document.getElementById('login').value, password: document.getElementById('password').value }),
+        });
+        if (r.ok) { window.location.href = '/'; return; }
+        const d = await r.json().catch(() => ({}));
+        showAlert(d.error || 'Login ou senha inválidos.');
+      } catch (err) {
+        showAlert('Erro de conexão. Tente novamente.');
+      }
+      btn.disabled = false;
+      btn.innerHTML = original;
+    });
+
+    document.getElementById('btn-reset').addEventListener('click', () =>
+      showAlert('Para redefinir a senha, fale com o administrador.')
+    );
+  </script>
+</body>
+</html>

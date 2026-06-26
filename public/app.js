@@ -324,6 +324,7 @@
     let current = U.fleets[0].id;
     let model = U.fleets[0].model;
     let entered = {}; // "line@@period" -> {value, kind}
+    let manualMode = false; // edição manual desligada por padrão
     const ekey = (l, p) => l + '@@' + p;
 
     const fmtNum = (v) => Math.abs(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
@@ -396,13 +397,47 @@
       model = f.model;
       fleetsEl.querySelectorAll('.ue-fleet-btn').forEach((b) => b.classList.toggle('active', b.dataset.id === current));
       document.getElementById('ueHead').innerHTML =
+        `<div class="ue-headrow"><div>` +
         `<div class="ue-fleet-title">${f.label} — ${f.modelLabel}</div>` +
-        `<div class="ue-fleet-sub">${f.cars} carros · contrato de ${U.periods} meses · valores por veículo (USD)${isAdmin ? ' · <b>admin</b>: clique numa célula para editar' : ''}</div>`;
+        `<div class="ue-fleet-sub">${f.cars} carros · contrato de ${U.periods} meses · valores por veículo (USD)</div>` +
+        `</div>` +
+        (isAdmin ? `<div class="ue-admin-ctrls">
+          <label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Modo manual</span></label>
+          <button class="ue-proj-btn" id="ueProjetar" title="Preenche os meses sem realizado com a média dos realizados">Projetar meses futuros</button>
+        </div>` : '') +
+        `</div>`;
+      if (isAdmin) {
+        document.getElementById('ueManual').addEventListener('change', (e) => { manualMode = e.target.checked; renderTable(f); });
+        document.getElementById('ueProjetar').addEventListener('click', () => runProjection(f));
+      }
       entered = {};
       try {
         const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(current), { cache: 'no-store' });
         if (r.ok) { const d = await r.json(); (d.values || []).forEach((v) => { entered[ekey(v.line, v.period)] = { value: v.value, kind: v.kind }; }); }
       } catch (e) { /* segue com orçado */ }
+      renderTable(f);
+    }
+
+    // Projeção: para cada linha-item com algum realizado, preenche os demais períodos
+    // (onde o orçado espera valor e não há realizado) com a média dos realizados, como projetado.
+    async function runProjection(f) {
+      const orc = U.orcado[f.model];
+      const items = [];
+      orc.lines.filter((l) => isLeaf(l.group)).forEach((l) => {
+        const reals = [];
+        for (let p = 0; p <= U.periods; p++) { const e = entered[ekey(l.label, p)]; if (e && e.kind === 'real') reals.push(e.value); }
+        if (!reals.length) return;
+        const avg = Math.round((reals.reduce((a, b) => a + b, 0) / reals.length) * 100) / 100;
+        for (let p = 0; p <= U.periods; p++) {
+          if (orcVal(l.label, p) == null) continue;
+          const e = entered[ekey(l.label, p)];
+          if (e && e.kind === 'real') continue;
+          entered[ekey(l.label, p)] = { value: avg, kind: 'proj' };
+          items.push({ line: l.label, period: p, value: avg, kind: 'proj' });
+        }
+      });
+      if (!items.length) { alert('Nenhum valor realizado para projetar. Ligue o "Modo manual" e preencha ao menos um mês realizado.'); return; }
+      try { await fetch('/api/ue/values/bulk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fleet: current, items }) }); } catch (e) { /* mantém local */ }
       renderTable(f);
     }
 
@@ -412,6 +447,7 @@
       if (!orc) { tbl.innerHTML = '<tbody><tr><td>Sem orçado para ' + f.modelLabel + '</td></tr></tbody>'; return; }
       const T = computeTotals(orc.lines);
       const gmap = { totalInflow: T.totalInflow, totalOutflow: T.totalOutflow, net: T.net, acc: T.acc };
+      const editable = isAdmin && manualMode;
       let html = '<thead><tr><th class="ue-rowlabel">Linha</th><th>M0</th>';
       for (let p = 1; p <= U.periods; p++) html += `<th>M${p}</th>`;
       html += '</tr></thead><tbody>';
@@ -419,7 +455,7 @@
         html += `<tr class="ue-row ue-${l.group}"><td class="ue-rowlabel">${l.label}</td>`;
         for (let p = 0; p <= U.periods; p++) {
           if (isLeaf(l.group)) {
-            html += `<td class="ue-cell${isAdmin ? ' ue-editable' : ''}" data-line="${l.label.replace(/"/g, '&quot;')}" data-period="${p}">${cellLeaf(l.label, p)}</td>`;
+            html += `<td class="ue-cell${editable ? ' ue-editable' : ''}" data-line="${l.label.replace(/"/g, '&quot;')}" data-period="${p}">${cellLeaf(l.label, p)}</td>`;
           } else {
             html += `<td class="ue-cell ue-computed">${cellTotal(gmap[l.group][p])}</td>`;
           }
@@ -428,11 +464,11 @@
       });
       html += '</tbody>';
       tbl.innerHTML = html;
-      if (isAdmin) tbl.querySelectorAll('.ue-editable').forEach((td) => td.addEventListener('click', () => openEditor(td, f)));
+      if (editable) tbl.querySelectorAll('.ue-editable').forEach((td) => td.addEventListener('click', () => openEditor(td, f)));
       document.getElementById('ueFoot').innerHTML =
         '<span class="ue-tag ue-tag-real">Realizado</span><span class="ue-tag ue-tag-proj">Projetado</span><span class="ue-tag ue-tag-orc">Orçado</span>' +
         ' M0 = setup inicial · Totais, Net e Acc são calculados automaticamente.' +
-        (isAdmin ? ' Clique numa linha-item para preencher; vazio + Enter apaga.' : '');
+        (isAdmin ? (editable ? ' <b>Modo manual ligado</b>: clique numa linha-item para preencher; vazio + Enter apaga.' : ' Ligue o “Modo manual” para editar células.') : '');
     }
 
     function openEditor(td, f) {

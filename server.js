@@ -93,6 +93,25 @@ app.post('/api/ue/value', requireAdmin, async (req, res) => {
   try { await store.set({ fleetId: fleet, line, period, value, kind, user: req.user.login }); res.json({ ok: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
+app.post('/api/ue/values/bulk', requireAdmin, async (req, res) => {
+  const b = req.body || {};
+  const fleet = String(b.fleet || '').trim();
+  const items = Array.isArray(b.items) ? b.items : [];
+  if (!fleet || !items.length) return res.status(400).json({ error: 'dados inválidos' });
+  try {
+    let n = 0;
+    for (const it of items) {
+      const line = String(it.line || '').trim();
+      const period = parseInt(it.period, 10);
+      const value = Number(it.value);
+      const kind = it.kind === 'proj' ? 'proj' : 'real';
+      if (!line || !(period >= 0 && period <= 24) || !isFinite(value)) continue;
+      await store.set({ fleetId: fleet, line, period, value, kind, user: req.user.login });
+      n++;
+    }
+    res.json({ ok: true, n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.post('/api/ue/value/delete', requireAdmin, async (req, res) => {
   const b = req.body || {};
   const fleet = String(b.fleet || '').trim();

@@ -96,12 +96,12 @@ button { font-family: inherit; cursor: pointer; }
 .ue-car-photo img { width: 100%; height: 100%; object-fit: contain; padding: 3px 5px; }
 @media (max-width: 640px) { .ue-car-photo { width: 150px; height: 88px; } }
 .ue-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
-/* table-layout: fixed = colunas com largura fixa (não "sambam" ao trocar de frota) */
-.ue-table { border-collapse: collapse; width: 100%; font-size: 11px; white-space: nowrap; table-layout: fixed; }
-.ue-table th, .ue-table td { padding: 5px 6px; text-align: right; border-bottom: 1px solid var(--border); }
-/* larguras fixas por coluna (definidas no thead — table-layout:fixed usa a 1ª linha) */
-.ue-table thead th { background: var(--surface-2); font-weight: 600; color: var(--text-2); font-size: 10px; position: sticky; top: 0; width: 60px; }
-.ue-table thead th.ue-rowlabel { width: 200px; }
+/* table-layout: fixed + só o rótulo com largura fixa: as colunas numéricas
+   dividem o espaço restante igualmente e a tabela cabe sempre (não rola pro lado nem "samba") */
+.ue-table { border-collapse: collapse; width: 100%; font-size: 10.5px; white-space: nowrap; table-layout: fixed; }
+.ue-table th, .ue-table td { padding: 4px 5px; text-align: right; border-bottom: 1px solid var(--border); }
+.ue-table thead th { background: var(--surface-2); font-weight: 600; color: var(--text-2); font-size: 9.5px; position: sticky; top: 0; }
+.ue-table thead th.ue-rowlabel { width: 196px; }
 .ue-rowlabel { text-align: left !important; position: sticky; left: 0; z-index: 1; background: var(--surface); font-weight: 500; }
 .ue-table thead .ue-rowlabel { background: var(--surface-2); z-index: 2; }
 .ue-orc { color: var(--text-2); }
@@ -117,7 +117,7 @@ button { font-family: inherit; cursor: pointer; }
 .ue-acc .ue-orc { color: var(--text); }
 /* coluna Total à direita */
 .ue-totalcol { border-left: 2px solid var(--border-2); font-weight: 700; }
-.ue-table thead th.ue-totalcol { color: var(--text); width: 78px; }
+.ue-table thead th.ue-totalcol { color: var(--text); }
 .ue-foot { font-size: 11px; color: var(--text-2); margin-top: 10px; line-height: 1.5; }
 .ue-tag { display: inline-block; padding: 1px 7px; border-radius: 999px; font-weight: 600; margin-right: 4px; }
 .ue-tag-orc { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border-2); }

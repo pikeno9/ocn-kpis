@@ -328,6 +328,14 @@
     let kmMes = 2000;       // km/mês da frota (slider, por frota)
     let cotacao = 5.5;      // cotação R$/US$ (slider, global)
     const ORCADO_COTACAO = 5.0; // o orçado (USD) foi calculado a R$5,0/US$
+    let params = {}; // parâmetros por frota (R$): seguro, GPS, depósito, compra
+    const LINE_PARAMS = {
+      'Insurance': [{ k: '__ins_total__', label: 'Total de seguro no ano (R$)' }, { k: '__ins_parcelas__', label: 'Nº de parcelas (a partir do M1)' }],
+      'GPS': [{ k: '__gps_m0__', label: 'Valor no M0 (R$)' }, { k: '__gps_mensal__', label: 'Valor mensal, a partir do M1 (R$)' }],
+      'Security Deposit': [{ k: '__deposit__', label: 'Valor do depósito (R$) — entra no M0' }],
+      'Vehicle Purchase': [{ k: '__vehicle__', label: 'Valor de compra/recompra (R$) — entra no M12' }],
+    };
+    const par = (k) => +params[k] || 0;
     const ekey = (l, p) => l + '@@' + p;
 
     const fmtNum = (v) => Math.abs(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
@@ -383,6 +391,25 @@
         const o = orcVal(line, period);
         if (o == null) return null;
         return { value: Math.round(o * (ORCADO_COTACAO / cotacao)), kind: 'real' }; // orçado ajustado pela cotação
+      }
+      // linhas com input de admin (R$) — só sobrescrevem quando configuradas; senão caem no orçado
+      const usd = (rs) => -Math.round(rs / cotacao);
+      if (line === 'Insurance' && par('__ins_total__') > 0 && par('__ins_parcelas__') >= 1) {
+        const m = entered[ekey(line, period)]; if (m) return { value: m.value, kind: m.kind };
+        const N = Math.round(par('__ins_parcelas__'));
+        return { value: (period >= 1 && period <= N) ? usd(par('__ins_total__') / N) : 0, kind: 'real' };
+      }
+      if (line === 'GPS' && (par('__gps_m0__') > 0 || par('__gps_mensal__') > 0)) {
+        const m = entered[ekey(line, period)]; if (m) return { value: m.value, kind: m.kind };
+        return { value: usd(period === 0 ? par('__gps_m0__') : par('__gps_mensal__')), kind: 'real' };
+      }
+      if (line === 'Security Deposit' && par('__deposit__') > 0) {
+        const m = entered[ekey(line, period)]; if (m) return { value: m.value, kind: m.kind };
+        return { value: period === 0 ? usd(par('__deposit__')) : 0, kind: 'real' };
+      }
+      if (line === 'Vehicle Purchase' && par('__vehicle__') > 0) {
+        const m = entered[ekey(line, period)]; if (m) return { value: m.value, kind: m.kind };
+        return { value: period === U.periods ? usd(par('__vehicle__')) : 0, kind: 'real' };
       }
       const e = entered[ekey(line, period)];
       if (e) return { value: e.value, kind: e.kind };
@@ -469,20 +496,57 @@
       });
     }
 
+    // caixinha de input (R$) para Insurance / GPS / Security Deposit / Vehicle Purchase
+    function openParamModal(line, f) {
+      const fields = LINE_PARAMS[line];
+      if (!fields) return;
+      const ov = document.createElement('div');
+      ov.className = 'ue-modal-overlay';
+      ov.innerHTML =
+        `<div class="ue-modal"><div class="ue-modal-title">${line} — realizado (R$)</div>` +
+        fields.map((fl) => `<div class="ue-modal-field"><label>${fl.label}</label><input type="text" inputmode="decimal" data-k="${fl.k}" value="${params[fl.k] != null ? params[fl.k] : ''}"/></div>`).join('') +
+        `<div class="ue-modal-hint">Os valores em R$ são convertidos para US$ pela cotação do slider, na linha do mês correspondente.</div>` +
+        `<div class="ue-modal-actions"><button type="button" class="ue-modal-cancel">Cancelar</button><button type="button" class="ue-modal-save">Salvar</button></div></div>`;
+      document.body.appendChild(ov);
+      const close = () => ov.remove();
+      ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+      ov.querySelector('.ue-modal-cancel').addEventListener('click', close);
+      const first = ov.querySelector('input'); if (first) { first.focus(); first.select(); }
+      ov.querySelector('.ue-modal-save').addEventListener('click', async () => {
+        const ops = [];
+        ov.querySelectorAll('input[data-k]').forEach((inp) => {
+          const k = inp.dataset.k;
+          const raw = inp.value.trim();
+          if (raw === '') { delete params[k]; ops.push({ del: true, k }); return; }
+          const val = parseFloat(raw.replace(/\./g, '').replace(',', '.'));
+          if (isNaN(val)) return;
+          params[k] = val; ops.push({ k, value: val });
+        });
+        for (const o of ops) {
+          try {
+            if (o.del) await fetch('/api/ue/value/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fleet: current, line: o.k, period: 0 }) });
+            else await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fleet: current, line: o.k, period: 0, value: o.value, kind: 'real' }) });
+          } catch (e) {}
+        }
+        close();
+        renderTable(f);
+      });
+    }
+
     async function loadFleet() {
       const f = U.fleets.find((x) => x.id === current);
       model = f.model;
       const foto = (OCN.modelos[f.model] || {}).foto;
       fleetsEl.querySelectorAll('.ue-fleet-btn').forEach((b) => b.classList.toggle('active', b.dataset.id === current));
       // carrega valores da frota (entradas manuais + km/mês salvo)
-      kmMes = 2000; entered = {};
+      kmMes = 2000; entered = {}; params = {};
       try {
         const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(current), { cache: 'no-store' });
         if (r.ok) {
           const d = await r.json();
           (d.values || []).forEach((v) => {
             if (v.line === '__km_mes__') { kmMes = v.value; return; }
-            if (String(v.line).startsWith('__')) return;
+            if (String(v.line).startsWith('__')) { params[v.line] = v.value; return; }
             entered[ekey(v.line, v.period)] = { value: v.value, kind: v.kind };
           });
         }
@@ -519,7 +583,11 @@
       html += '<th class="ue-totalcol">Total</th></tr></thead><tbody>';
       orc.lines.forEach((l) => {
         const leaf = isLeaf(l.group);
-        html += `<tr class="ue-row ue-${l.group} ${leaf ? 'ue-leaf' : 'ue-calc'}"><td class="ue-rowlabel">${l.label}</td>`;
+        const isParam = editable && LINE_PARAMS[l.label];
+        const labelInner = isParam
+          ? `<span class="ue-param-label" data-pline="${l.label.replace(/"/g, '&quot;')}">${l.label} <span class="ue-pencil">✎</span></span>`
+          : l.label;
+        html += `<tr class="ue-row ue-${l.group} ${leaf ? 'ue-leaf' : 'ue-calc'}"><td class="ue-rowlabel">${labelInner}</td>`;
         for (let p = 0; p <= U.periods; p++) {
           if (leaf) {
             html += `<td class="ue-cell${editable ? ' ue-editable' : ''}" data-line="${l.label.replace(/"/g, '&quot;')}" data-period="${p}">${cellLeaf(l.label, p)}</td>`;
@@ -533,7 +601,10 @@
       });
       html += '</tbody>';
       tbl.innerHTML = html;
-      if (editable) tbl.querySelectorAll('.ue-editable').forEach((td) => td.addEventListener('click', () => openEditor(td, f)));
+      if (editable) {
+        tbl.querySelectorAll('.ue-editable').forEach((td) => td.addEventListener('click', () => openEditor(td, f)));
+        tbl.querySelectorAll('.ue-param-label').forEach((el) => el.addEventListener('click', () => openParamModal(el.dataset.pline, f)));
+      }
       document.getElementById('ueFoot').innerHTML =
         '<span class="ue-tag ue-tag-real">Realizado</span><span class="ue-tag ue-tag-proj">Projetado</span><span class="ue-tag ue-tag-orc">Orçado</span>' +
         ' Linhas recuadas = dados da conta · linhas em negrito com barra = calculadas (Totais, Net, Acc). M0 = setup. Projeção = média dos meses realizados (automática).' +

@@ -413,25 +413,30 @@
         if (M) return { value: M.value, kind: M.kind };
         return { value: usd(period === 0 ? par('__gps_m0__') : par('__gps_mensal__')), kind: 'real' };
       }
-      // calção: nº de aluguéis × |Subrental fee orçado do M1| (USD)
-      const depMag = par('__num_alugueis__') * Math.abs(orcVal('Subrental fee', 1) || 0);
+      // magnitudes efetivas (USD): calção no M0 e compra no M12 — usam o param se houver, senão o orçado
+      const secDepMag = () => par('__num_alugueis__') > 0
+        ? par('__num_alugueis__') * Math.abs(orcVal('Subrental fee', 1) || 0)
+        : Math.abs(orcVal('Security Deposit', 0) || 0);
+      const vehMag = () => par('__vehicle__') > 0
+        ? Math.round(par('__vehicle__') / cotacao)
+        : Math.abs(orcVal('Vehicle Purchase', U.periods) || 0);
       if (line === 'Security Deposit' && par('__num_alugueis__') > 0) {
         if (M) return { value: M.value, kind: M.kind };
-        return { value: period === 0 ? -Math.round(depMag) : 0, kind: 'real' };
-      }
-      if (line === 'Deposit Refund' && par('__num_alugueis__') > 0) {
-        if (M) return { value: M.value, kind: M.kind };
-        if (period !== U.periods) return { value: 0, kind: 'real' };
-        return { value: Math.round(depMag * (1 + refundPct) / orcadoCambio * cotacao), kind: 'real' }; // entrada no M12
+        return { value: period === 0 ? -Math.round(secDepMag()) : 0, kind: 'real' };
       }
       if (line === 'Vehicle Purchase' && par('__vehicle__') > 0) {
         if (M) return { value: M.value, kind: M.kind };
-        return { value: period === U.periods ? usd(par('__vehicle__')) : 0, kind: 'real' };
+        return { value: period === U.periods ? -vehMag() : 0, kind: 'real' };
       }
-      if (line === 'Initial Fee / Vehicle Sell' && par('__vehicle__') > 0) {
+      // entradas (inflow) sempre calculadas: Deposit Refund e Initial Fee no M12
+      if (line === 'Deposit Refund') {
         if (M) return { value: M.value, kind: M.kind };
-        if (period !== U.periods) return { value: 0, kind: 'real' };
-        return { value: Math.round((par('__vehicle__') / cotacao) * 1.03), kind: 'real' }; // = Vehicle Purchase × 1,03 (entrada)
+        // calção × (1+%) corrigido pelo câmbio: ÷ câmbio futuro × câmbio do orçado
+        return { value: period === U.periods ? Math.round(secDepMag() * (1 + refundPct) * orcadoCambio / cotacao) : 0, kind: 'real' };
+      }
+      if (line === 'Initial Fee / Vehicle Sell') {
+        if (M) return { value: M.value, kind: M.kind };
+        return { value: period === U.periods ? Math.round(vehMag() * 1.03) : 0, kind: 'real' }; // = compra × 1,03
       }
       const e = entered[ekey(line, period)];
       if (e) return { value: e.value, kind: e.kind };
@@ -596,7 +601,7 @@
           (isAdmin ? `<label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Modo manual</span></label>` : '') +
         `</div>` +
         `<div class="ue-sliders">` +
-          slider('ueKm', 'km/semana da frota', 0, 2400, 25, kmSemana) +
+          slider('ueKm', 'km/semana da frota', 0, 3000, 25, kmSemana) +
           slider('ueCotacao', 'câmbio futuro (R$/US$)', 3, 8, 0.05, cotacao) +
           field('ueOrcCambio', 'câmbio do orçado (R$/US$)', orcadoCambio, 0.05) +
           field('ueRefundPct', 'correção Deposit Refund (% a.a.)', Math.round(refundPct * 10000) / 100, 1) +

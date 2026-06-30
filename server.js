@@ -6,6 +6,7 @@ const cron = require('node-cron');
 const { fetchAllTabs, fetchUeTabs } = require('./lib/sheet');
 const compute = require('./lib/compute');
 const ue = require('./lib/ue');
+const revisoes = require('./lib/revisoes');
 const store = require('./lib/store');
 const C = require('./config/static');
 const auth = require('./config/auth');
@@ -27,6 +28,8 @@ async function refresh() {
     const [sheets, ueSheets] = await Promise.all([fetchAllTabs(C.TABS), fetchUeTabs(C.UE_TABS)]);
     const data = compute.build(sheets, refDate());
     data.ue = ue.build(ueSheets, sheets.importData);
+    try { data.ue.revisoes = await revisoes.fetchRevisoes(); }
+    catch (e) { console.error('[revisoes] falhou:', e.message); data.ue.revisoes = {}; }
     cache = { data, updatedAt: new Date().toISOString(), ok: true, error: null };
     console.log(`[refresh] OK — ${data.kpis.recebidosAno} carros, ${data.ocorrencias.total} ocorrências (${cache.updatedAt})`);
   } catch (e) {

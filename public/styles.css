@@ -91,6 +91,13 @@ button { font-family: inherit; cursor: pointer; }
 .ue-switch input:checked { background: var(--accent); }
 .ue-switch input::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: #fff; border-radius: 50%; transition: left .15s; }
 .ue-switch input:checked::after { left: 18px; }
+.ue-sliders { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-end; margin: 14px 0 4px; padding: 12px 16px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; }
+.ue-slider { display: flex; flex-direction: column; gap: 5px; }
+.ue-slider label { font-size: 11px; color: var(--text-2); font-weight: 500; }
+.ue-slider input[type=range] { width: 220px; accent-color: var(--accent); cursor: pointer; }
+.ue-slider input[type=range]:disabled { cursor: default; opacity: .7; }
+.ue-sl-val { font-size: 13px; font-weight: 700; color: var(--text); }
+.ue-sliders-hint { font-size: 11px; color: var(--text-2); line-height: 1.45; max-width: 280px; align-self: center; }
 .ue-fleet-head { display: flex; align-items: center; gap: 14px; }
 .ue-car-photo { width: 200px; height: 116px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--border); display: grid; place-items: center; overflow: hidden; flex: 0 0 auto; }
 .ue-car-photo img { width: 100%; height: 100%; object-fit: contain; padding: 3px 5px; }

@@ -325,6 +325,8 @@
     let model = U.fleets[0].model;
     let entered = {}; // "line@@period" -> {value, kind}
     let manualMode = false; // edição manual desligada por padrão
+    let kmMes = 2000;       // km/mês da frota (slider, por frota)
+    let cotacao = 5.5;      // cotação R$/US$ (slider, global)
     const ekey = (l, p) => l + '@@' + p;
 
     const fmtNum = (v) => Math.abs(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
@@ -357,8 +359,23 @@
       for (let p = 0; p <= U.periods; p++) { const e = entered[ekey(line, p)]; if (e && e.kind === 'real') { sum += e.value; n++; } }
       return n ? sum / n : null;
     }
-    // valor efetivo de uma célula-item: entrada manual (real/proj) OU projeção automática (média dos realizados)
+    // Custo de revisão (USD) no período: revisão a cada X km (do site) → mês em que ocorre × preço ÷ cotação
+    function revisaoCusto(mdl, period) {
+      const revs = (U.revisoes && U.revisoes[mdl]) || [];
+      if (!revs.length || kmMes <= 0 || cotacao <= 0) return 0;
+      let custoR = 0;
+      revs.forEach((r) => { if (Math.ceil(r.km / kmMes) === period) custoR += r.valor; });
+      return Math.round(custoR / cotacao); // magnitude positiva em USD (inteiro)
+    }
+    const temRevisoes = (mdl) => !!(U.revisoes && U.revisoes[mdl] && U.revisoes[mdl].length);
+
+    // valor efetivo de uma célula-item: Maintenance = custo de revisão calculado; demais = manual ou projeção (média dos realizados)
     function eff(line, period) {
+      if (line === 'Maintenance' && temRevisoes(model)) {
+        const m = entered[ekey(line, period)];
+        if (m) return { value: m.value, kind: m.kind }; // override manual
+        return { value: -revisaoCusto(model, period), kind: 'real' };
+      }
       const e = entered[ekey(line, period)];
       if (e) return { value: e.value, kind: e.kind };
       const orc = orcVal(line, period);
@@ -428,11 +445,40 @@
       return { orc, eff: effv, hasMain, kind: anyProj ? 'proj' : 'real' };
     }
 
+    function slider(id, label, min, max, step, val) {
+      return `<div class="ue-slider"><label>${label}</label>` +
+        `<input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"${isAdmin ? '' : ' disabled'}/>` +
+        `<span class="ue-sl-val" id="${id}Val"></span></div>`;
+    }
+    function wireSlider(id, setter, fmtLabel, getter, line, fleetKey, f) {
+      const inp = document.getElementById(id), lab = document.getElementById(id + 'Val');
+      if (!inp) return;
+      lab.textContent = fmtLabel();
+      inp.addEventListener('input', () => { setter(parseFloat(inp.value)); lab.textContent = fmtLabel(); renderTable(f); });
+      inp.addEventListener('change', () => {
+        if (!isAdmin) return;
+        try { fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fleet: fleetKey, line, period: 0, value: getter(), kind: 'real' }) }); } catch (e) {}
+      });
+    }
+
     async function loadFleet() {
       const f = U.fleets.find((x) => x.id === current);
       model = f.model;
       const foto = (OCN.modelos[f.model] || {}).foto;
       fleetsEl.querySelectorAll('.ue-fleet-btn').forEach((b) => b.classList.toggle('active', b.dataset.id === current));
+      // carrega valores da frota (entradas manuais + km/mês salvo)
+      kmMes = 2000; entered = {};
+      try {
+        const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(current), { cache: 'no-store' });
+        if (r.ok) {
+          const d = await r.json();
+          (d.values || []).forEach((v) => {
+            if (v.line === '__km_mes__') { kmMes = v.value; return; }
+            if (String(v.line).startsWith('__')) return;
+            entered[ekey(v.line, v.period)] = { value: v.value, kind: v.kind };
+          });
+        }
+      } catch (e) { /* segue com orçado */ }
       document.getElementById('ueHead').innerHTML =
         `<div class="ue-headrow">` +
           `<div class="ue-fleet-head">` +
@@ -441,13 +487,15 @@
             `<div class="ue-fleet-sub">${f.cars} carros · contrato de ${U.periods} meses · valores por veículo (USD)</div></div>` +
           `</div>` +
           (isAdmin ? `<label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Modo manual</span></label>` : '') +
+        `</div>` +
+        `<div class="ue-sliders">` +
+          slider('ueKm', 'km/mês da frota', 0, 6000, 50, kmMes) +
+          slider('ueCotacao', 'cotação do dólar', 3, 8, 0.05, cotacao) +
+          `<div class="ue-sliders-hint">A linha <b>Maintenance</b> = custo de revisão (a cada 10.000 km, preço do site de revisões ÷ cotação).</div>` +
         `</div>`;
       if (isAdmin) document.getElementById('ueManual').addEventListener('change', (e) => { manualMode = e.target.checked; renderTable(f); });
-      entered = {};
-      try {
-        const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(current), { cache: 'no-store' });
-        if (r.ok) { const d = await r.json(); (d.values || []).forEach((v) => { entered[ekey(v.line, v.period)] = { value: v.value, kind: v.kind }; }); }
-      } catch (e) { /* segue com orçado */ }
+      wireSlider('ueKm', (v) => { kmMes = v; }, () => kmMes.toLocaleString('pt-BR') + ' km', () => kmMes, '__km_mes__', current, f);
+      wireSlider('ueCotacao', (v) => { cotacao = v; }, () => 'R$ ' + cotacao.toFixed(2).replace('.', ','), () => cotacao, '__cotacao__', '__cfg__', f);
       renderTable(f);
     }
 
@@ -523,7 +571,14 @@
       input.addEventListener('blur', () => { setTimeout(commit, 120); });
     }
 
-    loadFleet();
+    // carrega a cotação global (uma vez) e então a primeira frota
+    (async function () {
+      try {
+        const r = await fetch('/api/ue/values?fleet=__cfg__', { cache: 'no-store' });
+        if (r.ok) { const d = await r.json(); const c = (d.values || []).find((v) => v.line === '__cotacao__'); if (c) cotacao = c.value; }
+      } catch (e) { /* usa default */ }
+      loadFleet();
+    })();
   }
   }
 })();

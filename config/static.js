@@ -13,6 +13,9 @@ const TABS = {
   clientes: 'import_clientes',
 };
 
+// API do site de revisões (preços de revisão por modelo, em R$)
+const REVISOES_API = process.env.REVISOES_API || 'https://frota-revisoes-production.up.railway.app';
+
 // Unit Economics — abas de cashflow orçado (por veículo), uma por modelo
 const UE_TABS = { Polo: 'UE - Polo', Argo: 'UE - Argo', Tera: 'UE - Tera' };
 const UE_PERIODS = 12; // M1-M12; M0 = setup inicial (coluna 2 das abas UE)
@@ -125,7 +128,7 @@ const churnExcluir = ['troca de carro', 'troca'];
 const contratoNominalMeses = 12;
 
 module.exports = {
-  SHEET_ID, TABS, UE_TABS, UE_PERIODS, UE_FLEET_COL, modelos, corEsperado, mapModelo,
+  SHEET_ID, TABS, UE_TABS, UE_PERIODS, UE_FLEET_COL, REVISOES_API, modelos, corEsperado, mapModelo,
   spilloverDates, undatedReceivedDate,
   mLabels, mFull, esperado, semanaLabels, esperadoSemanal,
   proximoLote, notaMensal,

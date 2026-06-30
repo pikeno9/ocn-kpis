@@ -325,17 +325,19 @@
     let model = U.fleets[0].model;
     let entered = {}; // "line@@period" -> {value, kind}
     let manualMode = false; // edição manual desligada por padrão
-    let kmMes = 2000;       // km/mês da frota (slider, por frota)
-    let cotacao = 5.5;      // cotação R$/US$ (slider, global)
-    const ORCADO_COTACAO = 5.0; // o orçado (USD) foi calculado a R$5,0/US$
-    let params = {}; // parâmetros por frota (R$): seguro, GPS, depósito, compra
+    let kmSemana = 1200;    // km/semana da frota (slider, por frota)
+    let cotacao = 5.5;      // câmbio futuro R$/US$ (slider, global, admin)
+    let orcadoCambio = 5.0; // câmbio usado nos valores orçados (campo, global)
+    let refundPct = 0.13;   // correção a.a. do Deposit Refund (campo, global)
+    let params = {}; // parâmetros por frota: seguro, GPS, nº aluguéis, compra
     const LINE_PARAMS = {
       'Insurance': [{ k: '__ins_total__', label: 'Total de seguro no ano (R$)' }, { k: '__ins_parcelas__', label: 'Nº de parcelas (a partir do M1)' }],
       'GPS': [{ k: '__gps_m0__', label: 'Valor no M0 (R$)' }, { k: '__gps_mensal__', label: 'Valor mensal, a partir do M1 (R$)' }],
-      'Security Deposit': [{ k: '__deposit__', label: 'Valor do depósito (R$) — entra no M0' }],
+      'Security Deposit': [{ k: '__num_alugueis__', label: 'Número de aluguéis para calção' }],
       'Vehicle Purchase': [{ k: '__vehicle__', label: 'Valor de compra/recompra (R$) — entra no M12' }],
     };
     const par = (k) => +params[k] || 0;
+    const SEMANAS_MES = 52 / 12; // 4,3333
     const ekey = (l, p) => l + '@@' + p;
 
     const fmtNum = (v) => Math.abs(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
@@ -371,6 +373,7 @@
     // Custo de revisão (USD) no período: revisão a cada X km (do site) → mês em que ocorre × preço ÷ cotação
     function revisaoCusto(mdl, period) {
       const revs = (U.revisoes && U.revisoes[mdl]) || [];
+      const kmMes = kmSemana * SEMANAS_MES; // km/mês = km/semana × 52/12
       if (!revs.length || kmMes <= 0 || cotacao <= 0) return 0;
       let custoR = 0;
       revs.forEach((r) => { if (Math.ceil(r.km / kmMes) === period) custoR += r.valor; });
@@ -385,31 +388,50 @@
         if (m) return { value: m.value, kind: m.kind }; // override manual
         return { value: -revisaoCusto(model, period), kind: 'real' };
       }
+      const M = entered[ekey(line, period)]; // override manual por célula
       if (line === 'Subrental fee') {
-        const m = entered[ekey(line, period)];
-        if (m) return { value: m.value, kind: m.kind }; // override manual
+        if (M) return { value: M.value, kind: M.kind };
         const o = orcVal(line, period);
         if (o == null) return null;
-        return { value: Math.round(o * (ORCADO_COTACAO / cotacao)), kind: 'real' }; // orçado ajustado pela cotação
+        return { value: Math.round(o * (orcadoCambio / cotacao)), kind: 'real' }; // orçado ajustado pelo câmbio
       }
-      // linhas com input de admin (R$) — só sobrescrevem quando configuradas; senão caem no orçado
+      if (line === 'Car Preparation (wash + delivery)') {
+        if (M) return { value: M.value, kind: M.kind };
+        return period === 0 ? { value: -10, kind: 'real' } : null; // 10 USD fixo no M0
+      }
+      if (line === 'Sticker') {
+        if (M) return { value: M.value, kind: M.kind };
+        return period === 0 ? { value: -3, kind: 'real' } : null; // 3 USD fixo no M0
+      }
       const usd = (rs) => -Math.round(rs / cotacao);
       if (line === 'Insurance' && par('__ins_total__') > 0 && par('__ins_parcelas__') >= 1) {
-        const m = entered[ekey(line, period)]; if (m) return { value: m.value, kind: m.kind };
+        if (M) return { value: M.value, kind: M.kind };
         const N = Math.round(par('__ins_parcelas__'));
         return { value: (period >= 1 && period <= N) ? usd(par('__ins_total__') / N) : 0, kind: 'real' };
       }
       if (line === 'GPS' && (par('__gps_m0__') > 0 || par('__gps_mensal__') > 0)) {
-        const m = entered[ekey(line, period)]; if (m) return { value: m.value, kind: m.kind };
+        if (M) return { value: M.value, kind: M.kind };
         return { value: usd(period === 0 ? par('__gps_m0__') : par('__gps_mensal__')), kind: 'real' };
       }
-      if (line === 'Security Deposit' && par('__deposit__') > 0) {
-        const m = entered[ekey(line, period)]; if (m) return { value: m.value, kind: m.kind };
-        return { value: period === 0 ? usd(par('__deposit__')) : 0, kind: 'real' };
+      // calção: nº de aluguéis × |Subrental fee orçado do M1| (USD)
+      const depMag = par('__num_alugueis__') * Math.abs(orcVal('Subrental fee', 1) || 0);
+      if (line === 'Security Deposit' && par('__num_alugueis__') > 0) {
+        if (M) return { value: M.value, kind: M.kind };
+        return { value: period === 0 ? -Math.round(depMag) : 0, kind: 'real' };
+      }
+      if (line === 'Deposit Refund' && par('__num_alugueis__') > 0) {
+        if (M) return { value: M.value, kind: M.kind };
+        if (period !== U.periods) return { value: 0, kind: 'real' };
+        return { value: Math.round(depMag * (1 + refundPct) / orcadoCambio * cotacao), kind: 'real' }; // entrada no M12
       }
       if (line === 'Vehicle Purchase' && par('__vehicle__') > 0) {
-        const m = entered[ekey(line, period)]; if (m) return { value: m.value, kind: m.kind };
+        if (M) return { value: M.value, kind: M.kind };
         return { value: period === U.periods ? usd(par('__vehicle__')) : 0, kind: 'real' };
+      }
+      if (line === 'Initial Fee / Vehicle Sell' && par('__vehicle__') > 0) {
+        if (M) return { value: M.value, kind: M.kind };
+        if (period !== U.periods) return { value: 0, kind: 'real' };
+        return { value: Math.round((par('__vehicle__') / cotacao) * 1.03), kind: 'real' }; // = Vehicle Purchase × 1,03 (entrada)
       }
       const e = entered[ekey(line, period)];
       if (e) return { value: e.value, kind: e.kind };
@@ -495,6 +517,19 @@
         try { fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fleet: fleetKey, line, period: 0, value: getter(), kind: 'real' }) }); } catch (e) {}
       });
     }
+    // campo numérico (câmbio do orçado, % refund) — editável por todos, persiste em setting global
+    function field(id, label, val, step) {
+      return `<div class="ue-field"><label>${label}</label><input type="number" id="${id}" step="${step}" value="${val}"/></div>`;
+    }
+    function wireField(id, setter, settingLine, getValue, f) {
+      const inp = document.getElementById(id);
+      if (!inp) return;
+      inp.addEventListener('input', () => { const v = parseFloat(inp.value); if (isFinite(v)) { setter(v); renderTable(f); } });
+      inp.addEventListener('change', () => {
+        const v = parseFloat(inp.value); if (!isFinite(v)) return;
+        try { fetch('/api/ue/setting', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ line: settingLine, value: getValue() }) }); } catch (e) {}
+      });
+    }
 
     // caixinha de input (R$) para Insurance / GPS / Security Deposit / Vehicle Purchase
     function openParamModal(line, f) {
@@ -503,9 +538,9 @@
       const ov = document.createElement('div');
       ov.className = 'ue-modal-overlay';
       ov.innerHTML =
-        `<div class="ue-modal"><div class="ue-modal-title">${line} — realizado (R$)</div>` +
+        `<div class="ue-modal"><div class="ue-modal-title">${line} — realizado</div>` +
         fields.map((fl) => `<div class="ue-modal-field"><label>${fl.label}</label><input type="text" inputmode="decimal" data-k="${fl.k}" value="${params[fl.k] != null ? params[fl.k] : ''}"/></div>`).join('') +
-        `<div class="ue-modal-hint">Os valores em R$ são convertidos para US$ pela cotação do slider, na linha do mês correspondente.</div>` +
+        `<div class="ue-modal-hint">Valores em R$ viram US$ pelo câmbio futuro. (Security Deposit = nº de aluguéis × Subrental fee orçado do M1.)</div>` +
         `<div class="ue-modal-actions"><button type="button" class="ue-modal-cancel">Cancelar</button><button type="button" class="ue-modal-save">Salvar</button></div></div>`;
       document.body.appendChild(ov);
       const close = () => ov.remove();
@@ -538,14 +573,14 @@
       model = f.model;
       const foto = (OCN.modelos[f.model] || {}).foto;
       fleetsEl.querySelectorAll('.ue-fleet-btn').forEach((b) => b.classList.toggle('active', b.dataset.id === current));
-      // carrega valores da frota (entradas manuais + km/mês salvo)
-      kmMes = 2000; entered = {}; params = {};
+      // carrega valores da frota (entradas + km/semana + params)
+      kmSemana = 1200; entered = {}; params = {};
       try {
         const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(current), { cache: 'no-store' });
         if (r.ok) {
           const d = await r.json();
           (d.values || []).forEach((v) => {
-            if (v.line === '__km_mes__') { kmMes = v.value; return; }
+            if (v.line === '__km_sem__') { kmSemana = v.value; return; }
             if (String(v.line).startsWith('__')) { params[v.line] = v.value; return; }
             entered[ekey(v.line, v.period)] = { value: v.value, kind: v.kind };
           });
@@ -561,13 +596,17 @@
           (isAdmin ? `<label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Modo manual</span></label>` : '') +
         `</div>` +
         `<div class="ue-sliders">` +
-          slider('ueKm', 'km/mês da frota', 0, 6000, 50, kmMes) +
-          slider('ueCotacao', 'cotação do dólar', 3, 8, 0.05, cotacao) +
-          `<div class="ue-sliders-hint">A linha <b>Maintenance</b> = custo de revisão (a cada 10.000 km, preço do site de revisões ÷ cotação).</div>` +
+          slider('ueKm', 'km/semana da frota', 0, 2400, 25, kmSemana) +
+          slider('ueCotacao', 'câmbio futuro (R$/US$)', 3, 8, 0.05, cotacao) +
+          field('ueOrcCambio', 'câmbio do orçado (R$/US$)', orcadoCambio, 0.05) +
+          field('ueRefundPct', 'correção Deposit Refund (% a.a.)', Math.round(refundPct * 10000) / 100, 1) +
+          `<div class="ue-sliders-hint">Câmbio do orçado e % do Deposit Refund: editáveis por todos. Sliders (km/semana e câmbio futuro): só admin.</div>` +
         `</div>`;
       if (isAdmin) document.getElementById('ueManual').addEventListener('change', (e) => { manualMode = e.target.checked; renderTable(f); });
-      wireSlider('ueKm', (v) => { kmMes = v; }, () => kmMes.toLocaleString('pt-BR') + ' km', () => kmMes, '__km_mes__', current, f);
+      wireSlider('ueKm', (v) => { kmSemana = v; }, () => kmSemana.toLocaleString('pt-BR') + ' km/sem', () => kmSemana, '__km_sem__', current, f);
       wireSlider('ueCotacao', (v) => { cotacao = v; }, () => 'R$ ' + cotacao.toFixed(2).replace('.', ','), () => cotacao, '__cotacao__', '__cfg__', f);
+      wireField('ueOrcCambio', (v) => { orcadoCambio = v; }, '__orcado_cambio__', () => orcadoCambio, f);
+      wireField('ueRefundPct', (v) => { refundPct = v / 100; }, '__refund_pct__', () => refundPct, f);
       renderTable(f);
     }
 
@@ -650,12 +689,17 @@
       input.addEventListener('blur', () => { setTimeout(commit, 120); });
     }
 
-    // carrega a cotação global (uma vez) e então a primeira frota
+    // carrega os globais (câmbio futuro, câmbio do orçado, % refund) e então a primeira frota
     (async function () {
       try {
         const r = await fetch('/api/ue/values?fleet=__cfg__', { cache: 'no-store' });
-        if (r.ok) { const d = await r.json(); const c = (d.values || []).find((v) => v.line === '__cotacao__'); if (c) cotacao = c.value; }
-      } catch (e) { /* usa default */ }
+        if (r.ok) {
+          const d = await r.json(); const get = (k) => { const x = (d.values || []).find((v) => v.line === k); return x ? x.value : undefined; };
+          const c = get('__cotacao__'); if (c != null) cotacao = c;
+          const oc = get('__orcado_cambio__'); if (oc != null) orcadoCambio = oc;
+          const rp = get('__refund_pct__'); if (rp != null) refundPct = rp;
+        }
+      } catch (e) { /* usa defaults */ }
       loadFleet();
     })();
   }

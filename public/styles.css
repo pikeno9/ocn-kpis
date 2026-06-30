@@ -97,6 +97,10 @@ button { font-family: inherit; cursor: pointer; }
 .ue-slider input[type=range] { width: 220px; accent-color: var(--accent); cursor: pointer; }
 .ue-slider input[type=range]:disabled { cursor: default; opacity: .7; }
 .ue-sl-val { font-size: 13px; font-weight: 700; color: var(--text); }
+.ue-field { display: flex; flex-direction: column; gap: 5px; }
+.ue-field label { font-size: 11px; color: var(--text-2); font-weight: 500; }
+.ue-field input { width: 132px; padding: 6px 9px; border: 1px solid var(--border-2); border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--text); font-family: var(--font); background: #fff; }
+.ue-field input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px #5a00f81f; }
 .ue-sliders-hint { font-size: 11px; color: var(--text-2); line-height: 1.45; max-width: 280px; align-self: center; }
 /* rótulo editável (linhas com caixinha de R$) */
 .ue-param-label { cursor: pointer; }

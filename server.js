@@ -75,6 +75,17 @@ app.get('/api/refresh', async (_req, res) => {
 app.get('/api/me', (req, res) => res.json({ user: req.user }));
 
 // ---------- Unit Economics: valores realizados/projetados ----------
+// Settings globais (câmbio do orçado, % do Deposit Refund) — qualquer usuário autenticado pode alterar
+const UE_SETTINGS = ['__orcado_cambio__', '__refund_pct__'];
+app.post('/api/ue/setting', async (req, res) => {
+  const b = req.body || {};
+  const line = String(b.line || '');
+  const value = Number(b.value);
+  if (!UE_SETTINGS.includes(line) || !isFinite(value)) return res.status(400).json({ error: 'inválido' });
+  try { await store.set({ fleetId: '__cfg__', line, period: 0, value, kind: 'real', user: req.user.login }); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 function requireAdmin(req, res, next) {
   if (req.user && req.user.role === 'admin') return next();
   return res.status(403).json({ error: 'apenas administradores podem editar' });

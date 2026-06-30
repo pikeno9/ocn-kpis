@@ -327,6 +327,7 @@
     let manualMode = false; // edição manual desligada por padrão
     let kmMes = 2000;       // km/mês da frota (slider, por frota)
     let cotacao = 5.5;      // cotação R$/US$ (slider, global)
+    const ORCADO_COTACAO = 5.0; // o orçado (USD) foi calculado a R$5,0/US$
     const ekey = (l, p) => l + '@@' + p;
 
     const fmtNum = (v) => Math.abs(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
@@ -375,6 +376,13 @@
         const m = entered[ekey(line, period)];
         if (m) return { value: m.value, kind: m.kind }; // override manual
         return { value: -revisaoCusto(model, period), kind: 'real' };
+      }
+      if (line === 'Subrental fee') {
+        const m = entered[ekey(line, period)];
+        if (m) return { value: m.value, kind: m.kind }; // override manual
+        const o = orcVal(line, period);
+        if (o == null) return null;
+        return { value: Math.round(o * (ORCADO_COTACAO / cotacao)), kind: 'real' }; // orçado ajustado pela cotação
       }
       const e = entered[ekey(line, period)];
       if (e) return { value: e.value, kind: e.kind };

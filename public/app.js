@@ -633,7 +633,10 @@
             `<div class="ue-fleet-sub">${f.cars} carros · contrato de ${U.periods} meses</div>` +
             `<div class="ue-fleet-sub">${subInfo}</div></div>` +
           `</div>` +
-          (isAdmin ? `<label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Modo manual</span></label>` : '') +
+          `<div class="ue-head-actions">` +
+            (isAdmin ? `<label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Modo manual</span></label>` : '') +
+            `<button class="ue-refresh-btn" id="ueRefresh" title="Rebusca a planilha, os preços de revisão e as manutenções reais da frota">↻ Atualizar dados</button>` +
+          `</div>` +
         `</div>` +
         `<div class="ue-sliders">` +
           slider('ueKm', 'km/semana da frota', 0, 3000, 25, kmSemana) +
@@ -642,6 +645,18 @@
           field('ueRefundPct', 'correção Deposit Refund (% a.a.)', Math.round(refundPct * 10000) / 100, 1) +
         `</div>`;
       if (isAdmin) document.getElementById('ueManual').addEventListener('change', (e) => { manualMode = e.target.checked; renderTable(f); });
+      // Atualizar dados: re-busca tudo no servidor (planilha, revisões, manutenções da frota) e re-renderiza
+      const btnR = document.getElementById('ueRefresh');
+      if (btnR) btnR.addEventListener('click', async () => {
+        btnR.disabled = true; btnR.textContent = '↻ Atualizando…';
+        try {
+          await fetch('/api/refresh');
+          const r = await fetch('/api/data', { cache: 'no-store' });
+          if (r.ok) { const d = await r.json(); if (d.ue) Object.assign(U, d.ue); if (d.atualizadoEm) OCN.atualizadoEm = d.atualizadoEm; }
+          const hl = document.getElementById('hojeLabel'); if (hl && OCN.atualizadoEm) hl.textContent = OCN.atualizadoEm;
+          await loadFleet(); // reconstrói cabeçalho + tabela com os dados novos (botão volta ao normal)
+        } catch (e) { btnR.textContent = '✗ falhou — tente de novo'; btnR.disabled = false; }
+      });
       wireSlider('ueKm', (v) => { kmSemana = v; }, () => kmSemana.toLocaleString('pt-BR') + ' km/sem', () => kmSemana, '__km_sem__', current, f);
       wireSlider('ueCotacao', (v) => { cotacao = v; }, () => 'R$ ' + cotacao.toFixed(2).replace('.', ','), () => cotacao, '__cotacao__', '__cfg__', f);
       wireField('ueOrcCambio', (v) => { orcadoCambio = v; }, '__orcado_cambio__', () => orcadoCambio, f);

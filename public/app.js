@@ -203,24 +203,49 @@
   // ---------- chart acumulado (Received Fleet) ----------
   const A = OCN.acumulado;
   const cumTotal = M.labels.map((_, i) => (A.recebido.Polo[i] || 0) + (A.recebido.Argo[i] || 0) + (A.recebido.Tera[i] || 0));
-  function cumDS(model, withTotal) {
-    // número por modelo dentro do segmento (menor); no dataset de baixo (Polo), também o total — tag ao lado, centralizado
+  function cumDS(model) {
+    // número por modelo dentro do segmento (menor)
     const labels = { seg: { anchor: 'center', align: 'center', color: txtOnBar(COR[model]), font: { size: 9, weight: 600 }, formatter: (v) => (v > 0 ? v : '') } };
-    if (withTotal) labels.total = { anchor: 'center', align: 'right', offset: 8, color: '#111827', font: { size: 11, weight: 600 }, backgroundColor: 'rgba(255,255,255,0.9)', borderColor: '#5A00F8', borderWidth: 1, borderRadius: 5, padding: { top: 2, bottom: 2, left: 6, right: 6 }, formatter: (v, ctx) => (cumTotal[ctx.dataIndex] || '') };
     return { label: OCN.modelos[model].label, data: A.recebido[model], backgroundColor: COR[model], stack: 'r', borderRadius: 3, maxBarThickness: 48, order: 2, datalabels: { labels } };
   }
+  // plugin: total ao lado da barra, no meio (vertical), com caixinha de borda pontilhada roxa (datalabels não faz traço pontilhado)
+  const acumTotalTag = {
+    id: 'acumTotalTag',
+    afterDatasetsDraw(chart) {
+      const ctx = chart.ctx, yScale = chart.scales.y, meta = chart.getDatasetMeta(0);
+      ctx.save();
+      ctx.font = "400 10px " + ((Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif');
+      ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      for (let i = 0; i < cumTotal.length; i++) {
+        const tot = cumTotal[i], bar = meta.data[i];
+        if (!tot || !bar) continue; // mês sem valor → sem caixinha
+        const txt = String(tot), tw = ctx.measureText(txt).width;
+        const padX = 5, padY = 3, h = 10 + padY * 2, w = tw + padX * 2;
+        const bx = bar.x + bar.width / 2 + 10; // à direita da barra, sem encostar
+        const py = yScale.getPixelForValue(tot / 2); // meio da barra (metade do acumulado)
+        const by = py - h / 2;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(bx, by, w, h, 4); else ctx.rect(bx, by, w, h);
+        ctx.setLineDash([2, 2]); ctx.lineWidth = 1; ctx.strokeStyle = '#5A00F8'; ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#111827'; ctx.fillText(txt, bx + padX, py + 0.5);
+      }
+      ctx.restore();
+    },
+  };
   new Chart(document.getElementById('chartAcum'), {
     type: 'bar',
     data: {
       labels: M.labels,
       datasets: [
-        cumDS('Polo', true), cumDS('Argo'), cumDS('Tera'),
-        // linha esperada: mesmo formato do gráfico mensal (tracejada + rótulo dlLine); order menor = desenhada na frente das barras
-        { label: 'Expected (cum.)', data: A.esperado, type: 'line', borderColor: NAVY, backgroundColor: NAVY, borderWidth: 2, borderDash: [5, 4], pointRadius: 4, pointHoverRadius: 6, tension: 0.25, order: 1, datalabels: dlLine },
+        cumDS('Polo'), cumDS('Argo'), cumDS('Tera'),
+        // linha esperada: mesmo formato do gráfico mensal (tracejada + rótulo dlLine); order maior = desenhada ATRÁS das barras
+        { label: 'Expected (cum.)', data: A.esperado, type: 'line', borderColor: NAVY, backgroundColor: NAVY, borderWidth: 2, borderDash: [5, 4], pointRadius: 4, pointHoverRadius: 6, tension: 0.25, order: 3, datalabels: dlLine },
       ],
     },
+    plugins: [acumTotalTag],
     options: {
-      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 26, right: 16 } },
+      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 26, right: 20 } },
       plugins: { legend: { display: false }, datalabels: { clamp: true }, tooltip: { callbacks: { label: (c) => (c.parsed.y == null ? null : c.dataset.label + ': ' + c.parsed.y) } } },
       scales: {
         x: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } },

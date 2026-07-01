@@ -100,6 +100,22 @@
           </div>
           <div class="hint"><i class="ti ti-pointer"></i> click a month's bar to see the weekly breakdown</div>
         </div>
+
+        <div class="card">
+          <div class="sub2-title"><i class="ti ti-chart-bar"></i> Active vs. inactive vehicles</div>
+          <div class="sub2-desc">Share of the fleet rented vs. not, at each month-end (current month = today). Total loss excluded.</div>
+          <div class="legend">
+            <span class="it"><span class="sw" style="background:#5A00F8"></span> Active Vehicles</span>
+            <span class="it"><span class="sw" style="background:#CBD5E1"></span> Inactive Vehicles</span>
+            <div class="range-toggle" id="rangeToggle2">
+              <button class="range-btn active" data-range="ytd">YTD</button>
+              <button class="range-btn" data-range="fy">FY26</button>
+            </div>
+          </div>
+          <div class="chart-box" style="height:300px;">
+            <canvas id="chartUtil" role="img" aria-label="Active vs inactive vehicles share by month"></canvas>
+          </div>
+        </div>
       </div>
 
       <!-- ---------- INCIDENTS ---------- -->

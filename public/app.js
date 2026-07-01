@@ -254,6 +254,47 @@
     },
   });
 
+  // ---------- chart utilização (Active × Inactive, 100% empilhado) ----------
+  const FS = OCN.fleetStatus;
+  if (FS && FS.labels && document.getElementById('chartUtil')) {
+    const range2Toggle = document.getElementById('rangeToggle2');
+    let range2 = 'ytd';
+    const rng2 = (arr) => (range2 === 'ytd' ? arr.slice(0, vi + 1) : arr);
+    const pctFmt = (v) => (v == null ? '' : String(Math.round(v * 10) / 10).replace('.', ',') + '%');
+    const utilDS = (label, pct, abs, color) => ({
+      label, data: pct, _abs: abs, backgroundColor: color, stack: 'u', borderRadius: 3, maxBarThickness: 64,
+      datalabels: { color: (ctx) => txtOnBar(ctx.dataset.backgroundColor), anchor: 'center', align: 'center', font: { size: 11, weight: 600 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => pctFmt(v) },
+    });
+    let chartUtil;
+    function buildUtil() {
+      return {
+        type: 'bar',
+        data: { labels: rng2(FS.labels), datasets: [
+          utilDS('Active Vehicles', rng2(FS.activePct), rng2(FS.active), '#5A00F8'),
+          utilDS('Inactive Vehicles', rng2(FS.inactivePct), rng2(FS.inactive), '#CBD5E1'),
+        ] },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false }, datalabels: { clamp: true },
+            tooltip: { callbacks: { label: (c) => { const abs = c.dataset._abs ? c.dataset._abs[c.dataIndex] : null; return c.dataset.label + ': ' + pctFmt(c.parsed.y) + (abs != null ? ' (' + abs + ')' : ''); } } },
+          },
+          scales: {
+            x: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } },
+            y: { stacked: true, min: 0, max: 100, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, callback: (v) => v + '%' } },
+          },
+        },
+      };
+    }
+    function renderUtil() { if (chartUtil) chartUtil.destroy(); chartUtil = new Chart(document.getElementById('chartUtil'), buildUtil()); }
+    if (range2Toggle) range2Toggle.querySelectorAll('.range-btn').forEach((b) => b.addEventListener('click', () => {
+      range2 = b.dataset.range;
+      range2Toggle.querySelectorAll('.range-btn').forEach((x) => x.classList.toggle('active', x === b));
+      renderUtil();
+    }));
+    renderUtil();
+  }
+
   // esconde a tela de loading quando o dashboard está pronto
   const _ld = document.getElementById('appLoading');
   if (_ld) _ld.classList.add('hidden');

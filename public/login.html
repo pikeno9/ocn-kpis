@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Entrar — OCN KPIs</title>
+  <title>Sign in — OCN KPIs</title>
   <link rel="icon" href="favicon.ico" sizes="any" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -45,23 +45,23 @@
   <div class="login-card">
     <div class="login-header">
       <img src="brand/ocn-logo.png" alt="OCN" class="login-logo" />
-      <h1>Dashboard de KPIs</h1>
-      <p>Entre com seu login e senha</p>
+      <h1>KPI Dashboard</h1>
+      <p>Sign in with your login and password</p>
     </div>
     <div id="alert" class="alert"></div>
     <form id="login-form">
       <div>
         <label for="login">Login</label>
-        <input type="text" id="login" name="login" required autocomplete="username" placeholder="seu.login" />
+        <input type="text" id="login" name="login" required autocomplete="username" placeholder="your.login" />
       </div>
       <div>
-        <label for="password">Senha</label>
+        <label for="password">Password</label>
         <input type="password" id="password" name="password" required autocomplete="current-password" />
       </div>
-      <button type="submit" id="btn-submit">Entrar</button>
-      <button type="button" class="link-button" id="btn-reset">Esqueci minha senha</button>
+      <button type="submit" id="btn-submit">Sign in</button>
+      <button type="button" class="link-button" id="btn-reset">Forgot my password</button>
     </form>
-    <div class="footer-note">Acesso restrito ao time OCN. Dúvidas? Fale com o administrador.</div>
+    <div class="footer-note">Restricted to the OCN team. Questions? Contact the administrator.</div>
   </div>
 
   <script>
@@ -75,7 +75,7 @@
       alertBox.classList.remove('show');
       btn.disabled = true;
       const original = btn.innerHTML;
-      btn.innerHTML = '<span class="spin"></span> Entrando...';
+      btn.innerHTML = '<span class="spin"></span> Signing in...';
       try {
         const r = await fetch('/api/login', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -83,16 +83,16 @@
         });
         if (r.ok) { window.location.href = '/'; return; }
         const d = await r.json().catch(() => ({}));
-        showAlert(d.error || 'Login ou senha inválidos.');
+        showAlert(d.error || 'Invalid login or password.');
       } catch (err) {
-        showAlert('Erro de conexão. Tente novamente.');
+        showAlert('Connection error. Please try again.');
       }
       btn.disabled = false;
       btn.innerHTML = original;
     });
 
     document.getElementById('btn-reset').addEventListener('click', () =>
-      showAlert('Para redefinir a senha, fale com o administrador.')
+      showAlert('To reset your password, contact the administrator.')
     );
   </script>
 </body>

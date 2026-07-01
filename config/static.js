@@ -26,11 +26,11 @@ const UE_TABS = { Polo: 'UE - Polo', Argo: 'UE - Argo', Tera: 'UE - Tera' };
 const UE_PERIODS = 12; // M1-M12; M0 = setup inicial (coluna 2 das abas UE)
 const UE_FLEET_COL = 14; // coluna "O" (frota) em import_data = identifica a frota (1..n)
 
-// Identidade dos modelos (color-code)
+// Identidade dos modelos (color-code) — VW (Polo/Tera) em tons de azul; Fiat (Argo) em laranja vivo
 const modelos = {
-  Polo: { label: 'Polo Track', cor: '#B6BF69', foto: 'cars/polo.png' },
-  Argo: { label: 'Argo Drive', cor: '#DBCB1E', foto: 'cars/argo.webp' },
-  Tera: { label: 'Tera', cor: '#B9A7E5', foto: 'cars/tera.png' },
+  Polo: { label: 'Polo Track', cor: '#1D4ED8', foto: 'cars/polo.png' }, // VW — azul forte
+  Argo: { label: 'Argo Drive', cor: '#EA580C', foto: 'cars/argo.webp' }, // Fiat — laranja
+  Tera: { label: 'Tera', cor: '#60A5FA', foto: 'cars/tera.png' },        // VW — azul claro
 };
 const corEsperado = '#282728';
 
@@ -50,8 +50,8 @@ const spilloverDates = { '31/05/2026': '01/06/2026' };
 const undatedReceivedDate = '19/06/2026';
 
 // ---- Calendário / esperado (ESTÁTICO) ----
-const mLabels = ['Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-const mFull = ['Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+const mLabels = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const mFull = ['April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 const esperado = {
   total: [null, 56, 64, 74, 84, 94, 106, 121, 126],
@@ -71,7 +71,7 @@ const esperado = {
   acumulado: [50, 106, 170, 244, 328, 422, 528, 649, 775],
 };
 
-const semanaLabels = [['Sem 1', '1–7'], ['Sem 2', '8–14'], ['Sem 3', '15–21'], ['Sem 4', '22–28'], ['Sem 5', '29–31']];
+const semanaLabels = [['Week 1', '1–7'], ['Week 2', '8–14'], ['Week 3', '15–21'], ['Week 4', '22–28'], ['Week 5', '29–31']];
 const esperadoSemanal = {
   total: {
     1: [null, 56, null, null, null],
@@ -94,39 +94,39 @@ const esperadoSemanal = {
     8: [{ Tera: 126 }, null, null, null, null],
   },
   notas: {
-    1: 'Maio: 06/05 (30 Argo) e 13–14/05 (26 Polo). Esperado: 08/05 (30 Argo) + 13/05 (26 Polo).',
-    2: 'Junho: 38 Argo no início (33 de 31/05 + 5 de 03/06) e 19/06 (18 Tera + 1 Argo). Esperado: 64 Polo. Os Tera chegaram ~2 meses antes do calendário (1º previsto em Ago).',
-    7: 'Novembro: esperado capado em 121 (50+50+21 Tera).',
-    8: 'Dezembro: 126 Tera no início do mês.',
+    1: 'May: 06/05 (30 Argo) and 13–14/05 (26 Polo). Expected: 08/05 (30 Argo) + 13/05 (26 Polo).',
+    2: 'June: 38 Argo early (33 from 31/05 + 5 from 03/06) and 19/06 (18 Tera + 1 Argo). Expected: 64 Polo. The Teras arrived ~2 months ahead of the calendar (1st planned for Aug).',
+    7: 'November: expected capped at 121 (50+50+21 Tera).',
+    8: 'December: 126 Tera at the start of the month.',
   },
 };
 
 const proximoLote = { mesIndex: 3, semanaIndex: 0, modelo: 'Polo', qtd: 25, dataLabel: '02/07', desc: '25 Polo' };
 
 const notaMensal =
-  'Exceções: 33 Argo de 31/05 contados em Junho · 18 Tera + 1 Argo de 19/06 (linhas sem data na base) incluídos em Junho · Nov capado em 121 (excedente do lote 19/11 → Dez = 126) · Abril sem esperado no calendário.';
+  'Exceptions: 33 Argo from 05/31 counted in June · 18 Tera + 1 Argo from 06/19 (rows with no date in the base) included in June · Nov capped at 121 (overflow from the 11/19 batch → Dec = 126) · April has no expected value in the calendar.';
 
 // ---- Status da frota (coluna Q). match = textos da planilha que caem nesse status ----
 const statusItems = [
-  { label: 'Alugados', cor: '#DB2D2D', match: ['alugado'] },
-  { label: 'Disponível', cor: '#2FA84F', match: ['disponível', 'disponivel'] },
-  { label: 'Em preparação', cor: '#D4A017', match: ['em preparação', 'em preparacao', 'preparação', 'preparacao'] },
-  { label: 'Oficina', cor: '#5A00F8', match: ['oficina'] },
-  { label: 'Perda total', cor: '#282728', match: ['perda total'] },
-  { label: 'Vendidos', cor: '#6B7280', listrado: true, match: ['vendido', 'vendida', 'vendidos'] },
+  { label: 'Rented', cor: '#5A00F8', match: ['alugado'] },                 // roxo (destaque)
+  { label: 'Available', cor: '#2FA84F', match: ['disponível', 'disponivel'] },
+  { label: 'In preparation', cor: '#D4A017', match: ['em preparação', 'em preparacao', 'preparação', 'preparacao'] },
+  { label: 'Workshop', cor: '#2563EB', match: ['oficina'] },               // azul
+  { label: 'Total loss', cor: '#282728', match: ['perda total'] },
+  { label: 'Sold', cor: '#6B7280', listrado: true, match: ['vendido', 'vendida', 'vendidos'] },
 ];
 
 // ---- Ocorrências ----
 const ocorrenciaTipos = [
-  { label: 'Problema mecânico', barLabel: 'Mecânico', cor: '#5A00F8', match: ['problema mecânico', 'problema mecanico', 'mecânico', 'mecanico'] },
-  { label: 'Colisão', barLabel: 'Colisão', cor: '#8B5CF6', match: ['colisão', 'colisao', 'batida'] },
-  { label: 'Roubo', barLabel: 'Roubo', cor: '#A78BFA', match: ['roubo'] },
-  { label: 'Perda total', barLabel: 'Perda total', cor: '#C9B8F0', match: ['perda total'] },
+  { label: 'Mechanical issue', barLabel: 'Mechanical', cor: '#5A00F8', match: ['problema mecânico', 'problema mecanico', 'mecânico', 'mecanico'] },
+  { label: 'Collision', barLabel: 'Collision', cor: '#8B5CF6', match: ['colisão', 'colisao', 'batida'] },
+  { label: 'Theft', barLabel: 'Theft', cor: '#A78BFA', match: ['roubo'] },
+  { label: 'Total loss', barLabel: 'Total loss', cor: '#C9B8F0', match: ['perda total'] },
 ];
 const churnTipos = [
-  { label: 'Recuperação', cor: '#5A00F8', match: ['recuperação', 'recuperacao'] },
-  { label: 'Rescisão pelo motorista', cor: '#8B5CF6', match: ['rescisão pelo motorista', 'rescisao pelo motorista', 'rescisão', 'rescisao'] },
-  { label: 'Sinistro – PT', cor: '#A78BFA', match: ['sinistro - pt', 'sinitro - pt', 'sinistro – pt', 'sinistro pt'] },
+  { label: 'Recovery', cor: '#5A00F8', match: ['recuperação', 'recuperacao'] },
+  { label: 'Driver termination', cor: '#8B5CF6', match: ['rescisão pelo motorista', 'rescisao pelo motorista', 'rescisão', 'rescisao'] },
+  { label: 'Claim – TL', cor: '#A78BFA', match: ['sinistro - pt', 'sinitro - pt', 'sinistro – pt', 'sinistro pt'] },
 ];
 // Motivos que NÃO contam como rescisão (driver seguiu, só trocou de carro)
 const churnExcluir = ['troca de carro', 'troca'];

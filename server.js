@@ -50,7 +50,7 @@ app.get('/favicon.ico', (_req, res) => res.sendFile(path.join(__dirname, 'public
 
 app.post('/api/login', (req, res) => {
   const user = auth.verifyCredentials(req.body && req.body.login, req.body && req.body.password);
-  if (!user) return res.status(401).json({ error: 'Login ou senha inválidos.' });
+  if (!user) return res.status(401).json({ error: 'Invalid login or password.' });
   const token = auth.sign(user);
   res.cookie(COOKIE, token, { httpOnly: true, sameSite: 'lax', secure: auth.onRailway, maxAge: 7 * 24 * 60 * 60 * 1000 });
   res.json({ ok: true, user });

@@ -240,6 +240,11 @@ button { font-family: inherit; cursor: pointer; }
 .chart-box { position: relative; width: 100%; }
 .backbtn { font-size: 12px; padding: 6px 13px; border-radius: var(--radius-sm); border: 1px solid var(--border-2); background: var(--surface); color: var(--text); display: none; align-items: center; gap: 6px; }
 .backbtn:hover { background: var(--surface-2); }
+.range-toggle { display: inline-flex; margin-left: auto; border: 1px solid var(--border-2); border-radius: var(--radius-sm); overflow: hidden; }
+.range-btn { font-size: 11px; font-weight: 600; padding: 5px 12px; border: none; background: var(--surface); color: var(--text-2); cursor: pointer; transition: background .15s, color .15s; }
+.range-btn + .range-btn { border-left: 1px solid var(--border-2); }
+.range-btn.active { background: var(--accent); color: #fff; }
+.range-btn:not(.active):hover { background: var(--surface-2); }
 .hint { font-size: 12px; color: var(--text-3); margin-top: 10px; display: flex; align-items: center; gap: 6px; }
 .note { font-size: 11.5px; color: var(--text-3); margin-top: 8px; line-height: 1.6; }
 .divider { height: 1px; background: var(--border); margin: 26px 0 20px; }

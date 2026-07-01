@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>OCN — Dashboard de KPIs</title>
+  <title>OCN — KPI Dashboard</title>
   <link rel="icon" href="favicon.ico" sizes="any" />
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png" />
@@ -27,87 +27,89 @@
     <div class="app-brand">
       <img src="brand/ocn-logo-white.png" alt="OCN" class="app-brand__logo" />
       <div class="app-brand__text">
-        <h1>Dashboard de KPIs</h1>
+        <h1>KPI Dashboard</h1>
         <p>One Car Now</p>
       </div>
     </div>
     <div class="app-user">
-      <div class="header-meta">atualizado <span id="hojeLabel">—</span></div>
+      <div class="header-meta">updated <span id="hojeLabel">—</span></div>
       <div class="app-user__info">
         <div class="email" id="userName">—</div>
         <div class="role" id="userRole"></div>
       </div>
-      <button class="app-user__logout" id="btnLogout">Sair</button>
+      <button class="app-user__logout" id="btnLogout">Log out</button>
     </div>
   </header>
 
-  <!-- ===================== ABAS PRINCIPAIS ===================== -->
+  <!-- ===================== MAIN TABS ===================== -->
   <nav class="main-tabs">
-    <button class="main-tab active" data-sec="operacao"><i class="ti ti-settings-2"></i> Operação</button>
-    <button class="main-tab" data-sec="comercial"><i class="ti ti-chart-bar"></i> Comercial <span class="tab-badge">em breve</span></button>
-    <button class="main-tab" data-sec="rh"><i class="ti ti-users"></i> Recursos Humanos <span class="tab-badge">em breve</span></button>
+    <button class="main-tab active" data-sec="operacao"><i class="ti ti-settings-2"></i> Operations</button>
+    <button class="main-tab" data-sec="comercial"><i class="ti ti-chart-bar"></i> Commercial <span class="tab-badge">soon</span></button>
+    <button class="main-tab" data-sec="rh"><i class="ti ti-users"></i> Human Resources <span class="tab-badge">soon</span></button>
   </nav>
 
   <main class="content">
     <!-- ===================== OPERAÇÃO ===================== -->
     <section class="section active" id="sec-operacao">
       <div class="sub-tabs">
-        <button class="sub-tab active" data-sub="frota">Frota</button>
-        <button class="sub-tab" data-sub="ocorrencias">Ocorrências</button>
+        <button class="sub-tab active" data-sub="frota">Fleet</button>
+        <button class="sub-tab" data-sub="ocorrencias">Incidents</button>
         <button class="sub-tab" data-sub="unit">Unit Economics</button>
       </div>
 
-      <!-- ---------- FROTA ---------- -->
+      <!-- ---------- FLEET ---------- -->
       <div class="subsection active" id="sub-frota">
         <div class="section-head">
           <div>
-            <div class="section-title"><i class="ti ti-car"></i> Frota — recebimento de veículos</div>
-            <div class="section-desc" id="frotaSub">Recebidos vs. esperado · por modelo · visão mensal (2026)</div>
+            <div class="section-title"><i class="ti ti-car"></i> Fleet — vehicle intake</div>
+            <div class="section-desc" id="frotaSub">Received vs. expected · by model · monthly view (2026)</div>
           </div>
-          <div class="crumb" id="frotaCrumb"><i class="ti ti-calendar"></i> ano de 2026</div>
+          <div class="crumb" id="frotaCrumb"><i class="ti ti-calendar"></i> year 2026</div>
         </div>
 
         <div class="fleet-section">
           <div class="fleet-section-head">
-            <div class="fleet-section-title">Status atual da frota</div>
+            <div class="fleet-section-title">Current fleet status</div>
             <div class="fleet-section-sub" id="fleetSub"></div>
           </div>
           <div class="fleet-grid" id="fleetGrid"></div>
         </div>
 
-        <div class="kpi-grid" id="frotaKpis"></div>
+        <div class="card">
+          <div class="sub2-title"><i class="ti ti-chart-area-line"></i> Received Fleet</div>
+          <div class="sub2-desc">Cumulative total we already have vs. total expected by year-end</div>
+          <div class="chart-box" style="height:300px;">
+            <canvas id="chartAcum" role="img" aria-label="Cumulative received by model and cumulative expected"></canvas>
+          </div>
+        </div>
 
         <div class="card">
           <div class="legend">
-            <span class="it"><span class="sw" style="background:#B6BF69"></span> Polo Track</span>
-            <span class="it"><span class="sw" style="background:#DBCB1E"></span> Argo Drive</span>
-            <span class="it"><span class="sw" style="background:#B9A7E5"></span> Tera</span>
-            <span class="it"><span class="sw sw-fc"></span> Previsão (próx. lote)</span>
-            <span class="it"><span class="sw-line"></span> Esperado</span>
-            <button class="backbtn" id="backBtn"><i class="ti ti-arrow-left"></i> voltar à visão mensal</button>
+            <span class="it"><span class="sw" style="background:#1D4ED8"></span> Polo Track</span>
+            <span class="it"><span class="sw" style="background:#EA580C"></span> Argo Drive</span>
+            <span class="it"><span class="sw" style="background:#60A5FA"></span> Tera</span>
+            <span class="it"><span class="sw sw-fc"></span> Forecast (next batch)</span>
+            <span class="it"><span class="sw-line"></span> Expected</span>
+            <div class="range-toggle" id="rangeToggle">
+              <button class="range-btn active" data-range="ytd">YTD</button>
+              <button class="range-btn" data-range="fy">FY26</button>
+            </div>
+            <button class="backbtn" id="backBtn"><i class="ti ti-arrow-left"></i> back to monthly view</button>
           </div>
           <div class="chart-box" style="height:320px;">
             <div class="toast" id="toast"></div>
-            <canvas id="chartMensal" role="img" aria-label="Recebido por modelo e esperado por mês"></canvas>
+            <canvas id="chartMensal" role="img" aria-label="Received by model and expected by month"></canvas>
           </div>
-          <div class="hint"><i class="ti ti-pointer"></i> clique na barra de um mês para ver o detalhe por semana</div>
-        </div>
-
-        <div class="card">
-          <div class="sub2-title"><i class="ti ti-chart-area-line"></i> Acumulado no ano</div>
-          <div class="sub2-desc">Total que já temos vs. total esperado até o fim do ano</div>
-          <div class="chart-box" style="height:280px;">
-            <canvas id="chartAcum" role="img" aria-label="Recebido acumulado por modelo e esperado acumulado"></canvas>
-          </div>
+          <div class="hint"><i class="ti ti-pointer"></i> click a month's bar to see the weekly breakdown</div>
         </div>
       </div>
 
-      <!-- ---------- OCORRÊNCIAS ---------- -->
+      <!-- ---------- INCIDENTS ---------- -->
       <div class="subsection" id="sub-ocorrencias">
         <div class="section-head">
           <div>
-            <div class="section-title"><i class="ti ti-alert-triangle"></i> Ocorrências</div>
-            <div class="section-desc">Tipos, probabilidade por tempo de contrato e sinistros</div>
+            <div class="section-title"><i class="ti ti-alert-triangle"></i> Incidents</div>
+            <div class="section-desc">Types, probability by contract age and insurance claims</div>
           </div>
         </div>
 
@@ -116,35 +118,35 @@
         <div class="card">
           <div class="chart-2col">
             <div>
-              <div class="sub2-title"><i class="ti ti-chart-pie"></i> Ocorrências por tipo</div>
+              <div class="sub2-title"><i class="ti ti-chart-pie"></i> Incidents by type</div>
               <div class="donut-row">
                 <div class="donut-legend" id="legendTipo"></div>
-                <div class="chart-box donut-canvas"><canvas id="chartTipo" role="img" aria-label="Proporção de ocorrências por tipo"></canvas></div>
+                <div class="chart-box donut-canvas"><canvas id="chartTipo" role="img" aria-label="Share of incidents by type"></canvas></div>
               </div>
             </div>
             <div>
-              <div class="sub2-title"><i class="ti ti-shield-half"></i> Sinistro por tipo</div>
-              <div class="sub2-desc">Quais tipos acionaram seguro</div>
+              <div class="sub2-title"><i class="ti ti-shield-half"></i> Claims by type</div>
+              <div class="sub2-desc">Which types triggered insurance</div>
               <div class="legend-inline" id="legendSinistro"></div>
-              <div class="chart-box" style="height:230px;"><canvas id="chartSinistro" role="img" aria-label="Ocorrências com e sem sinistro por tipo"></canvas></div>
+              <div class="chart-box" style="height:230px;"><canvas id="chartSinistro" role="img" aria-label="Incidents with and without a claim by type"></canvas></div>
             </div>
           </div>
         </div>
 
         <div class="card">
-          <div class="sub2-title"><i class="ti ti-clock-hour-4"></i> Probabilidade &amp; contratos</div>
+          <div class="sub2-title"><i class="ti ti-clock-hour-4"></i> Probability &amp; contracts</div>
           <div class="sub2-desc" id="ocorTaxaDesc"></div>
           <div class="mini-stats" id="ocorContratos"></div>
           <div class="chart-2col" style="margin-top:6px;">
             <div>
-              <div class="sub2-title" style="font-size:13px"><i class="ti ti-arrow-bar-down"></i> Motivo de encerramento de contrato</div>
+              <div class="sub2-title" style="font-size:13px"><i class="ti ti-arrow-bar-down"></i> Contract termination reason</div>
               <div class="donut-row">
                 <div class="donut-legend" id="legendChurn"></div>
-                <div class="chart-box donut-canvas"><canvas id="chartChurn" role="img" aria-label="Motivos de encerramento de contrato"></canvas></div>
+                <div class="chart-box donut-canvas"><canvas id="chartChurn" role="img" aria-label="Contract termination reasons"></canvas></div>
               </div>
             </div>
             <div>
-              <div class="sub2-title" style="font-size:13px"><i class="ti ti-calendar-stats"></i> Duração esperada de contrato</div>
+              <div class="sub2-title" style="font-size:13px"><i class="ti ti-calendar-stats"></i> Expected contract duration</div>
               <div id="duracaoPanel"></div>
             </div>
           </div>
@@ -156,7 +158,7 @@
         <div class="section-head">
           <div>
             <div class="section-title"><i class="ti ti-trending-up"></i> Unit Economics</div>
-            <div class="section-desc">Fluxo de caixa por veículo · orçado vs realizado · por frota</div>
+            <div class="section-desc">Cash flow per vehicle · budget vs. actual · by fleet</div>
           </div>
         </div>
         <div class="ue-fleets" id="ueFleets"></div>
@@ -166,21 +168,21 @@
       </div>
     </section>
 
-    <!-- ===================== COMERCIAL ===================== -->
+    <!-- ===================== COMMERCIAL ===================== -->
     <section class="section" id="sec-comercial">
       <div class="coming-soon">
         <i class="ti ti-chart-dots"></i>
-        <p>Comercial</p>
-        <span>Frente a ser estruturada</span>
+        <p>Commercial</p>
+        <span>Area to be built</span>
       </div>
     </section>
 
-    <!-- ===================== RH ===================== -->
+    <!-- ===================== HR ===================== -->
     <section class="section" id="sec-rh">
       <div class="coming-soon">
         <i class="ti ti-users-group"></i>
-        <p>Recursos Humanos</p>
-        <span>Frente a ser estruturada</span>
+        <p>Human Resources</p>
+        <span>Area to be built</span>
       </div>
     </section>
   </main>

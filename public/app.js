@@ -58,7 +58,7 @@
 
   // ---------- Status atual da frota / big numbers ----------
   const SF = OCN.statusFrota;
-  document.getElementById('fleetSub').textContent = SF.total + ' veículos cadastrados';
+  document.getElementById('fleetSub').textContent = SF.total + ' registered vehicles';
   const stripe = 'repeating-linear-gradient(45deg, rgba(40,39,40,0.13) 0, rgba(40,39,40,0.13) 5px, rgba(40,39,40,0.04) 5px, rgba(40,39,40,0.04) 10px)';
   document.getElementById('fleetGrid').innerHTML = SF.items.map((it) => {
     const bg = it.listrado ? stripe : it.cor + '14';
@@ -70,23 +70,15 @@
     </div>`;
   }).join('');
 
-  // ---------- KPIs de topo ----------
-  const k = OCN.kpis;
+  // ---------- mês vigente (base do recorte YTD do gráfico) ----------
   const Mref = OCN.mensal;
-  // Mês vigente: deriva da data atual (Abr=0 ... Dez=8), com clamp ao período
-  const vi = Math.max(0, Math.min(Mref.labels.length - 1, (new Date().getMonth() + 1) - 4));
-  const recVig = (Mref.recebido.Polo[vi] || 0) + (Mref.recebido.Argo[vi] || 0) + (Mref.recebido.Tera[vi] || 0);
-  const expVig = Mref.esperadoTotal[vi];
-  const pctVig = expVig ? Math.round((recVig / expVig) * 100) : null;
-  document.getElementById('frotaKpis').innerHTML = `
-    <div class="kpi-card"><div class="kpi-label"><i class="ti ti-car"></i> Recebidos no ano</div><div class="kpi-value">${k.recebidosAno}</div><div class="kpi-sub">${k.recebidosBreakdown}</div></div>
-    <div class="kpi-card"><div class="kpi-label"><i class="ti ti-calendar-stats"></i> Esperado no ano</div><div class="kpi-value">${k.esperadoAno}</div><div class="kpi-sub">Abr–Dez (calendário)</div></div>
-    <div class="kpi-card"><div class="kpi-label"><i class="ti ti-percentage"></i> Realizado ${Mref.full[vi]}</div><div class="kpi-value">${recVig} / ${expVig == null ? '—' : expVig}</div><div class="kpi-sub">${pctVig == null ? 'sem esperado no mês' : pctVig + '% do esperado'}</div></div>
-    <div class="kpi-card"><div class="kpi-label"><i class="ti ti-truck-delivery"></i> Próximo lote</div><div class="kpi-value">${k.proximoLoteData}</div><div class="kpi-sub">${k.proximoLoteDesc}</div></div>`;
+  const vi = Math.max(0, Math.min(Mref.labels.length - 1, (new Date().getMonth() + 1) - 4)); // Abr=0 ... Dez=8
 
   // ---------- helpers ----------
   function mdlStr(o) { return o ? Object.entries(o).map(([m, v]) => v + ' ' + m).join(' · ') : ''; }
-  const dlBar = { color: '#282728', anchor: 'center', align: 'center', font: { size: 10, weight: 500 }, formatter: (v) => (v > 0 ? v : '') };
+  // cor de texto legível sobre a barra (branco em fundo escuro, grafite em fundo claro)
+  const txtOnBar = (hex) => { if (typeof hex !== 'string' || hex[0] !== '#') return '#282728'; const c = hex.replace('#', ''); const r = parseInt(c.slice(0, 2), 16), g = parseInt(c.slice(2, 4), 16), b = parseInt(c.slice(4, 6), 16); return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6 ? '#282728' : '#fff'; };
+  const dlBar = { color: (ctx) => txtOnBar(ctx.dataset.backgroundColor), anchor: 'center', align: 'center', font: { size: 10, weight: 600 }, formatter: (v) => (v > 0 ? v : '') };
   const dlLine = { color: NAVY, anchor: 'end', align: 'top', offset: 4, font: { size: 11, weight: 500 }, formatter: (v) => ((v || v === 0) ? v : '') };
   const Z = [0, 0, 0, 0, 0];
 
@@ -127,12 +119,13 @@
     return a;
   }
   function lineDS(data, dashed) {
-    return { label: 'Esperado', data, type: 'line', borderColor: NAVY, backgroundColor: NAVY, borderWidth: 2, borderDash: dashed ? [5, 4] : [], pointRadius: 4, pointHoverRadius: 6, tension: 0.25, spanGaps: false, order: 1, datalabels: dlLine };
+    return { label: 'Expected', data, type: 'line', borderColor: NAVY, backgroundColor: NAVY, borderWidth: 2, borderDash: dashed ? [5, 4] : [], pointRadius: 4, pointHoverRadius: 6, tension: 0.25, spanGaps: false, order: 1, datalabels: dlLine };
   }
 
   // ---------- estado / chart principal ----------
   const M = OCN.mensal, W = OCN.semanal;
-  let chartMensal, view = 'monthly', cur = null;
+  let chartMensal, view = 'monthly', cur = null, range = 'ytd';
+  const rng = (arr) => (range === 'ytd' ? arr.slice(0, vi + 1) : arr); // YTD = abr até o mês vigente; FY = ano todo
   const toast = document.getElementById('toast');
   const backBtn = document.getElementById('backBtn');
   function showToast(m) { toast.textContent = m; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2200); }
@@ -143,7 +136,7 @@
       onClick: (e, els) => {
         if (view !== 'monthly' || !els.length) return;
         const i = els[0].index;
-        if (!M.interativo[i]) { showToast('Abril não tem data esperada no calendário'); return; }
+        if (!M.interativo[i]) { showToast('April has no expected date in the calendar'); return; }
         goWeekly(i);
       },
       onHover: (e, els) => { e.native.target.style.cursor = (view === 'monthly' && els.length && M.interativo[els[0].index]) ? 'pointer' : 'default'; },
@@ -153,9 +146,9 @@
           callbacks: {
             title: (it) => isMonthly ? (M.full[it[0].dataIndex] + '/26') : (M.full[cur] + ' · ' + W.labels[it[0].dataIndex][0]),
             label: (c) => {
-              if (c.dataset.label === 'Esperado') {
+              if (c.dataset.label === 'Expected') {
                 const m = isMonthly ? M.esperadoModelo[c.dataIndex] : (W.esperadoModelo[cur] ? W.esperadoModelo[cur][c.dataIndex] : null);
-                return 'Esperado: ' + (c.parsed.y == null ? '—' : c.parsed.y) + (m ? ' (' + mdlStr(m) + ')' : '');
+                return 'Expected: ' + (c.parsed.y == null ? '—' : c.parsed.y) + (m ? ' (' + mdlStr(m) + ')' : '');
               }
               return c.dataset.label + ': ' + c.parsed.y;
             },
@@ -164,13 +157,13 @@
       },
       scales: {
         x: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } },
-        y: { stacked: true, beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, precision: 0 }, title: { display: true, text: 'carros', color: '#9ca3af', font: { size: 11 } } },
+        y: { stacked: true, beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, precision: 0 }, title: { display: true, text: 'cars', color: '#9ca3af', font: { size: 11 } } },
       },
     };
   }
 
   function buildMonthly() {
-    return { type: 'bar', data: { labels: M.labels, datasets: [barDS('Polo', M.recebido.Polo), barDS('Argo', M.recebido.Argo), barDS('Tera', M.recebido.Tera), forecastDS(forecastMonthly()), lineDS(M.esperadoTotal, true)] }, options: opts(true) };
+    return { type: 'bar', data: { labels: rng(M.labels), datasets: [barDS('Polo', rng(M.recebido.Polo)), barDS('Argo', rng(M.recebido.Argo)), barDS('Tera', rng(M.recebido.Tera)), forecastDS(rng(forecastMonthly())), lineDS(rng(M.esperadoTotal), true)] }, options: opts(true) };
   }
   function buildWeekly(mi) {
     const rp = (W.recebido.Polo[mi] || Z), ra = (W.recebido.Argo[mi] || Z), rt = (W.recebido.Tera[mi] || Z);
@@ -178,44 +171,57 @@
   }
   function render(cfg) { if (chartMensal) chartMensal.destroy(); chartMensal = new Chart(document.getElementById('chartMensal'), cfg); }
 
+  const rangeToggle = document.getElementById('rangeToggle');
   function goWeekly(mi) {
     view = 'weekly'; cur = mi;
-    document.getElementById('frotaSub').textContent = 'Detalhe semanal de ' + M.full[mi] + '/26 · por modelo';
+    document.getElementById('frotaSub').textContent = 'Weekly detail for ' + M.full[mi] + '/26 · by model';
     document.getElementById('frotaCrumb').innerHTML = '<i class="ti ti-calendar"></i> 2026 › <b>' + M.full[mi] + '</b>';
     backBtn.style.display = 'inline-flex';
+    if (rangeToggle) rangeToggle.style.display = 'none'; // recorte YTD/FY só faz sentido na visão mensal
     render(buildWeekly(mi));
   }
   function goMonthly() {
     view = 'monthly'; cur = null;
-    document.getElementById('frotaSub').textContent = 'Recebidos vs. esperado · por modelo · visão mensal (2026)';
-    document.getElementById('frotaCrumb').innerHTML = '<i class="ti ti-calendar"></i> ano de 2026';
+    document.getElementById('frotaSub').textContent = 'Received vs. expected · by model · monthly view (2026)';
+    document.getElementById('frotaCrumb').innerHTML = '<i class="ti ti-calendar"></i> year 2026';
     backBtn.style.display = 'none';
+    if (rangeToggle) rangeToggle.style.display = '';
     render(buildMonthly());
   }
   backBtn.addEventListener('click', goMonthly);
+  // toggle YTD (abr→hoje) × FY26 (abr→dez)
+  if (rangeToggle) rangeToggle.querySelectorAll('.range-btn').forEach((b) => b.addEventListener('click', () => {
+    range = b.dataset.range;
+    rangeToggle.querySelectorAll('.range-btn').forEach((x) => x.classList.toggle('active', x === b));
+    if (view === 'monthly') render(buildMonthly());
+  }));
 
   render(buildMonthly());
 
-  // ---------- chart acumulado ----------
+  // ---------- chart acumulado (Received Fleet) ----------
   const A = OCN.acumulado;
-  function cumDS(model) {
-    return { label: OCN.modelos[model].label, data: A.recebido[model], backgroundColor: COR[model], stack: 'r', borderRadius: 3, maxBarThickness: 48, datalabels: { display: false } };
+  const cumTotal = M.labels.map((_, i) => (A.recebido.Polo[i] || 0) + (A.recebido.Argo[i] || 0) + (A.recebido.Tera[i] || 0));
+  function cumDS(model, isTop) {
+    // número por modelo dentro do segmento; no topo da pilha (Tera), também o total acumulado
+    const labels = { seg: { anchor: 'center', align: 'center', color: txtOnBar(COR[model]), font: { size: 10, weight: 600 }, formatter: (v) => (v > 0 ? v : '') } };
+    if (isTop) labels.total = { anchor: 'end', align: 'top', offset: 2, color: '#282728', font: { size: 12, weight: 700 }, formatter: (v, ctx) => (cumTotal[ctx.dataIndex] || '') };
+    return { label: OCN.modelos[model].label, data: A.recebido[model], backgroundColor: COR[model], stack: 'r', borderRadius: 3, maxBarThickness: 48, datalabels: { labels } };
   }
   new Chart(document.getElementById('chartAcum'), {
     type: 'bar',
     data: {
       labels: M.labels,
       datasets: [
-        cumDS('Polo'), cumDS('Argo'), cumDS('Tera'),
-        { label: 'Esperado acum.', data: A.esperado, type: 'line', borderColor: NAVY, backgroundColor: NAVY, borderWidth: 2, pointRadius: 3, pointHoverRadius: 6, tension: 0.25, datalabels: { color: NAVY, anchor: 'end', align: 'top', offset: 4, font: { size: 10, weight: 500 }, formatter: (v) => v } },
+        cumDS('Polo'), cumDS('Argo'), cumDS('Tera', true),
+        { label: 'Expected (cum.)', data: A.esperado, type: 'line', borderColor: NAVY, backgroundColor: NAVY, borderWidth: 2, pointRadius: 3, pointHoverRadius: 6, tension: 0.25, datalabels: { color: NAVY, anchor: 'end', align: 'top', offset: 4, font: { size: 10, weight: 500 }, formatter: (v) => v } },
       ],
     },
     options: {
-      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 22 } },
+      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 26 } },
       plugins: { legend: { display: false }, datalabels: { clamp: true }, tooltip: { callbacks: { label: (c) => (c.parsed.y == null ? null : c.dataset.label + ': ' + c.parsed.y) } } },
       scales: {
         x: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } },
-        y: { stacked: true, beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, precision: 0 }, title: { display: true, text: 'carros (acum.)', color: '#9ca3af', font: { size: 11 } } },
+        y: { stacked: true, beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, precision: 0 }, title: { display: true, text: 'cars (cum.)', color: '#9ca3af', font: { size: 11 } } },
       },
     },
   });
@@ -243,31 +249,31 @@
 
     // KPIs
     document.getElementById('ocorKpis').innerHTML = `
-      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-alert-triangle"></i> Total de ocorrências</div><div class="kpi-value">${O.total}</div><div class="kpi-sub">${O.foramOficina} foram para oficina</div></div>
-      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-shield-half"></i> Com sinistro</div><div class="kpi-value">${O.comSinistro}</div><div class="kpi-sub">${O.comSinistroPct}% das ocorrências</div></div>
-      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-clock-hour-4"></i> Taxa</div><div class="kpi-value">${O.contratos.taxaCarroMes}</div><div class="kpi-sub">ocorrência / carro-mês</div></div>`;
+      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-alert-triangle"></i> Total incidents</div><div class="kpi-value">${O.total}</div><div class="kpi-sub">${O.foramOficina} went to the workshop</div></div>
+      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-shield-half"></i> With claim</div><div class="kpi-value">${O.comSinistro}</div><div class="kpi-sub">${O.comSinistroPct}% of incidents</div></div>
+      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-clock-hour-4"></i> Rate</div><div class="kpi-value">${O.contratos.taxaCarroMes}</div><div class="kpi-sub">incidents / car-month</div></div>`;
 
-    // Probabilidade & contratos
+    // Probability & contracts
     const c = O.contratos;
     document.getElementById('ocorTaxaDesc').textContent = c.taxaTexto;
     document.getElementById('ocorContratos').innerHTML = `
-      <div class="mini-stat"><div class="v">${c.totalContratos}</div><div class="l">contratos (${c.ativos} ativos)</div></div>
-      <div class="mini-stat"><div class="v">${c.taxaCarroMes}</div><div class="l">ocorr./carro-mês</div></div>
-      <div class="mini-stat"><div class="v">${c.rescindidos}</div><div class="l">contratos rescindidos</div></div>`;
+      <div class="mini-stat"><div class="v">${c.totalContratos}</div><div class="l">contracts (${c.ativos} active)</div></div>
+      <div class="mini-stat"><div class="v">${c.taxaCarroMes}</div><div class="l">incidents/car-month</div></div>
+      <div class="mini-stat"><div class="v">${c.rescindidos}</div><div class="l">terminated contracts</div></div>`;
 
-    // Duração esperada de contrato
+    // Expected contract duration
     const D = O.duracao;
     document.getElementById('duracaoPanel').innerHTML = `
       <div style="display:flex;align-items:baseline;gap:8px;margin:12px 0 4px;">
         <span style="font-size:34px;font-weight:600;color:#5A00F8;">~${D.estimadaMeses}</span>
-        <span style="font-size:14px;color:var(--text-2);">meses estimados</span>
+        <span style="font-size:14px;color:var(--text-2);">estimated months</span>
       </div>
-      <div style="font-size:12px;color:var(--text-2);margin-bottom:14px;">vs. ${D.nominalMeses} meses do contrato nominal</div>
+      <div style="font-size:12px;color:var(--text-2);margin-bottom:14px;">vs. ${D.nominalMeses} months of the nominal contract</div>
       <div style="height:10px;border-radius:6px;background:#EDE9FB;overflow:hidden;">
         <div style="height:100%;width:${D.pctDoNominal}%;background:#5A00F8;border-radius:6px;"></div>
       </div>
-      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-3);margin:5px 0 14px;"><span>0</span><span>${D.nominalMeses} meses</span></div>
-      <div style="font-size:12px;color:var(--text-2);line-height:1.55;">Baseado em churn mensal de <b style="color:var(--text)">${D.churnMensalPct}%</b> (${D.encerramentosChurn} encerramentos, excl. troca de carro). Estimativa preliminar — janela de ~2,5 meses.</div>`;
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-3);margin:5px 0 14px;"><span>0</span><span>${D.nominalMeses} months</span></div>
+      <div style="font-size:12px;color:var(--text-2);line-height:1.55;">Based on monthly churn of <b style="color:var(--text)">${D.churnMensalPct}%</b> (${D.encerramentosChurn} terminations, excl. car swaps). Preliminary estimate — ~2.5-month window.</div>`;
 
     // Donut por tipo
     document.getElementById('legendTipo').innerHTML = donutLegend(O.porTipo);
@@ -282,12 +288,12 @@
 
     // Sinistro por tipo (barra empilhada horizontal) — tons de roxo
     const S = O.sinistroPorTipo;
-    document.getElementById('legendSinistro').innerHTML = `<span class="dl-it"><span class="dl-sw" style="background:#5A00F8"></span>Com sinistro</span><span class="dl-it"><span class="dl-sw" style="background:#E0D8F7"></span>Sem sinistro</span>`;
+    document.getElementById('legendSinistro').innerHTML = `<span class="dl-it"><span class="dl-sw" style="background:#5A00F8"></span>With claim</span><span class="dl-it"><span class="dl-sw" style="background:#E0D8F7"></span>Without claim</span>`;
     new Chart(document.getElementById('chartSinistro'), {
       type: 'bar',
       data: { labels: S.labels, datasets: [
-        { label: 'Com sinistro', data: S.com, backgroundColor: '#5A00F8', stack: 's', borderRadius: 3, datalabels: { display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, color: '#fff', font: { size: 11, weight: 600 }, formatter: (v) => v } },
-        { label: 'Sem sinistro', data: S.sem, backgroundColor: '#E0D8F7', stack: 's', borderRadius: 3, datalabels: { display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, color: '#5A2BB0', font: { size: 11, weight: 600 }, formatter: (v) => v } },
+        { label: 'With claim', data: S.com, backgroundColor: '#5A00F8', stack: 's', borderRadius: 3, datalabels: { display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, color: '#fff', font: { size: 11, weight: 600 }, formatter: (v) => v } },
+        { label: 'Without claim', data: S.sem, backgroundColor: '#E0D8F7', stack: 's', borderRadius: 3, datalabels: { display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, color: '#5A2BB0', font: { size: 11, weight: 600 }, formatter: (v) => v } },
       ] },
       options: {
         indexAxis: 'y', responsive: true, maintainAspectRatio: false,
@@ -318,7 +324,7 @@
     const isAdmin = !!(OCN._meta && OCN._meta.user && OCN._meta.user.role === 'admin');
     const fleetsEl = document.getElementById('ueFleets');
     if (!U || !U.fleets || !U.fleets.length) {
-      fleetsEl.innerHTML = '<div style="color:var(--text-2);font-size:13px">Sem dados de Unit Economics.</div>';
+      fleetsEl.innerHTML = '<div style="color:var(--text-2);font-size:13px">No Unit Economics data.</div>';
       return;
     }
     let current = U.fleets[0].id;
@@ -331,10 +337,10 @@
     let refundPct = 0.13;   // correção a.a. do Deposit Refund (campo, global)
     let params = {}; // parâmetros por frota: seguro, GPS, nº aluguéis, compra
     const LINE_PARAMS = {
-      'Insurance': [{ k: '__ins_total__', label: 'Total de seguro no ano (R$)' }, { k: '__ins_parcelas__', label: 'Nº de parcelas (a partir do M1)' }],
-      'GPS': [{ k: '__gps_m0__', label: 'Valor no M0 (R$)' }, { k: '__gps_mensal__', label: 'Valor mensal, a partir do M1 (R$)' }],
-      'Security Deposit': [{ k: '__num_alugueis__', label: 'Número de aluguéis para calção' }],
-      'Vehicle Purchase': [{ k: '__vehicle__', label: 'Valor de compra/recompra (R$) — entra no M12' }],
+      'Insurance': [{ k: '__ins_total__', label: 'Total insurance for the year (R$)' }, { k: '__ins_parcelas__', label: 'Number of installments (from M1)' }],
+      'GPS': [{ k: '__gps_m0__', label: 'Amount at M0 (R$)' }, { k: '__gps_mensal__', label: 'Monthly amount, from M1 (R$)' }],
+      'Security Deposit': [{ k: '__num_alugueis__', label: 'Number of rentals for the deposit' }],
+      'Vehicle Purchase': [{ k: '__vehicle__', label: 'Purchase/buyback amount (R$) — enters at M12' }],
     };
     const par = (k) => +params[k] || 0;
     const SEMANAS_MES = 52 / 12; // 4,3333
@@ -367,7 +373,7 @@
     const isLeaf = (g) => g === 'inflow' || g === 'outflow';
 
     fleetsEl.innerHTML = U.fleets
-      .map((f) => `<button class="ue-fleet-btn" data-id="${f.id}"><span class="n">${f.label}</span><span class="m">${f.modelLabel} · ${f.cars} carros</span></button>`)
+      .map((f) => `<button class="ue-fleet-btn" data-id="${f.id}"><span class="n">${f.label}</span><span class="m">${f.modelLabel} · ${f.cars} cars</span></button>`)
       .join('');
     fleetsEl.querySelectorAll('.ue-fleet-btn').forEach((b) =>
       b.addEventListener('click', () => { current = b.dataset.id; loadFleet(); })
@@ -568,10 +574,10 @@
       const ov = document.createElement('div');
       ov.className = 'ue-modal-overlay';
       ov.innerHTML =
-        `<div class="ue-modal"><div class="ue-modal-title">${line} — realizado</div>` +
+        `<div class="ue-modal"><div class="ue-modal-title">${line} — actual</div>` +
         fields.map((fl) => `<div class="ue-modal-field"><label>${fl.label}</label><input type="text" inputmode="decimal" data-k="${fl.k}" value="${params[fl.k] != null ? params[fl.k] : ''}"/></div>`).join('') +
-        `<div class="ue-modal-hint">Valores em R$ viram US$ pelo câmbio futuro. (Security Deposit = nº de aluguéis × Subrental fee orçado do M1.)</div>` +
-        `<div class="ue-modal-actions"><button type="button" class="ue-modal-cancel">Cancelar</button><button type="button" class="ue-modal-save">Salvar</button></div></div>`;
+        `<div class="ue-modal-hint">R$ amounts convert to US$ at the future FX. (Security Deposit = number of rentals × budget M1 Subrental fee.)</div>` +
+        `<div class="ue-modal-actions"><button type="button" class="ue-modal-cancel">Cancel</button><button type="button" class="ue-modal-save">Save</button></div></div>`;
       document.body.appendChild(ov);
       const close = () => ov.remove();
       ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
@@ -623,41 +629,41 @@
       fracElapsed = realizedFull >= U.periods ? 1 : (elapsed - Math.floor(elapsed));
       computeMaint(f); // Maintenance por dados reais da frota (depende de elapsed/realizedFull)
       const subInfo = ini
-        ? `início ${fmtDate(f.inicio)} · hoje ${fmtDate(U.hoje)} · ${elapsed.toFixed(1)} meses decorridos`
-        : 'sem data de início na base';
+        ? `start ${fmtDate(f.inicio)} · today ${fmtDate(U.hoje)} · ${elapsed.toFixed(1)} months elapsed`
+        : 'no start date in the base';
       document.getElementById('ueHead').innerHTML =
         `<div class="ue-headrow">` +
           `<div class="ue-fleet-head">` +
             (foto ? `<div class="ue-car-photo"><img src="${foto}" alt="${f.modelLabel}"/></div>` : '') +
             `<div><div class="ue-fleet-title">${f.label} — ${f.modelLabel}</div>` +
-            `<div class="ue-fleet-sub">${f.cars} carros · contrato de ${U.periods} meses</div>` +
+            `<div class="ue-fleet-sub">${f.cars} cars · ${U.periods}-month contract</div>` +
             `<div class="ue-fleet-sub">${subInfo}</div></div>` +
           `</div>` +
           `<div class="ue-head-actions">` +
-            (isAdmin ? `<label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Modo manual</span></label>` : '') +
-            `<button class="ue-refresh-btn" id="ueRefresh" title="Rebusca a planilha, os preços de revisão e as manutenções reais da frota">↻ Atualizar dados</button>` +
+            (isAdmin ? `<label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Manual mode</span></label>` : '') +
+            `<button class="ue-refresh-btn" id="ueRefresh" title="Re-fetches the spreadsheet, revision prices and real fleet maintenance">↻ Refresh data</button>` +
           `</div>` +
         `</div>` +
         `<div class="ue-sliders">` +
-          slider('ueKm', 'km/semana da frota', 0, 3000, 25, kmSemana) +
-          slider('ueCotacao', 'câmbio futuro (R$/US$)', 3, 8, 0.05, cotacao) +
-          field('ueOrcCambio', 'câmbio do orçado (R$/US$)', orcadoCambio, 0.05) +
-          field('ueRefundPct', 'correção Deposit Refund (% a.a.)', Math.round(refundPct * 10000) / 100, 1) +
+          slider('ueKm', 'km/week (fleet)', 0, 3000, 25, kmSemana) +
+          slider('ueCotacao', 'future FX (R$/US$)', 3, 8, 0.05, cotacao) +
+          field('ueOrcCambio', 'budget FX (R$/US$)', orcadoCambio, 0.05) +
+          field('ueRefundPct', 'Deposit Refund adj. (% p.a.)', Math.round(refundPct * 10000) / 100, 1) +
         `</div>`;
       if (isAdmin) document.getElementById('ueManual').addEventListener('change', (e) => { manualMode = e.target.checked; renderTable(f); });
       // Atualizar dados: re-busca tudo no servidor (planilha, revisões, manutenções da frota) e re-renderiza
       const btnR = document.getElementById('ueRefresh');
       if (btnR) btnR.addEventListener('click', async () => {
-        btnR.disabled = true; btnR.textContent = '↻ Atualizando…';
+        btnR.disabled = true; btnR.textContent = '↻ Refreshing…';
         try {
           await fetch('/api/refresh');
           const r = await fetch('/api/data', { cache: 'no-store' });
           if (r.ok) { const d = await r.json(); if (d.ue) Object.assign(U, d.ue); if (d.atualizadoEm) OCN.atualizadoEm = d.atualizadoEm; }
           const hl = document.getElementById('hojeLabel'); if (hl && OCN.atualizadoEm) hl.textContent = OCN.atualizadoEm;
           await loadFleet(); // reconstrói cabeçalho + tabela com os dados novos (botão volta ao normal)
-        } catch (e) { btnR.textContent = '✗ falhou — tente de novo'; btnR.disabled = false; }
+        } catch (e) { btnR.textContent = '✗ failed — try again'; btnR.disabled = false; }
       });
-      wireSlider('ueKm', (v) => { kmSemana = v; }, () => kmSemana.toLocaleString('pt-BR') + ' km/sem', () => kmSemana, '__km_sem__', current, f);
+      wireSlider('ueKm', (v) => { kmSemana = v; }, () => kmSemana.toLocaleString('en-US') + ' km/wk', () => kmSemana, '__km_sem__', current, f);
       wireSlider('ueCotacao', (v) => { cotacao = v; }, () => 'R$ ' + cotacao.toFixed(2).replace('.', ','), () => cotacao, '__cotacao__', '__cfg__', f);
       wireField('ueOrcCambio', (v) => { orcadoCambio = v; }, '__orcado_cambio__', () => orcadoCambio, f);
       wireField('ueRefundPct', (v) => { refundPct = v / 100; }, '__refund_pct__', () => refundPct, f);
@@ -667,11 +673,11 @@
     function renderTable(f) {
       const orc = U.orcado[f.model];
       const tbl = document.getElementById('ueTable');
-      if (!orc) { tbl.innerHTML = '<tbody><tr><td>Sem orçado para ' + f.modelLabel + '</td></tr></tbody>'; return; }
+      if (!orc) { tbl.innerHTML = '<tbody><tr><td>No budget for ' + f.modelLabel + '</td></tr></tbody>'; return; }
       const T = computeTotals(orc.lines);
       const gmap = { totalInflow: T.totalInflow, totalOutflow: T.totalOutflow, net: T.net, acc: T.acc };
       const editable = isAdmin && manualMode;
-      let html = '<thead><tr><th class="ue-rowlabel">Linha</th><th>M0</th>';
+      let html = '<thead><tr><th class="ue-rowlabel">Line</th><th>M0</th>';
       for (let p = 1; p <= U.periods; p++) html += `<th>M${p}</th>`;
       html += '<th class="ue-totalcol">Total</th></tr></thead><tbody>';
       orc.lines.forEach((l) => {
@@ -699,7 +705,7 @@
         tbl.querySelectorAll('.ue-param-label').forEach((el) => el.addEventListener('click', () => openParamModal(el.dataset.pline, f)));
       }
       document.getElementById('ueFoot').innerHTML =
-        '<span class="ue-tag ue-tag-real">Realizado</span><span class="ue-tag ue-tag-proj">Projetado</span><span class="ue-tag ue-tag-orc">Orçado</span>';
+        '<span class="ue-tag ue-tag-real">Actual</span><span class="ue-tag ue-tag-proj">Projected</span><span class="ue-tag ue-tag-orc">Budget</span>';
     }
 
     function openEditor(td, f) {

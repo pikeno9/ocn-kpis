@@ -203,24 +203,24 @@
   // ---------- chart acumulado (Received Fleet) ----------
   const A = OCN.acumulado;
   const cumTotal = M.labels.map((_, i) => (A.recebido.Polo[i] || 0) + (A.recebido.Argo[i] || 0) + (A.recebido.Tera[i] || 0));
-  function cumDS(model, isTop) {
-    // número por modelo dentro do segmento; no topo da pilha (Tera), também o total recebido — sutil, ao lado da barra
-    const labels = { seg: { anchor: 'center', align: 'center', color: txtOnBar(COR[model]), font: { size: 10, weight: 600 }, formatter: (v) => (v > 0 ? v : '') } };
-    if (isTop) labels.total = { anchor: 'end', align: 'right', offset: 4, color: '#5A00F8', font: { size: 11, weight: 500 }, formatter: (v, ctx) => (cumTotal[ctx.dataIndex] || '') };
-    return { label: OCN.modelos[model].label, data: A.recebido[model], backgroundColor: COR[model], stack: 'r', borderRadius: 3, maxBarThickness: 48, datalabels: { labels } };
+  function cumDS(model, withTotal) {
+    // número por modelo dentro do segmento (menor); no dataset de baixo (Polo), também o total — tag ao lado, centralizado
+    const labels = { seg: { anchor: 'center', align: 'center', color: txtOnBar(COR[model]), font: { size: 9, weight: 600 }, formatter: (v) => (v > 0 ? v : '') } };
+    if (withTotal) labels.total = { anchor: 'center', align: 'right', offset: 8, color: '#111827', font: { size: 11, weight: 600 }, backgroundColor: 'rgba(255,255,255,0.9)', borderColor: '#5A00F8', borderWidth: 1, borderRadius: 5, padding: { top: 2, bottom: 2, left: 6, right: 6 }, formatter: (v, ctx) => (cumTotal[ctx.dataIndex] || '') };
+    return { label: OCN.modelos[model].label, data: A.recebido[model], backgroundColor: COR[model], stack: 'r', borderRadius: 3, maxBarThickness: 48, order: 2, datalabels: { labels } };
   }
   new Chart(document.getElementById('chartAcum'), {
     type: 'bar',
     data: {
       labels: M.labels,
       datasets: [
-        cumDS('Polo'), cumDS('Argo'), cumDS('Tera', true),
-        // linha esperada: mesmo formato do gráfico mensal (tracejada + rótulo dlLine)
-        { label: 'Expected (cum.)', data: A.esperado, type: 'line', borderColor: NAVY, backgroundColor: NAVY, borderWidth: 2, borderDash: [5, 4], pointRadius: 4, pointHoverRadius: 6, tension: 0.25, datalabels: dlLine },
+        cumDS('Polo', true), cumDS('Argo'), cumDS('Tera'),
+        // linha esperada: mesmo formato do gráfico mensal (tracejada + rótulo dlLine); order menor = desenhada na frente das barras
+        { label: 'Expected (cum.)', data: A.esperado, type: 'line', borderColor: NAVY, backgroundColor: NAVY, borderWidth: 2, borderDash: [5, 4], pointRadius: 4, pointHoverRadius: 6, tension: 0.25, order: 1, datalabels: dlLine },
       ],
     },
     options: {
-      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 26, right: 10 } },
+      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 26, right: 16 } },
       plugins: { legend: { display: false }, datalabels: { clamp: true }, tooltip: { callbacks: { label: (c) => (c.parsed.y == null ? null : c.dataset.label + ': ' + c.parsed.y) } } },
       scales: {
         x: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } },

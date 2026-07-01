@@ -596,7 +596,7 @@
           `<div class="ue-fleet-head">` +
             (foto ? `<div class="ue-car-photo"><img src="${foto}" alt="${f.modelLabel}"/></div>` : '') +
             `<div><div class="ue-fleet-title">${f.label} — ${f.modelLabel}</div>` +
-            `<div class="ue-fleet-sub">${f.cars} carros · contrato de ${U.periods} meses · valores por veículo (USD)</div></div>` +
+            `<div class="ue-fleet-sub">${f.cars} carros · contrato de ${U.periods} meses</div></div>` +
           `</div>` +
           (isAdmin ? `<label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Modo manual</span></label>` : '') +
         `</div>` +
@@ -605,7 +605,6 @@
           slider('ueCotacao', 'câmbio futuro (R$/US$)', 3, 8, 0.05, cotacao) +
           field('ueOrcCambio', 'câmbio do orçado (R$/US$)', orcadoCambio, 0.05) +
           field('ueRefundPct', 'correção Deposit Refund (% a.a.)', Math.round(refundPct * 10000) / 100, 1) +
-          `<div class="ue-sliders-hint">Câmbio do orçado e % do Deposit Refund: editáveis por todos. Sliders (km/semana e câmbio futuro): só admin.</div>` +
         `</div>`;
       if (isAdmin) document.getElementById('ueManual').addEventListener('change', (e) => { manualMode = e.target.checked; renderTable(f); });
       wireSlider('ueKm', (v) => { kmSemana = v; }, () => kmSemana.toLocaleString('pt-BR') + ' km/sem', () => kmSemana, '__km_sem__', current, f);
@@ -650,9 +649,7 @@
         tbl.querySelectorAll('.ue-param-label').forEach((el) => el.addEventListener('click', () => openParamModal(el.dataset.pline, f)));
       }
       document.getElementById('ueFoot').innerHTML =
-        '<span class="ue-tag ue-tag-real">Realizado</span><span class="ue-tag ue-tag-proj">Projetado</span><span class="ue-tag ue-tag-orc">Orçado</span>' +
-        ' Linhas recuadas = dados da conta · linhas em negrito com barra = calculadas (Totais, Net, Acc). M0 = setup. Projeção = média dos meses realizados (automática).' +
-        (isAdmin ? (editable ? ' <b>Modo manual ligado</b>: clique numa linha-item para preencher; vazio + Enter apaga.' : ' Ligue o “Modo manual” para sobrescrever valores.') : '');
+        '<span class="ue-tag ue-tag-real">Realizado</span><span class="ue-tag ue-tag-proj">Projetado</span><span class="ue-tag ue-tag-orc">Orçado</span>';
     }
 
     function openEditor(td, f) {

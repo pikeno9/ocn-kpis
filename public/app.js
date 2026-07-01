@@ -339,6 +339,12 @@
     const par = (k) => +params[k] || 0;
     const SEMANAS_MES = 52 / 12; // 4,3333
     const ekey = (l, p) => l + '@@' + p;
+    // separação realizado × projetado por TEMPO (início da frota até hoje)
+    const hoje = U.hoje ? new Date(U.hoje + 'T12:00:00') : new Date();
+    let elapsed = 0;      // meses decorridos desde o início da frota (fracionário)
+    let realizedFull = 0; // meses inteiros já realizados
+    let fracElapsed = 0;  // fração decorrida do mês vigente (0..1)
+    const fmtDate = (iso) => { if (!iso) return '—'; const p = iso.split('-'); return p[2] + '/' + p[1] + '/' + p[0]; };
 
     const fmtNum = (v) => Math.abs(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
     const ueFmt = (v) => (v === null || v === undefined) ? '' : (v < 0 ? '(' + fmtNum(v) + ')' : fmtNum(v));
@@ -370,87 +376,70 @@
       for (let p = 0; p <= U.periods; p++) { const e = entered[ekey(line, p)]; if (e && e.kind === 'real') { sum += e.value; n++; } }
       return n ? sum / n : null;
     }
-    // Custo de revisão (USD) no período: revisão a cada X km (do site) → mês em que ocorre × preço ÷ cotação
-    function revisaoCusto(mdl, period) {
+    // Custo de revisão (USD) no período, a um câmbio `cam`: revisão a cada X km × preço ÷ câmbio
+    function revisaoCustoAt(mdl, period, cam) {
       const revs = (U.revisoes && U.revisoes[mdl]) || [];
       const kmMes = kmSemana * SEMANAS_MES; // km/mês = km/semana × 52/12
-      if (!revs.length || kmMes <= 0 || cotacao <= 0) return 0;
+      if (!revs.length || kmMes <= 0 || cam <= 0) return 0;
       let custoR = 0;
       revs.forEach((r) => { if (Math.ceil(r.km / kmMes) === period) custoR += r.valor; });
-      return Math.round(custoR / cotacao); // magnitude positiva em USD (inteiro)
+      return Math.round(custoR / cam);
     }
     const temRevisoes = (mdl) => !!(U.revisoes && U.revisoes[mdl] && U.revisoes[mdl].length);
+    // status do período: realizado (do início até hoje) × projetado (futuro) × atual (mês vigente, split)
+    function periodStatus(p) {
+      if (p === 0 || p <= realizedFull) return 'real';
+      if (p === realizedFull + 1) return 'atual';
+      return 'proj';
+    }
 
-    // valor efetivo de uma célula-item: Maintenance = custo de revisão calculado; demais = manual ou projeção (média dos realizados)
-    function eff(line, period) {
-      if (line === 'Maintenance' && temRevisoes(model)) {
-        const m = entered[ekey(line, period)];
-        if (m) return { value: m.value, kind: m.kind }; // override manual
-        return { value: -revisaoCusto(model, period), kind: 'real' };
-      }
-      const M = entered[ekey(line, period)]; // override manual por célula
-      if (line === 'Subrental fee') {
-        if (M) return { value: M.value, kind: M.kind };
-        const o = orcVal(line, period);
-        if (o == null) return null;
-        return { value: Math.round(o * (orcadoCambio / cotacao)), kind: 'real' }; // orçado ajustado pelo câmbio
-      }
-      if (line === 'Car Preparation (wash + delivery)') {
-        if (M) return { value: M.value, kind: M.kind };
-        return period === 0 ? { value: -10, kind: 'real' } : null; // 10 USD fixo no M0
-      }
-      if (line === 'Sticker') {
-        if (M) return { value: M.value, kind: M.kind };
-        return period === 0 ? { value: -3, kind: 'real' } : null; // 3 USD fixo no M0
-      }
-      const usd = (rs) => -Math.round(rs / cotacao);
+    // valor "cru" da linha num período, a um câmbio `cam` (sem override manual; sem separar realizado/projetado)
+    function effRaw(line, period, cam) {
+      if (line === 'Maintenance' && temRevisoes(model)) return { value: -revisaoCustoAt(model, period, cam) };
+      if (line === 'Subrental fee') { const o = orcVal(line, period); return o == null ? null : { value: Math.round(o * (orcadoCambio / cam)) }; }
+      if (line === 'Car Preparation (wash + delivery)') return period === 0 ? { value: -10 } : null; // 10 USD fixo (M0)
+      if (line === 'Sticker') return period === 0 ? { value: -3 } : null; // 3 USD fixo (M0)
+      const usd = (rs) => -Math.round(rs / cam);
       if (line === 'Insurance' && par('__ins_total__') > 0 && par('__ins_parcelas__') >= 1) {
-        if (M) return { value: M.value, kind: M.kind };
         const N = Math.round(par('__ins_parcelas__'));
-        return { value: (period >= 1 && period <= N) ? usd(par('__ins_total__') / N) : 0, kind: 'real' };
+        return { value: (period >= 1 && period <= N) ? usd(par('__ins_total__') / N) : 0 };
       }
       if (line === 'GPS' && (par('__gps_m0__') > 0 || par('__gps_mensal__') > 0)) {
-        if (M) return { value: M.value, kind: M.kind };
-        return { value: usd(period === 0 ? par('__gps_m0__') : par('__gps_mensal__')), kind: 'real' };
+        return { value: usd(period === 0 ? par('__gps_m0__') : par('__gps_mensal__')) };
       }
-      // magnitudes efetivas (USD): calção no M0 e compra no M12 — usam o param se houver, senão o orçado
       const secDepMag = () => par('__num_alugueis__') > 0
         ? par('__num_alugueis__') * Math.abs(orcVal('Subrental fee', 1) || 0)
         : Math.abs(orcVal('Security Deposit', 0) || 0);
-      const vehMag = () => par('__vehicle__') > 0
-        ? Math.round(par('__vehicle__') / cotacao)
-        : Math.abs(orcVal('Vehicle Purchase', U.periods) || 0);
-      if (line === 'Security Deposit' && par('__num_alugueis__') > 0) {
-        if (M) return { value: M.value, kind: M.kind };
-        return { value: period === 0 ? -Math.round(secDepMag()) : 0, kind: 'real' };
-      }
-      if (line === 'Vehicle Purchase' && par('__vehicle__') > 0) {
-        if (M) return { value: M.value, kind: M.kind };
-        return { value: period === U.periods ? -vehMag() : 0, kind: 'real' };
-      }
-      // entradas (inflow) sempre calculadas: Deposit Refund e Initial Fee no M12
-      if (line === 'Deposit Refund') {
-        if (M) return { value: M.value, kind: M.kind };
-        // calção × (1+%) corrigido pelo câmbio: ÷ câmbio futuro × câmbio do orçado
-        return { value: period === U.periods ? Math.round(secDepMag() * (1 + refundPct) * orcadoCambio / cotacao) : 0, kind: 'real' };
-      }
-      if (line === 'Initial Fee / Vehicle Sell') {
-        if (M) return { value: M.value, kind: M.kind };
-        return { value: period === U.periods ? Math.round(vehMag() * 1.03) : 0, kind: 'real' }; // = compra × 1,03
-      }
-      const e = entered[ekey(line, period)];
-      if (e) return { value: e.value, kind: e.kind };
+      const vehMag = () => par('__vehicle__') > 0 ? Math.round(par('__vehicle__') / cam) : Math.abs(orcVal('Vehicle Purchase', U.periods) || 0);
+      if (line === 'Security Deposit' && par('__num_alugueis__') > 0) return { value: period === 0 ? -Math.round(secDepMag()) : 0 };
+      if (line === 'Vehicle Purchase' && par('__vehicle__') > 0) return { value: period === U.periods ? -vehMag() : 0 };
+      if (line === 'Deposit Refund') return { value: period === U.periods ? Math.round(secDepMag() * (1 + refundPct) * orcadoCambio / cam) : 0 };
+      if (line === 'Initial Fee / Vehicle Sell') return { value: period === U.periods ? Math.round(vehMag() * 1.03) : 0 };
       const orc = orcVal(line, period);
       if (orc == null) return null;
       const avg = realizedAvg(line);
-      if (avg == null) return null;
-      return { value: avg, kind: 'proj' };
+      return avg == null ? null : { value: avg };
+    }
+    // efetivo separando realizado (preto, câmbio do orçado — não muda com o slider) × projetado (roxo, câmbio futuro)
+    function effSplit(line, period) {
+      const m = entered[ekey(line, period)];
+      if (m) return m.kind === 'proj' ? { real: 0, proj: m.value } : { real: m.value, proj: 0 };
+      const vR = effRaw(line, period, orcadoCambio); // realizado usa o câmbio do orçado (fixo)
+      const vP = effRaw(line, period, cotacao);      // projetado usa o câmbio futuro (slider)
+      if (!vR && !vP) return null;
+      const rawR = vR ? vR.value : (vP ? vP.value : 0);
+      const rawP = vP ? vP.value : (vR ? vR.value : 0);
+      const st = periodStatus(period);
+      if (st === 'real') return { real: rawR, proj: 0 };
+      if (st === 'proj') return { real: 0, proj: rawP };
+      return { real: rawR * fracElapsed, proj: rawP * (1 - fracElapsed), atual: true }; // mês vigente: split
     }
     function cellLeaf(line, period) {
-      const e = eff(line, period);
+      const e = effSplit(line, period);
       const orc = orcVal(line, period);
       let s = '';
-      if (e) s += `<span class="ue-main ue-${e.kind}">${ueFmt(e.value)}</span>`;
+      if (e && e.real) s += `<span class="ue-main ue-real">${ueFmt(e.real)}</span>`;
+      if (e && e.proj) s += `<span class="ue-main ue-proj">${e.atual ? '+' : ''}${ueFmt(e.proj)}</span>`;
       if (orc != null) s += `<span class="ue-orc">${ueFmt(orc)}</span>`;
       return s;
     }
@@ -461,13 +450,13 @@
       return s;
     }
     function sectionEff(lines, group, p) {
-      let sum = 0, anyMain = false, anyProj = false;
+      let sum = 0, anyMain = false;
       lines.filter((l) => l.group === group).forEach((l) => {
-        const e = eff(l.label, p);
-        if (e) { sum += e.value; anyMain = true; if (e.kind === 'proj') anyProj = true; }
+        const e = effSplit(l.label, p);
+        if (e) { sum += (e.real || 0) + (e.proj || 0); anyMain = true; }
         else { const o = orcVal(l.label, p); sum += (o == null ? 0 : o); }
       });
-      return { sum, anyMain, kind: anyProj ? 'proj' : 'real' };
+      return { sum, anyMain, kind: periodStatus(p) === 'real' ? 'real' : 'proj' };
     }
     // Totalizadores por período (orçado da planilha; efetivo = soma realizado/projetado)
     function computeTotals(lines) {
@@ -503,7 +492,7 @@
     function leafTotal(line) {
       const P = U.periods;
       let orc = 0, effv = 0, hasMain = false, anyProj = false;
-      for (let p = 0; p <= P; p++) { const o = orcVal(line, p); const oc = (o == null ? 0 : o); orc += oc; const e = eff(line, p); if (e) { effv += e.value; hasMain = true; if (e.kind === 'proj') anyProj = true; } else effv += oc; }
+      for (let p = 0; p <= P; p++) { const o = orcVal(line, p); const oc = (o == null ? 0 : o); orc += oc; const e = effSplit(line, p); if (e) { effv += (e.real || 0) + (e.proj || 0); hasMain = true; if (periodStatus(p) !== 'real') anyProj = true; } else effv += oc; }
       return { orc, eff: effv, hasMain, kind: anyProj ? 'proj' : 'real' };
     }
 
@@ -591,12 +580,21 @@
           });
         }
       } catch (e) { /* segue com orçado */ }
+      // meses decorridos = (hoje - início) em semanas ÷ 4,3333; M0 é sempre realizado
+      const ini = f.inicio ? new Date(f.inicio + 'T12:00:00') : null;
+      elapsed = ini ? Math.max(0, (hoje - ini) / 86400000 / (SEMANAS_MES * 7)) : 0;
+      realizedFull = Math.min(U.periods, Math.floor(elapsed));
+      fracElapsed = realizedFull >= U.periods ? 1 : (elapsed - Math.floor(elapsed));
+      const subInfo = ini
+        ? `início ${fmtDate(f.inicio)} · hoje ${fmtDate(U.hoje)} · ${elapsed.toFixed(1)} meses decorridos`
+        : 'sem data de início na base';
       document.getElementById('ueHead').innerHTML =
         `<div class="ue-headrow">` +
           `<div class="ue-fleet-head">` +
             (foto ? `<div class="ue-car-photo"><img src="${foto}" alt="${f.modelLabel}"/></div>` : '') +
             `<div><div class="ue-fleet-title">${f.label} — ${f.modelLabel}</div>` +
-            `<div class="ue-fleet-sub">${f.cars} carros · contrato de ${U.periods} meses</div></div>` +
+            `<div class="ue-fleet-sub">${f.cars} carros · contrato de ${U.periods} meses</div>` +
+            `<div class="ue-fleet-sub">${subInfo}</div></div>` +
           `</div>` +
           (isAdmin ? `<label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Modo manual</span></label>` : '') +
         `</div>` +

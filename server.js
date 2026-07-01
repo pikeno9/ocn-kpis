@@ -27,7 +27,7 @@ async function refresh() {
   try {
     const [sheets, ueSheets] = await Promise.all([fetchAllTabs(C.TABS), fetchUeTabs(C.UE_TABS)]);
     const data = compute.build(sheets, refDate());
-    data.ue = ue.build(ueSheets, sheets.importData);
+    data.ue = ue.build(ueSheets, sheets.importData, refDate());
     try { data.ue.revisoes = await revisoes.fetchRevisoes(); }
     catch (e) { console.error('[revisoes] falhou:', e.message); data.ue.revisoes = {}; }
     cache = { data, updatedAt: new Date().toISOString(), ok: true, error: null };

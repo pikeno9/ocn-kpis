@@ -338,7 +338,10 @@
     };
     const par = (k) => +params[k] || 0;
     const SEMANAS_MES = 52 / 12; // 4,3333
+    const REVISAO_KM = 10000;    // revisão a cada 10.000 km
     const ekey = (l, p) => l + '@@' + p;
+    // Maintenance por dados reais da frota (odômetro + revisões feitas). R$ por período (magnitude), ÷ câmbio na hora.
+    let maintRealRS = [], maintProjRS = [], maintReady = false, nCarsMaint = 0;
     // separação realizado × projetado por TEMPO (início da frota até hoje)
     const hoje = U.hoje ? new Date(U.hoje + 'T12:00:00') : new Date();
     let elapsed = 0;      // meses decorridos desde o início da frota (fracionário)
@@ -386,6 +389,33 @@
       return Math.round(custoR / cam);
     }
     const temRevisoes = (mdl) => !!(U.revisoes && U.revisoes[mdl] && U.revisoes[mdl].length);
+    // Maintenance por dados reais: realizado = revisões já feitas (mês inferido pelo km);
+    // projetado = próximas revisões a partir do odômetro atual de cada carro. Tudo em R$ (÷ câmbio depois), ÷ nº carros da planilha.
+    function computeMaint(f) {
+      maintRealRS = []; maintProjRS = []; maintReady = false; nCarsMaint = 0;
+      const fr = U.frota && U.frota.fleets && U.frota.fleets[current];
+      const prices = (U.revisoes && U.revisoes[model]) || [];
+      const nCars = f.cars || 0;
+      if (!fr || !fr.cars || !fr.cars.length || !prices.length || elapsed <= 0 || nCars <= 0) return;
+      const P = U.periods;
+      for (let p = 0; p <= P; p++) { maintRealRS[p] = 0; maintProjRS[p] = 0; }
+      const priceOf = (n) => { const r = prices.find((x) => x.n === n); return r ? r.valor : 0; };
+      const mesDoKm = (km, odo) => Math.ceil(km * elapsed / odo); // km acumula linearmente à média histórica do carro
+      fr.cars.forEach((car) => {
+        const odo = car.odo, done = car.done || 0;
+        if (odo <= 0) return;
+        // realizado: revisões 1..done já feitas, lançadas no mês inferido pelo km
+        for (let k = 1; k <= done; k++) { let mo = mesDoKm(k * REVISAO_KM, odo); if (mo < 1) mo = 1; if (mo <= P) maintRealRS[mo] += priceOf(k); }
+        // projetado: próximas revisões (done+1, done+2, ...) até sair do horizonte de 12 meses
+        for (let n = done + 1; n <= 200; n++) {
+          let mo = mesDoKm(n * REVISAO_KM, odo);
+          if (mo <= realizedFull) mo = realizedFull + 1; // revisão vencida → cai no mês vigente (projetada)
+          if (mo > P) break;
+          maintProjRS[mo] += priceOf(n);
+        }
+      });
+      maintReady = true; nCarsMaint = nCars;
+    }
     // status do período: realizado (do início até hoje) × projetado (futuro) × atual (mês vigente, split)
     function periodStatus(p) {
       if (p === 0 || p <= realizedFull) return 'real';
@@ -424,6 +454,12 @@
     function effSplit(line, period) {
       const m = entered[ekey(line, period)];
       if (m) return m.kind === 'proj' ? { real: 0, proj: m.value } : { real: m.value, proj: 0 };
+      // Maintenance por dados reais: realizado (câmbio orçado) × projetado (câmbio futuro), já separados por revisão feita/prevista
+      if (line === 'Maintenance' && maintReady) {
+        const r = maintRealRS[period] ? -Math.round(maintRealRS[period] / orcadoCambio / nCarsMaint) : 0;
+        const pj = maintProjRS[period] ? -Math.round(maintProjRS[period] / cotacao / nCarsMaint) : 0;
+        return { real: r, proj: pj }; // mês sem revisão = 0 efetivo (não cai no orçado); orçado só aparece como referência cinza
+      }
       const vR = effRaw(line, period, orcadoCambio); // realizado usa o câmbio do orçado (fixo)
       const vP = effRaw(line, period, cotacao);      // projetado usa o câmbio futuro (slider)
       if (!vR && !vP) return null;
@@ -585,6 +621,7 @@
       elapsed = ini ? Math.max(0, (hoje - ini) / 86400000 / (SEMANAS_MES * 7)) : 0;
       realizedFull = Math.min(U.periods, Math.floor(elapsed));
       fracElapsed = realizedFull >= U.periods ? 1 : (elapsed - Math.floor(elapsed));
+      computeMaint(f); // Maintenance por dados reais da frota (depende de elapsed/realizedFull)
       const subInfo = ini
         ? `início ${fmtDate(f.inicio)} · hoje ${fmtDate(U.hoje)} · ${elapsed.toFixed(1)} meses decorridos`
         : 'sem data de início na base';

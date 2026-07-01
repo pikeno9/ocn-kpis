@@ -16,6 +16,11 @@ const TABS = {
 // API do site de revisões (preços de revisão por modelo, em R$)
 const REVISOES_API = process.env.REVISOES_API || 'https://frota-revisoes-production.up.railway.app';
 
+// API do site de frota (odômetro + revisões reais por carro). Token só via env (repo público).
+const FROTA_API = process.env.FROTA_API || 'https://ocn-frota.vercel.app/api/external';
+const FROTA_TOKEN = process.env.FROTA_TOKEN || '';
+const REVISAO_KM = 10000; // revisão a cada 10.000 km
+
 // Unit Economics — abas de cashflow orçado (por veículo), uma por modelo
 const UE_TABS = { Polo: 'UE - Polo', Argo: 'UE - Argo', Tera: 'UE - Tera' };
 const UE_PERIODS = 12; // M1-M12; M0 = setup inicial (coluna 2 das abas UE)
@@ -128,7 +133,7 @@ const churnExcluir = ['troca de carro', 'troca'];
 const contratoNominalMeses = 12;
 
 module.exports = {
-  SHEET_ID, TABS, UE_TABS, UE_PERIODS, UE_FLEET_COL, REVISOES_API, modelos, corEsperado, mapModelo,
+  SHEET_ID, TABS, UE_TABS, UE_PERIODS, UE_FLEET_COL, REVISOES_API, FROTA_API, FROTA_TOKEN, REVISAO_KM, modelos, corEsperado, mapModelo,
   spilloverDates, undatedReceivedDate,
   mLabels, mFull, esperado, semanaLabels, esperadoSemanal,
   proximoLote, notaMensal,

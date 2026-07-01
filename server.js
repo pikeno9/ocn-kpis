@@ -7,6 +7,7 @@ const { fetchAllTabs, fetchUeTabs } = require('./lib/sheet');
 const compute = require('./lib/compute');
 const ue = require('./lib/ue');
 const revisoes = require('./lib/revisoes');
+const frota = require('./lib/frota');
 const store = require('./lib/store');
 const C = require('./config/static');
 const auth = require('./config/auth');
@@ -30,6 +31,8 @@ async function refresh() {
     data.ue = ue.build(ueSheets, sheets.importData, refDate());
     try { data.ue.revisoes = await revisoes.fetchRevisoes(); }
     catch (e) { console.error('[revisoes] falhou:', e.message); data.ue.revisoes = {}; }
+    try { data.ue.frota = await frota.fetchFrota(); }
+    catch (e) { console.error('[frota] falhou:', e.message); data.ue.frota = null; }
     cache = { data, updatedAt: new Date().toISOString(), ok: true, error: null };
     console.log(`[refresh] OK — ${data.kpis.recebidosAno} carros, ${data.ocorrencias.total} ocorrências (${cache.updatedAt})`);
   } catch (e) {

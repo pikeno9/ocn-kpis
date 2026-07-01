@@ -172,18 +172,20 @@
   function render(cfg) { if (chartMensal) chartMensal.destroy(); chartMensal = new Chart(document.getElementById('chartMensal'), cfg); }
 
   const rangeToggle = document.getElementById('rangeToggle');
+  const frotaSubEl = document.getElementById('frotaSub'); // cabeçalho da seção foi removido — guardas abaixo
+  const frotaCrumbEl = document.getElementById('frotaCrumb');
   function goWeekly(mi) {
     view = 'weekly'; cur = mi;
-    document.getElementById('frotaSub').textContent = 'Weekly detail for ' + M.full[mi] + '/26 · by model';
-    document.getElementById('frotaCrumb').innerHTML = '<i class="ti ti-calendar"></i> 2026 › <b>' + M.full[mi] + '</b>';
+    if (frotaSubEl) frotaSubEl.textContent = 'Weekly detail for ' + M.full[mi] + '/26 · by model';
+    if (frotaCrumbEl) frotaCrumbEl.innerHTML = '<i class="ti ti-calendar"></i> 2026 › <b>' + M.full[mi] + '</b>';
     backBtn.style.display = 'inline-flex';
     if (rangeToggle) rangeToggle.style.display = 'none'; // recorte YTD/FY só faz sentido na visão mensal
     render(buildWeekly(mi));
   }
   function goMonthly() {
     view = 'monthly'; cur = null;
-    document.getElementById('frotaSub').textContent = 'Received vs. expected · by model · monthly view (2026)';
-    document.getElementById('frotaCrumb').innerHTML = '<i class="ti ti-calendar"></i> year 2026';
+    if (frotaSubEl) frotaSubEl.textContent = 'Received vs. expected · by model · monthly view (2026)';
+    if (frotaCrumbEl) frotaCrumbEl.innerHTML = '<i class="ti ti-calendar"></i> year 2026';
     backBtn.style.display = 'none';
     if (rangeToggle) rangeToggle.style.display = '';
     render(buildMonthly());
@@ -202,9 +204,9 @@
   const A = OCN.acumulado;
   const cumTotal = M.labels.map((_, i) => (A.recebido.Polo[i] || 0) + (A.recebido.Argo[i] || 0) + (A.recebido.Tera[i] || 0));
   function cumDS(model, isTop) {
-    // número por modelo dentro do segmento; no topo da pilha (Tera), também o total acumulado
+    // número por modelo dentro do segmento; no topo da pilha (Tera), também o total recebido (logo acima da barra)
     const labels = { seg: { anchor: 'center', align: 'center', color: txtOnBar(COR[model]), font: { size: 10, weight: 600 }, formatter: (v) => (v > 0 ? v : '') } };
-    if (isTop) labels.total = { anchor: 'end', align: 'top', offset: 2, color: '#282728', font: { size: 12, weight: 700 }, formatter: (v, ctx) => (cumTotal[ctx.dataIndex] || '') };
+    if (isTop) labels.total = { anchor: 'end', align: 'top', offset: 3, color: '#111827', font: { size: 12, weight: 800 }, textStrokeColor: '#fff', textStrokeWidth: 4, formatter: (v, ctx) => (cumTotal[ctx.dataIndex] || '') };
     return { label: OCN.modelos[model].label, data: A.recebido[model], backgroundColor: COR[model], stack: 'r', borderRadius: 3, maxBarThickness: 48, datalabels: { labels } };
   }
   new Chart(document.getElementById('chartAcum'), {
@@ -213,11 +215,12 @@
       labels: M.labels,
       datasets: [
         cumDS('Polo'), cumDS('Argo'), cumDS('Tera', true),
-        { label: 'Expected (cum.)', data: A.esperado, type: 'line', borderColor: NAVY, backgroundColor: NAVY, borderWidth: 2, pointRadius: 3, pointHoverRadius: 6, tension: 0.25, datalabels: { color: NAVY, anchor: 'end', align: 'top', offset: 4, font: { size: 10, weight: 500 }, formatter: (v) => v } },
+        // linha esperada: rótulo bem acima do ponto (halo branco) para não colidir com o total recebido no topo da barra
+        { label: 'Expected (cum.)', data: A.esperado, type: 'line', borderColor: NAVY, backgroundColor: NAVY, borderWidth: 2, pointRadius: 3, pointHoverRadius: 6, tension: 0.25, datalabels: { color: NAVY, anchor: 'center', align: 'top', offset: 22, font: { size: 11, weight: 700 }, textStrokeColor: '#fff', textStrokeWidth: 4, formatter: (v) => v } },
       ],
     },
     options: {
-      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 26 } },
+      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 46 } },
       plugins: { legend: { display: false }, datalabels: { clamp: true }, tooltip: { callbacks: { label: (c) => (c.parsed.y == null ? null : c.dataset.label + ': ' + c.parsed.y) } } },
       scales: {
         x: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } },

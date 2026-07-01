@@ -59,14 +59,6 @@
 
       <!-- ---------- FLEET ---------- -->
       <div class="subsection active" id="sub-frota">
-        <div class="section-head">
-          <div>
-            <div class="section-title"><i class="ti ti-car"></i> Fleet — vehicle intake</div>
-            <div class="section-desc" id="frotaSub">Received vs. expected · by model · monthly view (2026)</div>
-          </div>
-          <div class="crumb" id="frotaCrumb"><i class="ti ti-calendar"></i> year 2026</div>
-        </div>
-
         <div class="fleet-section">
           <div class="fleet-section-head">
             <div class="fleet-section-title">Current fleet status</div>
@@ -78,6 +70,12 @@
         <div class="card">
           <div class="sub2-title"><i class="ti ti-chart-area-line"></i> Received Fleet</div>
           <div class="sub2-desc">Cumulative total we already have vs. total expected by year-end</div>
+          <div class="legend">
+            <span class="it"><span class="sw" style="background:#1D4ED8"></span> Polo Track</span>
+            <span class="it"><span class="sw" style="background:#EA580C"></span> Argo Drive</span>
+            <span class="it"><span class="sw" style="background:#60A5FA"></span> Tera</span>
+            <span class="it"><span class="sw-line"></span> Expected (cum.)</span>
+          </div>
           <div class="chart-box" style="height:300px;">
             <canvas id="chartAcum" role="img" aria-label="Cumulative received by model and cumulative expected"></canvas>
           </div>

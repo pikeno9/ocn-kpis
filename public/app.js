@@ -204,9 +204,9 @@
   const A = OCN.acumulado;
   const cumTotal = M.labels.map((_, i) => (A.recebido.Polo[i] || 0) + (A.recebido.Argo[i] || 0) + (A.recebido.Tera[i] || 0));
   function cumDS(model, isTop) {
-    // número por modelo dentro do segmento; no topo da pilha (Tera), também o total recebido (logo acima da barra)
+    // número por modelo dentro do segmento; no topo da pilha (Tera), também o total recebido — sutil, ao lado da barra
     const labels = { seg: { anchor: 'center', align: 'center', color: txtOnBar(COR[model]), font: { size: 10, weight: 600 }, formatter: (v) => (v > 0 ? v : '') } };
-    if (isTop) labels.total = { anchor: 'end', align: 'top', offset: 3, color: '#111827', font: { size: 12, weight: 800 }, textStrokeColor: '#fff', textStrokeWidth: 4, formatter: (v, ctx) => (cumTotal[ctx.dataIndex] || '') };
+    if (isTop) labels.total = { anchor: 'end', align: 'right', offset: 4, color: '#5A00F8', font: { size: 11, weight: 500 }, formatter: (v, ctx) => (cumTotal[ctx.dataIndex] || '') };
     return { label: OCN.modelos[model].label, data: A.recebido[model], backgroundColor: COR[model], stack: 'r', borderRadius: 3, maxBarThickness: 48, datalabels: { labels } };
   }
   new Chart(document.getElementById('chartAcum'), {
@@ -215,12 +215,12 @@
       labels: M.labels,
       datasets: [
         cumDS('Polo'), cumDS('Argo'), cumDS('Tera', true),
-        // linha esperada: rótulo bem acima do ponto (halo branco) para não colidir com o total recebido no topo da barra
-        { label: 'Expected (cum.)', data: A.esperado, type: 'line', borderColor: NAVY, backgroundColor: NAVY, borderWidth: 2, pointRadius: 3, pointHoverRadius: 6, tension: 0.25, datalabels: { color: NAVY, anchor: 'center', align: 'top', offset: 22, font: { size: 11, weight: 700 }, textStrokeColor: '#fff', textStrokeWidth: 4, formatter: (v) => v } },
+        // linha esperada: mesmo formato do gráfico mensal (tracejada + rótulo dlLine)
+        { label: 'Expected (cum.)', data: A.esperado, type: 'line', borderColor: NAVY, backgroundColor: NAVY, borderWidth: 2, borderDash: [5, 4], pointRadius: 4, pointHoverRadius: 6, tension: 0.25, datalabels: dlLine },
       ],
     },
     options: {
-      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 46 } },
+      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 26, right: 10 } },
       plugins: { legend: { display: false }, datalabels: { clamp: true }, tooltip: { callbacks: { label: (c) => (c.parsed.y == null ? null : c.dataset.label + ': ' + c.parsed.y) } } },
       scales: {
         x: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } },

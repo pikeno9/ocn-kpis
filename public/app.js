@@ -261,7 +261,14 @@
     const pctFmt = (v) => (v == null ? '' : String(Math.round(v * 10) / 10).replace('.', ',') + '%');
     const utilDS = (label, pct, abs, color) => ({
       label, data: sl(pct), _abs: sl(abs), backgroundColor: color, stack: 'u', borderRadius: 3, maxBarThickness: 88,
-      datalabels: { color: (ctx) => txtOnBar(ctx.dataset.backgroundColor), anchor: 'center', align: 'center', font: { size: 11, weight: 600 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => pctFmt(v) },
+      datalabels: {
+        display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0,
+        color: (ctx) => txtOnBar(ctx.dataset.backgroundColor), anchor: 'center',
+        labels: {
+          pct: { align: 'top', offset: 1, font: { size: 11, weight: 600 }, formatter: (v) => pctFmt(v) },       // percentual em cima
+          abs: { align: 'bottom', offset: 1, font: { size: 9, weight: 500 }, formatter: (v, ctx) => { const a = ctx.dataset._abs ? ctx.dataset._abs[ctx.dataIndex] : null; return a == null ? '' : a; } }, // absoluto abaixo, menor
+        },
+      },
     });
     new Chart(document.getElementById('chartUtil'), {
       type: 'bar',

@@ -418,6 +418,10 @@
     // realizados convertem R$↔US$ no câmbio nominal fixo (ORCADO_FX, 5,0) — o campo editável foi removido
     // e o setting antigo (__cotacao_real__) é ignorado de propósito (ficou um valor fantasma no banco)
     let refundPct = 0.13;   // correção a.a. do Security Deposit Refund (campo, global)
+    let inadimplencia = 0;  // taxa de inadimplência % (slider, global) — desconta a projeção do Subscription
+    let curIni = null;            // início da frota selecionada (Date) — base do eixo de meses
+    let lossMonthByPlate = {};    // placa → mês do UE em que deu perda total (corta Subrental/GPS dali em diante)
+    let activeFracArr = [];       // fração de carros ativos (sem perda total) por mês — aplica no agregado
     const ORCADO_FX = 5.0;  // câmbio em que o orçado (USD, planilha) foi construído — só para exibi-lo em R$
     let params = {}; // parâmetros por frota: subrental, seguro, GPS, nº aluguéis, compra
     const LINE_PARAMS = {
@@ -477,6 +481,21 @@
     // status do período: realizado (do início até o mês vigente, incluso — valor integral) × projetado (meses futuros)
     function periodStatus(p) { return (p === 0 || p <= realizedFull) ? 'real' : 'proj'; }
 
+    // nº de segundas-feiras (dia de pagamento) dentro da janela do mês m do UE (mês = 4,333 semanas do início)
+    function mondaysInMonth(ini, m) {
+      const MS = 86400000, len = SEMANAS_MES * 7 * MS;
+      const start = new Date(ini.getTime() + (m - 1) * len);
+      const end = new Date(ini.getTime() + m * len);
+      let d = new Date(start.getTime() + (((1 - start.getDay()) % 7 + 7) % 7) * MS); // primeira segunda ≥ start
+      let n = 0;
+      while (d < end) { n++; d = new Date(d.getTime() + 7 * MS); }
+      return n;
+    }
+    // fator de perda total no mês m: agregado = fração de carros ainda ativos; placa = 0 a partir do incidente
+    function lossCut(m) {
+      if (plateView) { const lm = lossMonthByPlate[plateView]; return (lm != null && m >= lm) ? 0 : 1; }
+      return activeFracArr[m] != null ? activeFracArr[m] : 1;
+    }
     // Subscription por dados reais (matriz de pagamentos por placa): receita do mês = Σ semanas pagas
     // (vencimento no mês) × semanalidade, com juros % sobre as pagas em atraso. Agregado = soma ÷ nº de
     // placas da frota; visão por placa = só as semanas daquela placa, sem divisão.
@@ -506,13 +525,17 @@
     // valores fixos em dólar. Sem câmbio aqui — a conversão para a moeda de exibição acontece no effSplit.
     // Recorrências mensais param no M12; o M13 só recebe os lançamentos pontuais pós-contrato.
     function effNative(line, period) {
-      if (line === 'Subscription' && subsReady) {
+      if (line === 'Subscription' && par('__sub_semanal__') > 0) {
         if (period === 0 || period === PMAX) return { rs: 0 };
-        if (periodStatus(period) === 'real') return { rs: subsRS[period] || 0 };
-        return null; // meses futuros: sem projeção automática por ora (só orçado como referência)
+        if (periodStatus(period) === 'real') return subsReady ? { rs: subsRS[period] || 0 } : null;
+        // projeção: segundas-feiras (dia de pagamento) do mês × semanalidade × (1 − inadimplência do slider);
+        // carros com perda total não pagam mais → mesmo corte do Subrental/GPS (lossCut)
+        if (!curIni) return null;
+        return { rs: mondaysInMonth(curIni, period) * par('__sub_semanal__') * (1 - inadimplencia / 100) * lossCut(period) };
       }
       if (line === 'Subrental fee' && par('__subrental_mensal__') > 0) {
-        return { rs: (period >= 1 && period <= U.periods) ? -par('__subrental_mensal__') : 0 };
+        // perdas totais deixam de pagar Subrental a partir do mês do incidente (agregado: fração ativa)
+        return { rs: (period >= 1 && period <= U.periods) ? -par('__subrental_mensal__') * lossCut(period) : 0 };
       }
       if (line === 'Insurance' && par('__ins_total__') > 0 && par('__ins_parcelas__') >= 1) {
         // parcela = total/N; se N > 12, as parcelas além do M12 ficam fora da tabela (trunca, não reamortiza)
@@ -521,7 +544,8 @@
       }
       // fixos (sem nenhuma conversão/exceção): R$50/US$10 e R$15/US$3, tratados direto em effSplit
       if (line === 'GPS' && (par('__gps_m0__') > 0 || par('__gps_mensal__') > 0)) {
-        return { rs: period === 0 ? -par('__gps_m0__') : (period <= U.periods ? -par('__gps_mensal__') : 0) };
+        // GPS recorrente também para nos carros com perda total (o do M0 fica — já foi gasto)
+        return { rs: period === 0 ? -par('__gps_m0__') : (period <= U.periods ? -par('__gps_mensal__') * lossCut(period) : 0) };
       }
       // calção = nº de aluguéis × mensalidade do Subrental (ambos manuais, R$)
       const secDepMag = () => (par('__num_alugueis__') > 0 && par('__subrental_mensal__') > 0)
@@ -750,8 +774,25 @@
       } catch (e) { /* segue com orçado */ }
       // meses decorridos = (hoje - início) em semanas ÷ 4,3333; M0 é sempre realizado
       const ini = f.inicio ? new Date(f.inicio + 'T12:00:00') : null;
+      curIni = ini;
       elapsed = ini ? Math.max(0, (hoje - ini) / 86400000 / (SEMANAS_MES * 7)) : 0;
       realizedFull = Math.min(PMAX, Math.ceil(elapsed)); // mês vigente conta inteiro como realizado
+      // perdas totais da frota: mês do incidente por placa + fração de carros ativos por mês (p/ o agregado)
+      lossMonthByPlate = {}; activeFracArr = [];
+      if (ini && U.losses) {
+        (f.placas || []).forEach((pl) => {
+          const d = U.losses[pl];
+          if (!d) return;
+          let mo = Math.ceil(((new Date(d + 'T12:00:00') - ini) / 86400000) / (SEMANAS_MES * 7));
+          if (mo < 1) mo = 1;
+          lossMonthByPlate[pl] = mo;
+        });
+        const nCars = f.cars || 1;
+        for (let p = 0; p <= PMAX; p++) {
+          const lost = Object.values(lossMonthByPlate).filter((lm) => lm <= p).length;
+          activeFracArr[p] = Math.max(0, nCars - lost) / nCars;
+        }
+      }
       const subInfo = ini
         ? `start ${fmtDate(f.inicio)} · today ${fmtDate(U.hoje)} · ${elapsed.toFixed(1)} months elapsed`
         : 'no start date in the base';
@@ -774,6 +815,7 @@
         `</div>` +
         `<div class="ue-sliders">` +
           slider('ueCotacao', 'future FX (R$/US$)', 3, 8, 0.05, cotacao) +
+          slider('ueInad', 'delinquency rate (%)', 0, 50, 1, inadimplencia) +
           field('ueRefundPct', 'Security Deposit Refund adj. (% p.a.)', Math.round(refundPct * 10000) / 100, 1) +
         `</div>`;
       if (isAdmin) document.getElementById('ueManual').addEventListener('change', (e) => { manualMode = e.target.checked; renderTable(f); });
@@ -796,6 +838,7 @@
         } catch (e) { btnR.textContent = '✗ failed — try again'; btnR.disabled = false; }
       });
       wireSlider('ueCotacao', (v) => { cotacao = v; }, () => 'R$ ' + cotacao.toFixed(2).replace('.', ','), () => cotacao, '__cotacao__', '__cfg__', f);
+      wireSlider('ueInad', (v) => { inadimplencia = v; }, () => inadimplencia + '%', () => inadimplencia, '__inadimplencia__', '__cfg__', f);
       wireField('ueRefundPct', (v) => { refundPct = v / 100; }, '__refund_pct__', () => refundPct, f);
       renderTable(f);
       renderPlates(f);
@@ -887,6 +930,7 @@
         if (r.ok) {
           const d = await r.json(); const get = (k) => { const x = (d.values || []).find((v) => v.line === k); return x ? x.value : undefined; };
           const c = get('__cotacao__'); if (c != null) cotacao = c;
+          const ind = get('__inadimplencia__'); if (ind != null) inadimplencia = ind;
           const rp = get('__refund_pct__'); if (rp != null) refundPct = rp;
         }
       } catch (e) { /* usa defaults */ }

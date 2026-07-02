@@ -27,7 +27,7 @@ async function refresh() {
   try {
     const [sheets, ueSheets] = await Promise.all([fetchAllTabs(C.TABS), fetchUeTabs(C.UE_TABS)]);
     const data = compute.build(sheets, refDate());
-    data.ue = ue.build(ueSheets, sheets.importData, refDate());
+    data.ue = ue.build(ueSheets, sheets.importData, sheets.clientes, refDate());
     try { data.ue.pagamentos = await cobrancas.fetchPagamentos(); }
     catch (e) { console.error('[cobrancas] falhou:', e.message); data.ue.pagamentos = null; }
     cache = { data, updatedAt: new Date().toISOString(), ok: true, error: null };

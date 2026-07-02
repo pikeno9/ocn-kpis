@@ -432,8 +432,7 @@
     // separação realizado × projetado por TEMPO (início da frota até hoje)
     const hoje = U.hoje ? new Date(U.hoje + 'T12:00:00') : new Date();
     let elapsed = 0;      // meses decorridos desde o início da frota (fracionário)
-    let realizedFull = 0; // meses inteiros já realizados
-    let fracElapsed = 0;  // fração decorrida do mês vigente (0..1)
+    let realizedFull = 0; // meses já realizados, incluindo o mês vigente (valor integral, sem proporção)
     const fmtDate = (iso) => { if (!iso) return '—'; const p = iso.split('-'); return p[2] + '/' + p[1] + '/' + p[0]; };
 
     const fmtNum = (v) => Math.abs(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
@@ -493,22 +492,19 @@
         if (odo <= 0) return;
         // realizado: revisões 1..done já feitas, lançadas no mês inferido pelo km
         for (let k = 1; k <= done; k++) { let mo = mesDoKm(k * REVISAO_KM, odo); if (mo < 1) mo = 1; if (mo <= P) maintRealRS[mo] += priceOf(k); }
-        // projetado: próximas revisões (done+1, done+2, ...) até sair do horizonte de 12 meses
+        // próximas revisões (done+1, done+2, ...): se o marco de km já foi ultrapassado (até o mês vigente
+        // incluso), conta como realizado (valor integral do mês); só marcos além do mês vigente são projetados
         for (let n = done + 1; n <= 200; n++) {
-          let mo = mesDoKm(n * REVISAO_KM, odo);
-          if (mo <= realizedFull) mo = realizedFull + 1; // revisão vencida → cai no mês vigente (projetada)
+          const mo = mesDoKm(n * REVISAO_KM, odo);
           if (mo > P) break;
-          maintProjRS[mo] += priceOf(n);
+          if (mo <= realizedFull) maintRealRS[Math.max(1, mo)] += priceOf(n);
+          else maintProjRS[mo] += priceOf(n);
         }
       });
       maintReady = true; nCarsMaint = nCars;
     }
-    // status do período: realizado (do início até hoje) × projetado (futuro) × atual (mês vigente, split)
-    function periodStatus(p) {
-      if (p === 0 || p <= realizedFull) return 'real';
-      if (p === realizedFull + 1) return 'atual';
-      return 'proj';
-    }
+    // status do período: realizado (do início até o mês vigente, incluso — valor integral) × projetado (meses futuros)
+    function periodStatus(p) { return (p === 0 || p <= realizedFull) ? 'real' : 'proj'; }
 
     // valor "cru" da linha num período, a um câmbio `cam` (sem override manual; sem separar realizado/projetado)
     function effRaw(line, period, cam) {
@@ -552,17 +548,15 @@
       if (!vR && !vP) return null;
       const rawR = vR ? vR.value : (vP ? vP.value : 0);
       const rawP = vP ? vP.value : (vR ? vR.value : 0);
-      const st = periodStatus(period);
-      if (st === 'real') return { real: rawR, proj: 0 };
-      if (st === 'proj') return { real: 0, proj: rawP };
-      return { real: rawR * fracElapsed, proj: rawP * (1 - fracElapsed), atual: true }; // mês vigente: split
+      // mês vigente = realizado integral (mesma lógica de um mês já fechado); só meses futuros são projetados
+      return periodStatus(period) === 'real' ? { real: rawR, proj: 0 } : { real: 0, proj: rawP };
     }
     function cellLeaf(line, period) {
       const e = effSplit(line, period);
       const orc = orcVal(line, period);
       let s = '';
       if (e && e.real) s += `<span class="ue-main ue-real">${ueFmt(e.real)}</span>`;
-      if (e && e.proj) s += `<span class="ue-main ue-proj">${e.atual ? '+' : ''}${ueFmt(e.proj)}</span>`;
+      if (e && e.proj) s += `<span class="ue-main ue-proj">${ueFmt(e.proj)}</span>`;
       if (orc != null) s += `<span class="ue-orc">${ueFmt(orc)}</span>`;
       return s;
     }
@@ -706,8 +700,7 @@
       // meses decorridos = (hoje - início) em semanas ÷ 4,3333; M0 é sempre realizado
       const ini = f.inicio ? new Date(f.inicio + 'T12:00:00') : null;
       elapsed = ini ? Math.max(0, (hoje - ini) / 86400000 / (SEMANAS_MES * 7)) : 0;
-      realizedFull = Math.min(U.periods, Math.floor(elapsed));
-      fracElapsed = realizedFull >= U.periods ? 1 : (elapsed - Math.floor(elapsed));
+      realizedFull = Math.min(U.periods, Math.ceil(elapsed)); // mês vigente conta inteiro como realizado
       computeMaint(f); // Maintenance por dados reais da frota (depende de elapsed/realizedFull)
       const subInfo = ini
         ? `start ${fmtDate(f.inicio)} · today ${fmtDate(U.hoje)} · ${elapsed.toFixed(1)} months elapsed`

@@ -415,7 +415,8 @@
     let manualMode = false; // edição manual desligada por padrão
     let currency = 'BRL';   // moeda de exibição: R$ (principal) ou US$ (toggle no cabeçalho)
     let cotacao = 5.5;      // câmbio futuro R$/US$ (slider, global) — converte os PROJETADOS
-    let cotacaoReal = 5.0;  // cotação indicada para os REALIZADOS (campo, global)
+    // realizados convertem R$↔US$ no câmbio nominal fixo (ORCADO_FX, 5,0) — o campo editável foi removido
+    // e o setting antigo (__cotacao_real__) é ignorado de propósito (ficou um valor fantasma no banco)
     let refundPct = 0.13;   // correção a.a. do Security Deposit Refund (campo, global)
     const ORCADO_FX = 5.0;  // câmbio em que o orçado (USD, planilha) foi construído — só para exibi-lo em R$
     let params = {}; // parâmetros por frota: subrental, seguro, GPS, nº aluguéis, compra
@@ -554,14 +555,14 @@
       if (line === 'Sticker') return period === 0 ? { real: currency === 'BRL' ? -15 : -3, proj: 0, status: 'real' } : null;
       const m = entered[ekey(line, period)]; // entradas manuais são em R$
       if (m) {
-        const val = toDisplay({ rs: m.value }, m.kind === 'proj' ? cotacao : cotacaoReal);
+        const val = toDisplay({ rs: m.value }, m.kind === 'proj' ? cotacao : ORCADO_FX);
         return m.kind === 'proj' ? { real: 0, proj: val, status: 'proj' } : { real: val, proj: 0, status: 'real' };
       }
       const v = effNative(line, period);
       if (!v) return null;
       const st = periodStatus(period);
       return st === 'real'
-        ? { real: toDisplay(v, cotacaoReal), proj: 0, status: 'real' }
+        ? { real: toDisplay(v, ORCADO_FX), proj: 0, status: 'real' }
         : { real: 0, proj: toDisplay(v, cotacao), status: 'proj' };
     }
     // linhas cujo lançamento pontual foi movido para o M13 (planilha original só vai até M12) — o orçado de
@@ -886,7 +887,6 @@
         if (r.ok) {
           const d = await r.json(); const get = (k) => { const x = (d.values || []).find((v) => v.line === k); return x ? x.value : undefined; };
           const c = get('__cotacao__'); if (c != null) cotacao = c;
-          const cr = get('__cotacao_real__'); if (cr != null) cotacaoReal = cr;
           const rp = get('__refund_pct__'); if (rp != null) refundPct = rp;
         }
       } catch (e) { /* usa defaults */ }

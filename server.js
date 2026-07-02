@@ -75,8 +75,8 @@ app.get('/api/refresh', async (_req, res) => {
 app.get('/api/me', (req, res) => res.json({ user: req.user }));
 
 // ---------- Unit Economics: valores realizados/projetados ----------
-// Settings globais (cotação dos realizados, % do Security Deposit Refund) — qualquer usuário autenticado pode alterar
-const UE_SETTINGS = ['__cotacao_real__', '__refund_pct__'];
+// Settings globais (% do Security Deposit Refund) — qualquer usuário autenticado pode alterar
+const UE_SETTINGS = ['__refund_pct__'];
 app.post('/api/ue/setting', async (req, res) => {
   const b = req.body || {};
   const line = String(b.line || '');

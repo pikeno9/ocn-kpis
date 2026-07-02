@@ -736,7 +736,6 @@
         `</div>` +
         `<div class="ue-sliders">` +
           slider('ueCotacao', 'future FX (R$/US$)', 3, 8, 0.05, cotacao) +
-          field('ueCotReal', 'FX for actuals (R$/US$)', cotacaoReal, 0.05) +
           field('ueRefundPct', 'Security Deposit Refund adj. (% p.a.)', Math.round(refundPct * 10000) / 100, 1) +
         `</div>`;
       if (isAdmin) document.getElementById('ueManual').addEventListener('change', (e) => { manualMode = e.target.checked; renderTable(f); });
@@ -759,7 +758,6 @@
         } catch (e) { btnR.textContent = '✗ failed — try again'; btnR.disabled = false; }
       });
       wireSlider('ueCotacao', (v) => { cotacao = v; }, () => 'R$ ' + cotacao.toFixed(2).replace('.', ','), () => cotacao, '__cotacao__', '__cfg__', f);
-      wireField('ueCotReal', (v) => { cotacaoReal = v; }, '__cotacao_real__', () => cotacaoReal, f);
       wireField('ueRefundPct', (v) => { refundPct = v / 100; }, '__refund_pct__', () => refundPct, f);
       renderTable(f);
       renderPlates(f);

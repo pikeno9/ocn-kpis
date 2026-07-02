@@ -414,8 +414,9 @@
     let viewAgg = false;   // false = Fleet (unitary), por veículo; true = Fleet (aggregate), soma de todas as placas
     let allMode = false;   // true = "All fleets": média ponderada por carros de todas as frotas (÷ N total)
     let curCars = 0;       // nº de carros da visão atual (frota ou total geral) — multiplicador do aggregate
+    let ctxCars = 0;       // nº de carros do CONTEXTO de cálculo (frota corrente; no all-mode, a frota da vez)
     let fleetCtx = null;   // all-mode: contexto por frota (params/entradas/derivados) p/ combinar célula a célula
-    const viewMult = () => (plateView ? 1 : (viewAgg ? (curCars || 1) : 1));
+    const viewMult = () => (plateView ? 1 : (viewAgg ? (curCars || 1) : 1)); // usado só pelo orçado (referência por modelo)
     let entered = {}; // "line@@period" -> {value, kind} — valores manuais em R$ (moeda principal)
     let manualMode = false; // edição manual desligada por padrão
     let currency = 'BRL';   // moeda de exibição: R$ (principal) ou US$ (toggle no cabeçalho)
@@ -505,10 +506,17 @@
       while (d < end) { n++; d = new Date(d.getTime() + 7 * MS); }
       return n;
     }
-    // fator de perda total no mês m: agregado = fração de carros ainda ativos; placa = 0 a partir do incidente
-    function lossCut(m) {
-      if (plateView) { const lm = lossMonthByPlate[plateView]; return (lm != null && m >= lm) ? 0 : 1; }
-      return activeFracArr[m] != null ? activeFracArr[m] : 1;
+    // visão por placa: 0 a partir do mês do incidente (perda total); nas visões de frota o valor unitário
+    // fica CHEIO — a placa perdida sai do numerador E do denominador (base = carros ativos, activeCarsAt)
+    function plateCut(m) {
+      if (!plateView) return 1;
+      const lm = lossMonthByPlate[plateView];
+      return (lm != null && m >= lm) ? 0 : 1;
+    }
+    // nº de carros ativos (sem perda total) no mês m do contexto atual — denominador das linhas "por carro ativo"
+    function activeCarsAt(m) {
+      const frac = activeFracArr[m] != null ? activeFracArr[m] : 1;
+      return Math.max(1, Math.round(frac * (ctxCars || 1)));
     }
     // Subscription por dados reais (matriz de pagamentos por placa): receita do mês = Σ semanas pagas
     // (vencimento no mês) × semanalidade, com juros % sobre as pagas em atraso. Agregado = soma ÷ nº de
@@ -522,7 +530,6 @@
       if (!(fee > 0) || !pag || !ini) return;
       const juros = par('__sub_juros__') / 100;
       const plates = plateView ? [plateView] : (f.placas || []);
-      const nDiv = plateView ? 1 : (f.cars || plates.length || 1);
       for (let p = 0; p <= PMAX; p++) subsRS[p] = 0;
       plates.forEach((pl) => (pag[pl] || []).forEach((s) => {
         const venc = new Date(s.v + 'T12:00:00');
@@ -531,7 +538,8 @@
         if (mo > U.periods) return;
         subsRS[mo] += fee * (1 + (s.a ? juros : 0));
       }));
-      for (let p = 0; p <= PMAX; p++) subsRS[p] = subsRS[p] / nDiv;
+      // ÷ carros ATIVOS do mês (perda total sai do denominador a partir do incidente); placa = sem divisão
+      if (!plateView) for (let p = 0; p <= PMAX; p++) subsRS[p] = subsRS[p] / activeCarsAt(p);
       subsReady = true;
     }
 
@@ -540,16 +548,16 @@
     // Recorrências mensais param no M12; o M13 só recebe os lançamentos pontuais pós-contrato.
     function effNative(line, period) {
       if (line === 'Subscription' && par('__sub_semanal__') > 0) {
-        if (period === 0 || period === PMAX) return { rs: 0 };
-        if (periodStatus(period) === 'real') return subsReady ? { rs: subsRS[period] || 0 } : null;
+        if (period === 0 || period === PMAX) return { rs: 0, perActive: true };
+        if (periodStatus(period) === 'real') return subsReady ? { rs: subsRS[period] || 0, perActive: true } : null;
         // projeção: segundas-feiras (dia de pagamento) do mês × semanalidade × (1 − inadimplência do slider);
-        // carros com perda total não pagam mais → mesmo corte do Subrental/GPS (lossCut)
+        // placa com perda total não paga mais (plateCut); na frota o valor é por carro ATIVO (perActive)
         if (!curIni) return null;
-        return { rs: mondaysInMonth(curIni, period) * par('__sub_semanal__') * (1 - inadimplencia / 100) * lossCut(period) };
+        return { rs: mondaysInMonth(curIni, period) * par('__sub_semanal__') * (1 - inadimplencia / 100) * plateCut(period), perActive: true };
       }
       if (line === 'Subrental fee' && par('__subrental_mensal__') > 0) {
-        // perdas totais deixam de pagar Subrental a partir do mês do incidente (agregado: fração ativa)
-        return { rs: (period >= 1 && period <= U.periods) ? -par('__subrental_mensal__') * lossCut(period) : 0 };
+        // valor por carro ATIVO (a placa perdida sai do numerador e do denominador a partir do incidente)
+        return { rs: (period >= 1 && period <= U.periods) ? -par('__subrental_mensal__') * plateCut(period) : 0, perActive: true };
       }
       if (line === 'Insurance' && par('__ins_total__') > 0 && par('__ins_parcelas__') >= 1) {
         // parcela = total/N; se N > 12, as parcelas além do M12 ficam fora da tabela (trunca, não reamortiza)
@@ -558,8 +566,8 @@
       }
       // fixos (sem nenhuma conversão/exceção): R$50/US$10 e R$15/US$3, tratados direto em effSplit
       if (line === 'GPS' && (par('__gps_m0__') > 0 || par('__gps_mensal__') > 0)) {
-        // GPS recorrente também para nos carros com perda total (o do M0 fica — já foi gasto)
-        return { rs: period === 0 ? -par('__gps_m0__') : (period <= U.periods ? -par('__gps_mensal__') * lossCut(period) : 0) };
+        // GPS recorrente por carro ATIVO (perda total sai da conta; o do M0 fica — já foi gasto)
+        return { rs: period === 0 ? -par('__gps_m0__') : (period <= U.periods ? -par('__gps_mensal__') * plateCut(period) : 0), perActive: period > 0 };
       }
       // calção = nº de aluguéis × mensalidade do Subrental (ambos manuais, R$)
       const secDepMag = () => (par('__num_alugueis__') > 0 && par('__subrental_mensal__') > 0)
@@ -600,33 +608,42 @@
       if (!v) return null;
       const st = periodStatus(period);
       return st === 'real'
-        ? { real: toDisplay(v, ORCADO_FX), proj: 0, status: 'real' }
-        : { real: 0, proj: toDisplay(v, cotacao), status: 'proj' };
+        ? { real: toDisplay(v, ORCADO_FX), proj: 0, status: 'real', perActive: !!v.perActive }
+        : { real: 0, proj: toDisplay(v, cotacao), status: 'proj', perActive: !!v.perActive };
     }
     // all-mode: contexto por frota — cada frota tem params/entradas/eixo de meses/perdas/pagamentos próprios
     function applyCtx(c) {
-      model = c.f.model; params = c.params; entered = c.entered; curIni = c.ini;
+      model = c.f.model; params = c.params; entered = c.entered; curIni = c.ini; ctxCars = c.f.cars || 0;
       realizedFull = c.realizedFull; lossMonthByPlate = c.lossMonthByPlate; activeFracArr = c.activeFracArr;
       subsRS = c.subsRS || []; subsReady = !!c.subsReady;
     }
-    // combinação "All fleets": média por veículo ponderada pelos carros de cada frota (Σ valor_f × carros_f ÷ N).
-    // Uma célula pode sair com realizado E projetado (frotas em fases diferentes) — o cellLeaf mostra os dois.
+    // combinação "All fleets": média por veículo ponderada — linhas "por carro ativo" pesam pelos carros ativos
+    // do mês; as demais (Insurance etc.) pelos carros totais. Uma célula pode sair com realizado E projetado
+    // (frotas em fases diferentes) — o cellLeaf mostra os dois.
     function combinedSplit(line, period) {
-      let real = 0, proj = 0, any = false, anyReal = false;
+      let real = 0, proj = 0, den = 0, any = false, anyReal = false;
       for (const c of fleetCtx) {
         applyCtx(c);
         const e = effSplitOne(line, period);
-        if (e) { real += (e.real || 0) * c.f.cars; proj += (e.proj || 0) * c.f.cars; any = true; if (e.status === 'real') anyReal = true; }
+        if (!e) continue;
+        const w = e.perActive ? activeCarsAt(period) : (c.f.cars || 1);
+        real += (e.real || 0) * w; proj += (e.proj || 0) * w; den += w;
+        any = true; if (e.status === 'real') anyReal = true;
       }
       if (!any) return null;
-      const N = curCars || 1;
-      return { real: real / N, proj: proj / N, status: anyReal ? 'real' : 'proj' };
+      return { real, proj, den: den || 1, status: anyReal ? 'real' : 'proj' };
     }
-    // camada de visão: unitary (por veículo) × aggregate (× nº de carros) × placa (valor individual)
+    // camada de visão: unitary (÷ carros — ativos p/ linhas perActive) × aggregate (soma) × placa (individual)
     function effSplit(line, period) {
-      const k = viewMult();
-      const e = (allMode && !plateView) ? combinedSplit(line, period) : effSplitOne(line, period);
+      if (allMode && !plateView) {
+        const r = combinedSplit(line, period);
+        if (!r) return null;
+        const k = viewAgg ? 1 : 1 / r.den; // combinado já vem como soma total; unitary divide pelo denominador
+        return { real: Math.round(r.real * k), proj: Math.round(r.proj * k), status: r.status };
+      }
+      const e = effSplitOne(line, period);
       if (!e) return null;
+      const k = plateView ? 1 : (viewAgg ? (e.perActive ? activeCarsAt(period) : (curCars || 1)) : 1);
       return { real: Math.round((e.real || 0) * k), proj: Math.round((e.proj || 0) * k), status: e.status };
     }
     // linhas cujo lançamento pontual foi movido para o M13 (planilha original só vai até M12) — o orçado de
@@ -848,7 +865,7 @@
       const f = allMode ? allFleet() : U.fleets.find((x) => x.id === current);
       model = f.model;
       plateView = null; viewAgg = false; // trocar de frota volta para a visão unitária
-      curCars = f.cars || 0;
+      curCars = f.cars || 0; ctxCars = f.cars || 0;
       const foto = allMode ? null : (OCN.modelos[f.model] || {}).foto;
       fleetsEl.querySelectorAll('.ue-fleet-btn').forEach((b) => b.classList.toggle('active', b.dataset.id === current));
       // carrega valores (entradas manuais + params) — all-mode busca de todas as frotas em paralelo

@@ -157,19 +157,20 @@ button { font-family: inherit; cursor: pointer; }
 .ue-leaf .ue-rowlabel { padding-left: 22px; font-weight: 400; color: var(--text-2); }
 .ue-leaf .ue-rowlabel::before { content: ''; position: absolute; left: 11px; top: calc(50% - 1px); width: 5px; height: 2px; border-radius: 2px; background: var(--border-2); }
 .ue-calc .ue-rowlabel { font-weight: 700; color: var(--text); border-left: 3px solid var(--accent); padding-left: 9px; }
-.ue-totalInflow td, .ue-totalOutflow td { font-weight: 600; border-top: 1px solid var(--border-2); background: var(--surface-2); }
+/* totalizadores em escada de tons (cada nível mais escuro) + respiro antes do Net e do Acc */
+.ue-totalInflow td, .ue-totalOutflow td { font-weight: 600; border-top: 1px solid var(--border-2); background: #ebebee; }
 .ue-totalInflow .ue-orc, .ue-totalOutflow .ue-orc { color: var(--text); }
-.ue-net td { font-weight: 700; background: var(--purple-soft); }
+.ue-net td { font-weight: 700; background: #e2d5f9; border-top: 6px solid var(--surface); }
 .ue-net .ue-orc { color: var(--text); }
-.ue-acc td { font-weight: 700; border-top: 1px solid var(--border-2); background: #e7ddf9; }
+.ue-acc td { font-weight: 700; background: #d3c0f2; border-top: 6px solid var(--surface); }
 .ue-acc .ue-orc { color: var(--text); }
-/* coluna Total à direita */
-/* coluna Total: borda accent + faixa própria (cinza nos itens, roxo nos Net/Acc) */
+/* coluna Total: borda accent + faixa própria, um degrau mais escura que a linha correspondente */
 .ue-totalcol { border-left: 2px solid var(--accent); font-weight: 700; }
 .ue-table thead th.ue-totalcol { background: var(--accent); color: #fff; }
-.ue-cell.ue-totalcol { background: var(--surface-2); }
-.ue-net td.ue-totalcol { background: var(--purple-soft); }
-.ue-acc td.ue-totalcol { background: #e7ddf9; }
+.ue-cell.ue-totalcol { background: #e8e8ec; }
+.ue-totalInflow td.ue-totalcol, .ue-totalOutflow td.ue-totalcol { background: #dfdfe4; }
+.ue-net td.ue-totalcol { background: #d3c0f2; }
+.ue-acc td.ue-totalcol { background: #c3a9ec; }
 .ue-foot { font-size: 11px; color: var(--text-2); margin-top: 10px; line-height: 1.5; }
 .ue-tag { display: inline-block; padding: 1px 7px; border-radius: 999px; font-weight: 600; margin-right: 4px; }
 .ue-tag-orc { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border-2); }

@@ -82,6 +82,16 @@ button { font-family: inherit; cursor: pointer; }
 .ue-fleet-btn .m { font-size: 11px; color: var(--text-2); }
 .ue-fleet-btn.active .n, .ue-fleet-btn.active .m { color: #fff; }
 .ue-head { margin-bottom: 12px; }
+.ue-plates { margin-top: 18px; }
+.ue-plates-label { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px; }
+.ue-plates-grid { display: flex; gap: 8px; flex-wrap: wrap; }
+.ue-plate-btn {
+  padding: 6px 12px; border: 1px solid var(--border-2); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--text); font-size: 12px; font-weight: 600; cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.ue-plate-btn:hover { border-color: var(--accent); }
+.ue-plate-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 .ue-headrow { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
 .ue-fleet-title { font-family: var(--font-display); font-size: 16px; font-weight: 600; }
 .ue-fleet-sub { font-size: 12px; color: var(--text-2); margin-top: 2px; }

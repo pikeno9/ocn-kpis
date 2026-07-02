@@ -410,6 +410,7 @@
     }
     let current = U.fleets[0].id;
     let model = U.fleets[0].model;
+    let plateView = null; // null = visão agregada da frota; string = placa selecionada (valores ainda não diferem — vem depois)
     let entered = {}; // "line@@period" -> {value, kind}
     let manualMode = false; // edição manual desligada por padrão
     let kmSemana = 1200;    // km/semana da frota (slider, por frota)
@@ -679,9 +680,29 @@
       });
     }
 
+    // painel "ver por placa": um botão por carro da frota + "Fleet (aggregate)"; só troca a seleção por ora — valores vêm depois
+    function renderPlates(f) {
+      const platesEl = document.getElementById('uePlates');
+      if (!platesEl) return;
+      const plates = f.placas || [];
+      if (!plates.length) { platesEl.innerHTML = ''; return; }
+      platesEl.innerHTML =
+        `<div class="ue-plates-label">View by plate</div><div class="ue-plates-grid">` +
+        `<button class="ue-plate-btn${plateView ? '' : ' active'}" data-plate="">Fleet (aggregate)</button>` +
+        plates.map((p) => `<button class="ue-plate-btn${plateView === p ? ' active' : ''}" data-plate="${p}">${p}</button>`).join('') +
+        `</div>`;
+      platesEl.querySelectorAll('.ue-plate-btn').forEach((b) => b.addEventListener('click', () => {
+        plateView = b.dataset.plate || null;
+        platesEl.querySelectorAll('.ue-plate-btn').forEach((x) => x.classList.toggle('active', x === b));
+        const titleEl = document.querySelector('#ueHead .ue-fleet-title');
+        if (titleEl) titleEl.textContent = f.label + ' — ' + f.modelLabel + (plateView ? ' · ' + plateView : '');
+        renderTable(f);
+      }));
+    }
     async function loadFleet() {
       const f = U.fleets.find((x) => x.id === current);
       model = f.model;
+      plateView = null; // trocar de frota volta para a visão agregada
       const foto = (OCN.modelos[f.model] || {}).foto;
       fleetsEl.querySelectorAll('.ue-fleet-btn').forEach((b) => b.classList.toggle('active', b.dataset.id === current));
       // carrega valores da frota (entradas + km/semana + params)
@@ -742,6 +763,7 @@
       wireField('ueOrcCambio', (v) => { orcadoCambio = v; }, '__orcado_cambio__', () => orcadoCambio, f);
       wireField('ueRefundPct', (v) => { refundPct = v / 100; }, '__refund_pct__', () => refundPct, f);
       renderTable(f);
+      renderPlates(f);
     }
 
     function renderTable(f) {

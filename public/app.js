@@ -442,6 +442,7 @@
     const DISPLAY_LABEL = { 'Deposit Refund': 'Security Deposit Refund' };
     const par = (k) => +params[k] || 0;
     const SEMANAS_MES = 52 / 12; // 4,3333
+    const REVISAO_KM = 10000;    // revisão a cada 10.000 km
     const PMAX = U.periods + 1;  // M13 = período pós-contrato (só lançamentos pontuais; recorrências param no M12)
     const ekey = (l, p) => l + '@@' + p;
     // separação realizado × projetado por TEMPO (início da frota até hoje)
@@ -518,6 +519,51 @@
       const frac = activeFracArr[m] != null ? activeFracArr[m] : 1;
       return Math.max(1, Math.round(frac * (ctxCars || 1)));
     }
+    // Maintenance por dados reais: REALIZADO = revisões concluídas (API da frota: última revisão com data;
+    // anteriores inferidas pelo ritmo de km da placa) × preço do site de revisões; PROJETADO = próximas
+    // revisões pelo hodômetro atual + km médio mensal da FROTA. Valores em R$; unitário ÷ carros ativos.
+    let maintRealRS = [], maintProjRS = [], maintReady = false;
+    function computeMaint(f) {
+      maintRealRS = []; maintProjRS = []; maintReady = false;
+      const fr = U.frota && U.frota.placas;
+      const prices = (U.revisoes && U.revisoes[model]) || [];
+      if (!fr || !prices.length || !curIni || elapsed <= 0) return;
+      const priceOf = (n) => { const r = prices.find((x) => x.n === n); return r ? r.valor : 0; };
+      const kmOf = (n) => { const r = prices.find((x) => x.n === n); return (r && r.km) ? r.km : n * REVISAO_KM; };
+      const plates = plateView ? [plateView] : (f.placas || []);
+      for (let p = 0; p <= PMAX; p++) { maintRealRS[p] = 0; maintProjRS[p] = 0; }
+      // km médio MENSAL da frota (placas com odômetro confiável) — base da projeção
+      let kmSum = 0, kmN = 0;
+      (f.placas || []).forEach((pl) => { const d = fr[pl]; if (d && d.ok && d.odo > 0) { kmSum += d.odo; kmN++; } });
+      const kmMesFrota = kmN ? (kmSum / kmN) / elapsed : 0;
+      const projStart = Math.min(realizedFull + 1, PMAX); // revisão vencida cai no 1º mês projetado
+      plates.forEach((pl) => {
+        const d = fr[pl];
+        if (!d) return;
+        const done = d.lastKm ? Math.round(d.lastKm / REVISAO_KM) : 0;
+        // realizado: revisões 1..done — a última na data real; anteriores pelo ritmo da própria placa
+        for (let k = 1; k <= done; k++) {
+          let mo;
+          if (k === done && d.lastAt) mo = Math.ceil(((new Date(d.lastAt) - curIni) / 86400000) / (SEMANAS_MES * 7));
+          else { const pace = elapsed > 0 && d.odo > 0 ? d.odo / elapsed : 0; mo = pace > 0 ? Math.ceil(kmOf(k) / pace) : 1; }
+          if (mo < 1) mo = 1;
+          if (mo > realizedFull) mo = realizedFull; // evento que já ocorreu fica em mês realizado
+          maintRealRS[mo] += priceOf(k);
+        }
+        // projetado: próximas revisões (done+1...) — meses até lá = km que falta ÷ km médio mensal da frota
+        if (!(d.ok && d.odo > 0) || kmMesFrota <= 0) return;
+        if (lossMonthByPlate[pl] != null) return; // perda total: sem revisões futuras
+        for (let n = done + 1; n <= 200; n++) {
+          let mo = Math.ceil(elapsed + Math.max(0, kmOf(n) - d.odo) / kmMesFrota);
+          if (mo < projStart) mo = projStart;
+          if (mo > U.periods) break; // dentro do contrato (M13 = só pontuais)
+          maintProjRS[mo] += priceOf(n);
+        }
+      });
+      // ÷ carros ATIVOS do mês (mesma regra das demais linhas por carro); placa = sem divisão
+      if (!plateView) for (let p = 0; p <= PMAX; p++) { maintRealRS[p] /= activeCarsAt(p); maintProjRS[p] /= activeCarsAt(p); }
+      maintReady = true;
+    }
     // Subscription por dados reais (matriz de pagamentos por placa): receita do mês = Σ semanas pagas
     // (vencimento no mês) × semanalidade, com juros % sobre as pagas em atraso. Agregado = soma ÷ nº de
     // placas da frota; visão por placa = só as semanas daquela placa, sem divisão.
@@ -558,6 +604,12 @@
       if (line === 'Subrental fee' && par('__subrental_mensal__') > 0) {
         // valor por carro ATIVO (a placa perdida sai do numerador e do denominador a partir do incidente)
         return { rs: (period >= 1 && period <= U.periods) ? -par('__subrental_mensal__') * plateCut(period) : 0, perActive: true };
+      }
+      if (line === 'Maintenance' && maintReady) {
+        if (period === 0 || period === PMAX) return { rs: 0, perActive: true };
+        return periodStatus(period) === 'real'
+          ? { rs: -(maintRealRS[period] || 0), perActive: true }
+          : { rs: -(maintProjRS[period] || 0), perActive: true };
       }
       if (line === 'Insurance' && par('__ins_total__') > 0 && par('__ins_parcelas__') >= 1) {
         // parcela = total/N; se N > 12, as parcelas além do M12 ficam fora da tabela (trunca, não reamortiza)
@@ -614,8 +666,9 @@
     // all-mode: contexto por frota — cada frota tem params/entradas/eixo de meses/perdas/pagamentos próprios
     function applyCtx(c) {
       model = c.f.model; params = c.params; entered = c.entered; curIni = c.ini; ctxCars = c.f.cars || 0;
-      realizedFull = c.realizedFull; lossMonthByPlate = c.lossMonthByPlate; activeFracArr = c.activeFracArr;
+      elapsed = c.elapsed; realizedFull = c.realizedFull; lossMonthByPlate = c.lossMonthByPlate; activeFracArr = c.activeFracArr;
       subsRS = c.subsRS || []; subsReady = !!c.subsReady;
+      maintRealRS = c.maintRealRS || []; maintProjRS = c.maintProjRS || []; maintReady = !!c.maintReady;
     }
     // combinação "All fleets": média por veículo ponderada — linhas "por carro ativo" pesam pelos carros ativos
     // do mês; as demais (Insurance etc.) pelos carros totais. Uma célula pode sair com realizado E projetado
@@ -954,16 +1007,21 @@
       const orc = U.orcado[f.model];
       const tbl = document.getElementById('ueTable');
       if (!orc) { tbl.innerHTML = '<tbody><tr><td>No budget for ' + f.modelLabel + '</td></tr></tbody>'; return; }
-      // Subscription depende da frota E da visão (placa/agregado); all-mode pré-computa por frota
+      // Subscription/Maintenance dependem da frota E da visão (placa/agregado); all-mode pré-computa por frota
       if (allMode && fleetCtx) {
         if (plateView) {
           const c = fleetCtx.find((x) => (x.f.placas || []).includes(plateView));
-          if (c) { applyCtx(c); computeSubs(c.f); }
+          if (c) { applyCtx(c); computeSubs(c.f); computeMaint(c.f); }
         } else {
-          fleetCtx.forEach((c) => { applyCtx(c); computeSubs(c.f); c.subsRS = subsRS; c.subsReady = subsReady; });
+          fleetCtx.forEach((c) => {
+            applyCtx(c); computeSubs(c.f); computeMaint(c.f);
+            c.subsRS = subsRS; c.subsReady = subsReady;
+            c.maintRealRS = maintRealRS; c.maintProjRS = maintProjRS; c.maintReady = maintReady;
+          });
         }
       } else {
         computeSubs(f);
+        computeMaint(f);
       }
       const T = computeTotals(orc.lines);
       const gmap = { totalInflow: T.totalInflow, totalOutflow: T.totalOutflow, net: T.net, acc: T.acc };

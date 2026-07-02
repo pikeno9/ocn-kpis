@@ -420,6 +420,7 @@
     const ORCADO_FX = 5.0;  // câmbio em que o orçado (USD, planilha) foi construído — só para exibi-lo em R$
     let params = {}; // parâmetros por frota: subrental, seguro, GPS, nº aluguéis, compra
     const LINE_PARAMS = {
+      'Subscription': [{ k: '__sub_semanal__', label: 'Weekly subscription fee (R$)' }, { k: '__sub_juros__', label: 'Late-payment interest (%)' }],
       'Subrental fee': [{ k: '__subrental_mensal__', label: 'Monthly Subrental fee (R$)' }],
       'Insurance': [{ k: '__ins_total__', label: 'Total insurance for the year (R$)' }, { k: '__ins_parcelas__', label: 'Number of installments (from M1)' }],
       'GPS': [{ k: '__gps_m0__', label: 'Amount at M0 (R$)' }, { k: '__gps_mensal__', label: 'Monthly amount, from M1 (R$)' }],
@@ -475,10 +476,40 @@
     // status do período: realizado (do início até o mês vigente, incluso — valor integral) × projetado (meses futuros)
     function periodStatus(p) { return (p === 0 || p <= realizedFull) ? 'real' : 'proj'; }
 
+    // Subscription por dados reais (matriz de pagamentos por placa): receita do mês = Σ semanas pagas
+    // (vencimento no mês) × semanalidade, com juros % sobre as pagas em atraso. Agregado = soma ÷ nº de
+    // placas da frota; visão por placa = só as semanas daquela placa, sem divisão.
+    let subsRS = [], subsReady = false;
+    function computeSubs(f) {
+      subsRS = []; subsReady = false;
+      const fee = par('__sub_semanal__');
+      const pag = U.pagamentos && U.pagamentos.placas;
+      const ini = f.inicio ? new Date(f.inicio + 'T12:00:00') : null;
+      if (!(fee > 0) || !pag || !ini) return;
+      const juros = par('__sub_juros__') / 100;
+      const plates = plateView ? [plateView] : (f.placas || []);
+      const nDiv = plateView ? 1 : (f.cars || plates.length || 1);
+      for (let p = 0; p <= PMAX; p++) subsRS[p] = 0;
+      plates.forEach((pl) => (pag[pl] || []).forEach((s) => {
+        const venc = new Date(s.v + 'T12:00:00');
+        let mo = Math.ceil(((venc - ini) / 86400000) / (SEMANAS_MES * 7));
+        if (mo < 1) mo = 1;
+        if (mo > U.periods) return;
+        subsRS[mo] += fee * (1 + (s.a ? juros : 0));
+      }));
+      for (let p = 0; p <= PMAX; p++) subsRS[p] = subsRS[p] / nDiv;
+      subsReady = true;
+    }
+
     // valor NATIVO da linha num período: { rs } para valores em R$ (manuais/derivados) ou { usd } para
     // valores fixos em dólar. Sem câmbio aqui — a conversão para a moeda de exibição acontece no effSplit.
     // Recorrências mensais param no M12; o M13 só recebe os lançamentos pontuais pós-contrato.
     function effNative(line, period) {
+      if (line === 'Subscription' && subsReady) {
+        if (period === 0 || period === PMAX) return { rs: 0 };
+        if (periodStatus(period) === 'real') return { rs: subsRS[period] || 0 };
+        return null; // meses futuros: sem projeção automática por ora (só orçado como referência)
+      }
       if (line === 'Subrental fee' && par('__subrental_mensal__') > 0) {
         return { rs: (period >= 1 && period <= U.periods) ? -par('__subrental_mensal__') : 0 };
       }
@@ -567,17 +598,23 @@
       });
       return { sum, anyMain, kind: periodStatus(p) === 'real' ? 'real' : 'proj' };
     }
-    // Totalizadores por período (orçado da planilha; efetivo = soma realizado/projetado)
+    // Totalizadores por período. O orçado dos totais é recalculado somando o orçado EXIBIDO de cada linha
+    // (orcDisp) — assim os pontuais movidos para o M13 (compra/venda/refund) entram nos totais no M13, não
+    // no M12 como nas linhas de total da planilha original. Efetivo = soma realizado/projetado das linhas.
     function computeTotals(lines) {
       const P = PMAX;
-      const fx = currency === 'BRL' ? ORCADO_FX : 1;
-      const sheet = (label, p) => { const l = lines.find((x) => x.label === label); const v = l ? l.values[p] : null; return v == null ? null : Math.round(v * fx); };
+      const sumOrc = (group, p) => {
+        let s = 0, any = false;
+        lines.filter((l) => l.group === group).forEach((l) => { const o = orcDisp(l.label, p); if (o != null) { s += o; any = true; } });
+        return any ? s : null;
+      };
       const per = { totalInflow: [], totalOutflow: [], net: [], acc: [] };
-      let accEff = 0, accEnt = false, accProj = false;
+      let accEff = 0, accOrc = 0, accEnt = false, accProj = false;
       for (let p = 0; p <= P; p++) {
         const inE = sectionEff(lines, 'inflow', p);
         const ouE = sectionEff(lines, 'outflow', p);
-        const inOrc = sheet('Total Inflow', p), ouOrc = sheet('Total Outflow', p), netOrc = sheet('Net monthly cashflow', p);
+        const inOrc = sumOrc('inflow', p), ouOrc = sumOrc('outflow', p);
+        const netOrc = (inOrc == null && ouOrc == null) ? null : (inOrc || 0) + (ouOrc || 0);
         const inEff = inE.anyMain ? inE.sum : (inOrc == null ? 0 : inOrc);
         const ouEff = ouE.anyMain ? ouE.sum : (ouOrc == null ? 0 : ouOrc);
         const netEnt = inE.anyMain || ouE.anyMain;
@@ -586,8 +623,8 @@
         per.totalInflow[p] = { orc: inOrc, eff: inEff, hasMain: inE.anyMain, kind: inE.kind };
         per.totalOutflow[p] = { orc: ouOrc, eff: ouEff, hasMain: ouE.anyMain, kind: ouE.kind };
         per.net[p] = { orc: netOrc, eff: netEff, hasMain: netEnt, kind: netProj ? 'proj' : 'real' };
-        accEff += netEff; accEnt = accEnt || netEnt; accProj = accProj || netProj;
-        per.acc[p] = { orc: sheet('Acc Cashflow', p), eff: accEff, hasMain: accEnt, kind: accProj ? 'proj' : 'real' };
+        accEff += netEff; accOrc += (netOrc || 0); accEnt = accEnt || netEnt; accProj = accProj || netProj;
+        per.acc[p] = { orc: accOrc, eff: accEff, hasMain: accEnt, kind: accProj ? 'proj' : 'real' };
       }
       return per;
     }
@@ -767,6 +804,7 @@
       const orc = U.orcado[f.model];
       const tbl = document.getElementById('ueTable');
       if (!orc) { tbl.innerHTML = '<tbody><tr><td>No budget for ' + f.modelLabel + '</td></tr></tbody>'; return; }
+      computeSubs(f); // Subscription depende da frota E da placa selecionada (plateView)
       const T = computeTotals(orc.lines);
       const gmap = { totalInflow: T.totalInflow, totalOutflow: T.totalOutflow, net: T.net, acc: T.acc };
       const editable = isAdmin && manualMode;

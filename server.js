@@ -6,6 +6,7 @@ const cron = require('node-cron');
 const { fetchAllTabs, fetchUeTabs } = require('./lib/sheet');
 const compute = require('./lib/compute');
 const ue = require('./lib/ue');
+const cobrancas = require('./lib/cobrancas');
 const store = require('./lib/store');
 const C = require('./config/static');
 const auth = require('./config/auth');
@@ -27,6 +28,8 @@ async function refresh() {
     const [sheets, ueSheets] = await Promise.all([fetchAllTabs(C.TABS), fetchUeTabs(C.UE_TABS)]);
     const data = compute.build(sheets, refDate());
     data.ue = ue.build(ueSheets, sheets.importData, refDate());
+    try { data.ue.pagamentos = await cobrancas.fetchPagamentos(); }
+    catch (e) { console.error('[cobrancas] falhou:', e.message); data.ue.pagamentos = null; }
     cache = { data, updatedAt: new Date().toISOString(), ok: true, error: null };
     console.log(`[refresh] OK — ${data.kpis.recebidosAno} carros, ${data.ocorrencias.total} ocorrências (${cache.updatedAt})`);
   } catch (e) {

@@ -13,6 +13,10 @@ const TABS = {
   clientes: 'import_clientes',
 };
 
+// API do painel de cobranças (matriz de pagamentos semanais por placa). Token só via env (repo público).
+const COBRANCAS_API = process.env.COBRANCAS_API || 'https://ocn-painel-cobrancas.vercel.app';
+const COBRANCAS_TOKEN = process.env.COBRANCAS_TOKEN || '';
+
 // Unit Economics — abas de cashflow orçado (por veículo), uma por modelo
 const UE_TABS = { Polo: 'UE - Polo', Argo: 'UE - Argo', Tera: 'UE - Tera' };
 const UE_PERIODS = 12; // M1-M12; M0 = setup inicial (coluna 2 das abas UE)
@@ -125,7 +129,7 @@ const churnExcluir = ['troca de carro', 'troca'];
 const contratoNominalMeses = 12;
 
 module.exports = {
-  SHEET_ID, TABS, UE_TABS, UE_PERIODS, UE_FLEET_COL, modelos, corEsperado, mapModelo,
+  SHEET_ID, TABS, UE_TABS, UE_PERIODS, UE_FLEET_COL, COBRANCAS_API, COBRANCAS_TOKEN, modelos, corEsperado, mapModelo,
   spilloverDates, undatedReceivedDate,
   mLabels, mFull, esperado, semanaLabels, esperadoSemanal,
   proximoLote, notaMensal,

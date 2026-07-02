@@ -410,7 +410,12 @@
     }
     let current = U.fleets[0].id;
     let model = U.fleets[0].model;
-    let plateView = null; // null = visão agregada da frota; string = placa selecionada (valores ainda não diferem — vem depois)
+    let plateView = null;  // null = visão da frota; string = placa selecionada
+    let viewAgg = false;   // false = Fleet (unitary), por veículo; true = Fleet (aggregate), soma de todas as placas
+    let allMode = false;   // true = "All fleets": média ponderada por carros de todas as frotas (÷ N total)
+    let curCars = 0;       // nº de carros da visão atual (frota ou total geral) — multiplicador do aggregate
+    let fleetCtx = null;   // all-mode: contexto por frota (params/entradas/derivados) p/ combinar célula a célula
+    const viewMult = () => (plateView ? 1 : (viewAgg ? (curCars || 1) : 1));
     let entered = {}; // "line@@period" -> {value, kind} — valores manuais em R$ (moeda principal)
     let manualMode = false; // edição manual desligada por padrão
     let currency = 'BRL';   // moeda de exibição: R$ (principal) ou US$ (toggle no cabeçalho)
@@ -465,9 +470,18 @@
     };
     const isLeaf = (g) => g === 'inflow' || g === 'outflow';
 
+    const totalCarsAll = U.fleets.reduce((a, x) => a + (x.cars || 0), 0);
+    // frota sintética "All fleets": todas as placas, início = mais antigo, orçado = média ponderada por carros
+    const allFleet = () => ({
+      id: 'all', label: 'All fleets', model: U.fleets[0].model, modelLabel: 'all models',
+      cars: totalCarsAll,
+      inicio: U.fleets.map((x) => x.inicio).filter(Boolean).sort()[0] || null,
+      placas: U.fleets.flatMap((x) => x.placas || []).sort(),
+    });
     fleetsEl.innerHTML = U.fleets
       .map((f) => `<button class="ue-fleet-btn" data-id="${f.id}"><span class="n">${f.label}</span><span class="m">${f.modelLabel} · ${f.cars} cars</span></button>`)
-      .join('');
+      .join('') +
+      `<button class="ue-fleet-btn" data-id="all"><span class="n">All fleets</span><span class="m">${totalCarsAll} cars</span></button>`;
     fleetsEl.querySelectorAll('.ue-fleet-btn').forEach((b) =>
       b.addEventListener('click', () => { current = b.dataset.id; loadFleet(); })
     );
@@ -564,16 +578,16 @@
       const avg = realizedAvg(line);
       return avg == null ? null : { rs: avg }; // projeção automática pela média dos realizados manuais
     }
-    // converte um valor nativo para a moeda de exibição; realizados usam a cotação indicada, projetados o câmbio futuro
+    // converte um valor nativo para a moeda de exibição; realizados usam a cotação indicada, projetados o câmbio
+    // futuro. SEM arredondar aqui — o arredondamento final é do effSplit (depois do multiplicador da visão)
     function toDisplay(v, rate) {
       if (v == null) return null;
-      if (currency === 'BRL') return Math.round('rs' in v ? v.rs : v.usd * rate);
-      return Math.round('usd' in v ? v.usd : v.rs / rate);
+      if (currency === 'BRL') return 'rs' in v ? v.rs : v.usd * rate;
+      return 'usd' in v ? v.usd : v.rs / rate;
     }
-    // efetivo separando realizado (preto, cotação indicada — não muda com o slider) × projetado (roxo, câmbio futuro).
-    // `status` diz qual dos dois campos é o "ativo" no período (o outro fica 0) — necessário pra exibir 0 como "-"
-    // sem confundir com "não se aplica" (effNative/manual ausente, que continua totalmente em branco).
-    function effSplit(line, period) {
+    // efetivo POR VEÍCULO da frota em contexto (globals) — realizado (preto, câmbio fixo) × projetado (roxo,
+    // câmbio futuro). `status` diz o lado "ativo" (p/ exibir 0 como "-" sem confundir com "não se aplica").
+    function effSplitOne(line, period) {
       // Car Preparation/Sticker: valor fixo literal por moeda, sem nenhum cálculo/câmbio/exceção
       if (line === 'Car Preparation (wash + delivery)') return period === 0 ? { real: currency === 'BRL' ? -50 : -10, proj: 0, status: 'real' } : null;
       if (line === 'Sticker') return period === 0 ? { real: currency === 'BRL' ? -15 : -3, proj: 0, status: 'real' } : null;
@@ -589,22 +603,63 @@
         ? { real: toDisplay(v, ORCADO_FX), proj: 0, status: 'real' }
         : { real: 0, proj: toDisplay(v, cotacao), status: 'proj' };
     }
+    // all-mode: contexto por frota — cada frota tem params/entradas/eixo de meses/perdas/pagamentos próprios
+    function applyCtx(c) {
+      model = c.f.model; params = c.params; entered = c.entered; curIni = c.ini;
+      realizedFull = c.realizedFull; lossMonthByPlate = c.lossMonthByPlate; activeFracArr = c.activeFracArr;
+      subsRS = c.subsRS || []; subsReady = !!c.subsReady;
+    }
+    // combinação "All fleets": média por veículo ponderada pelos carros de cada frota (Σ valor_f × carros_f ÷ N).
+    // Uma célula pode sair com realizado E projetado (frotas em fases diferentes) — o cellLeaf mostra os dois.
+    function combinedSplit(line, period) {
+      let real = 0, proj = 0, any = false, anyReal = false;
+      for (const c of fleetCtx) {
+        applyCtx(c);
+        const e = effSplitOne(line, period);
+        if (e) { real += (e.real || 0) * c.f.cars; proj += (e.proj || 0) * c.f.cars; any = true; if (e.status === 'real') anyReal = true; }
+      }
+      if (!any) return null;
+      const N = curCars || 1;
+      return { real: real / N, proj: proj / N, status: anyReal ? 'real' : 'proj' };
+    }
+    // camada de visão: unitary (por veículo) × aggregate (× nº de carros) × placa (valor individual)
+    function effSplit(line, period) {
+      const k = viewMult();
+      const e = (allMode && !plateView) ? combinedSplit(line, period) : effSplitOne(line, period);
+      if (!e) return null;
+      return { real: Math.round((e.real || 0) * k), proj: Math.round((e.proj || 0) * k), status: e.status };
+    }
     // linhas cujo lançamento pontual foi movido para o M13 (planilha original só vai até M12) — o orçado de
     // referência sai do M12 e passa a aparecer só no M13 (substituição, não duplicação)
     const M13_LINES = ['Vehicle Purchase', 'Initial Fee / Vehicle Sell', 'Deposit Refund'];
-    // orçado (planilha, USD) na moeda de exibição: em R$ multiplica pelo câmbio em que foi construído
+    // orçado (planilha, USD) na moeda de exibição; all-mode = média ponderada dos orçados por modelo
     const orcDisp = (line, period) => {
       const isM13Line = M13_LINES.includes(line);
       if (isM13Line && period === U.periods) return null; // M12 não mostra mais (valor foi para o M13)
       const srcP = (isM13Line && period === PMAX) ? U.periods : period; // M13 reaproveita o valor do M12
+      const fx = currency === 'BRL' ? ORCADO_FX : 1;
+      const k = viewMult();
+      if (allMode && !plateView) {
+        let sum = 0, any = false;
+        U.fleets.forEach((ff) => {
+          const l = U.orcado[ff.model] && U.orcado[ff.model].lines.find((x) => x.label === line);
+          const v = l ? l.values[srcP] : null;
+          if (v != null) { sum += v * ff.cars; any = true; }
+        });
+        return any ? Math.round((sum / (curCars || 1)) * fx * k) : null;
+      }
       const o = orcVal(line, srcP);
-      return o == null ? null : Math.round(o * (currency === 'BRL' ? ORCADO_FX : 1));
+      return o == null ? null : Math.round(o * fx * k);
     };
     function cellLeaf(line, period) {
       const e = effSplit(line, period);
       const orc = orcDisp(line, period);
       let s = '';
-      if (e) s += `<span class="ue-main ue-${e.status}">${ueFmt(e.status === 'real' ? e.real : e.proj)}</span>`;
+      if (e) {
+        if (e.real) s += `<span class="ue-main ue-real">${ueFmt(e.real)}</span>`;
+        if (e.proj) s += `<span class="ue-main ue-proj">${ueFmt(e.proj)}</span>`;
+        if (!e.real && !e.proj) s += `<span class="ue-main ue-${e.status}">-</span>`;
+      }
       if (orc != null) s += `<span class="ue-orc">${ueFmt(orc)}</span>`;
       return s;
     }
@@ -735,43 +790,77 @@
       });
     }
 
-    // painel "ver por placa": um botão por carro da frota + "Fleet (aggregate)"; só troca a seleção por ora — valores vêm depois
+    // painel de visões: Fleet (unitary) = por veículo · Fleet (aggregate) = soma de todas as placas · uma placa
     function renderPlates(f) {
       const platesEl = document.getElementById('uePlates');
       if (!platesEl) return;
       const plates = f.placas || [];
-      if (!plates.length) { platesEl.innerHTML = ''; return; }
       platesEl.innerHTML =
         `<div class="ue-plates-label">View by plate</div><div class="ue-plates-grid">` +
-        `<button class="ue-plate-btn${plateView ? '' : ' active'}" data-plate="">Fleet (aggregate)</button>` +
+        `<button class="ue-plate-btn${(!plateView && !viewAgg) ? ' active' : ''}" data-view="unit">Fleet (unitary)</button>` +
+        `<button class="ue-plate-btn${(!plateView && viewAgg) ? ' active' : ''}" data-view="agg">Fleet (aggregate)</button>` +
         plates.map((p) => `<button class="ue-plate-btn${plateView === p ? ' active' : ''}" data-plate="${p}">${p}</button>`).join('') +
         `</div>`;
       platesEl.querySelectorAll('.ue-plate-btn').forEach((b) => b.addEventListener('click', () => {
-        plateView = b.dataset.plate || null;
+        if (b.dataset.view) { plateView = null; viewAgg = b.dataset.view === 'agg'; }
+        else { plateView = b.dataset.plate; viewAgg = false; }
         platesEl.querySelectorAll('.ue-plate-btn').forEach((x) => x.classList.toggle('active', x === b));
         const titleEl = document.querySelector('#ueHead .ue-fleet-title');
-        if (titleEl) titleEl.textContent = f.label + ' — ' + f.modelLabel + (plateView ? ' · ' + plateView : '');
+        if (titleEl) titleEl.textContent = f.label + ' — ' + f.modelLabel + (plateView ? ' · ' + plateView : (viewAgg ? ' · aggregate' : ''));
         renderTable(f);
       }));
     }
-    async function loadFleet() {
-      const f = U.fleets.find((x) => x.id === current);
-      model = f.model;
-      plateView = null; // trocar de frota volta para a visão agregada
-      const foto = (OCN.modelos[f.model] || {}).foto;
-      fleetsEl.querySelectorAll('.ue-fleet-btn').forEach((b) => b.classList.toggle('active', b.dataset.id === current));
-      // carrega valores da frota (entradas manuais + params)
-      entered = {}; params = {};
+    // busca params + entradas manuais de uma frota no store
+    async function fetchFleetValues(fleetId) {
+      const p_ = {}, e_ = {};
       try {
-        const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(current), { cache: 'no-store' });
+        const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(fleetId), { cache: 'no-store' });
         if (r.ok) {
           const d = await r.json();
           (d.values || []).forEach((v) => {
-            if (String(v.line).startsWith('__')) { params[v.line] = v.value; return; }
-            entered[ekey(v.line, v.period)] = { value: v.value, kind: v.kind };
+            if (String(v.line).startsWith('__')) { p_[v.line] = v.value; return; }
+            e_[ekey(v.line, v.period)] = { value: v.value, kind: v.kind };
           });
         }
       } catch (e) { /* segue com orçado */ }
+      return { params: p_, entered: e_ };
+    }
+    // contexto derivado de uma frota (eixo de meses, perdas totais) — usado no all-mode
+    function buildCtx(ff, vals) {
+      const ini = ff.inicio ? new Date(ff.inicio + 'T12:00:00') : null;
+      const el = ini ? Math.max(0, (hoje - ini) / 86400000 / (SEMANAS_MES * 7)) : 0;
+      const lmp = {}, afa = [];
+      if (ini && U.losses) {
+        (ff.placas || []).forEach((pl) => {
+          const d = U.losses[pl];
+          if (!d) return;
+          let mo = Math.ceil(((new Date(d + 'T12:00:00') - ini) / 86400000) / (SEMANAS_MES * 7));
+          if (mo < 1) mo = 1;
+          lmp[pl] = mo;
+        });
+        const nCars = ff.cars || 1;
+        for (let p = 0; p <= PMAX; p++) { const lost = Object.values(lmp).filter((lm) => lm <= p).length; afa[p] = Math.max(0, nCars - lost) / nCars; }
+      }
+      return { f: ff, params: vals.params, entered: vals.entered, ini, elapsed: el, realizedFull: Math.min(PMAX, Math.ceil(el)), lossMonthByPlate: lmp, activeFracArr: afa, subsRS: [], subsReady: false };
+    }
+    async function loadFleet() {
+      allMode = current === 'all';
+      const f = allMode ? allFleet() : U.fleets.find((x) => x.id === current);
+      model = f.model;
+      plateView = null; viewAgg = false; // trocar de frota volta para a visão unitária
+      curCars = f.cars || 0;
+      const foto = allMode ? null : (OCN.modelos[f.model] || {}).foto;
+      fleetsEl.querySelectorAll('.ue-fleet-btn').forEach((b) => b.classList.toggle('active', b.dataset.id === current));
+      // carrega valores (entradas manuais + params) — all-mode busca de todas as frotas em paralelo
+      entered = {}; params = {};
+      if (allMode) {
+        const valsList = await Promise.all(U.fleets.map((ff) => fetchFleetValues(ff.id)));
+        fleetCtx = U.fleets.map((ff, i) => buildCtx(ff, valsList[i]));
+      } else {
+        fleetCtx = null;
+        const vals = await fetchFleetValues(current);
+        params = vals.params; entered = vals.entered;
+      }
       // meses decorridos = (hoje - início) em semanas ÷ 4,3333; M0 é sempre realizado
       const ini = f.inicio ? new Date(f.inicio + 'T12:00:00') : null;
       curIni = ini;
@@ -848,10 +937,20 @@
       const orc = U.orcado[f.model];
       const tbl = document.getElementById('ueTable');
       if (!orc) { tbl.innerHTML = '<tbody><tr><td>No budget for ' + f.modelLabel + '</td></tr></tbody>'; return; }
-      computeSubs(f); // Subscription depende da frota E da placa selecionada (plateView)
+      // Subscription depende da frota E da visão (placa/agregado); all-mode pré-computa por frota
+      if (allMode && fleetCtx) {
+        if (plateView) {
+          const c = fleetCtx.find((x) => (x.f.placas || []).includes(plateView));
+          if (c) { applyCtx(c); computeSubs(c.f); }
+        } else {
+          fleetCtx.forEach((c) => { applyCtx(c); computeSubs(c.f); c.subsRS = subsRS; c.subsReady = subsReady; });
+        }
+      } else {
+        computeSubs(f);
+      }
       const T = computeTotals(orc.lines);
       const gmap = { totalInflow: T.totalInflow, totalOutflow: T.totalOutflow, net: T.net, acc: T.acc };
-      const editable = isAdmin && manualMode;
+      const editable = isAdmin && manualMode && !allMode; // no all-mode não há frota única p/ salvar edições
       let html = '<thead><tr><th class="ue-rowlabel">Line</th><th>M0</th>';
       for (let p = 1; p <= PMAX; p++) html += `<th>M${p}</th>`;
       html += '<th class="ue-totalcol">Total</th></tr></thead><tbody>';

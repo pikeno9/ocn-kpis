@@ -487,9 +487,7 @@
         const N = Math.round(par('__ins_parcelas__'));
         return { rs: (period >= 1 && period <= Math.min(N, U.periods)) ? -(par('__ins_total__') / N) : 0 };
       }
-      // fixos (R$50/R$15 ou 10/3 USD — conversão sempre no câmbio nominal 5,0, não na cotação editável dos realizados)
-      if (line === 'Car Preparation (wash + delivery)') return period === 0 ? { usd: -10, fx: ORCADO_FX } : null;
-      if (line === 'Sticker') return period === 0 ? { usd: -3, fx: ORCADO_FX } : null;
+      // fixos (sem nenhuma conversão/exceção): R$50/US$10 e R$15/US$3, tratados direto em effSplit
       if (line === 'GPS' && (par('__gps_m0__') > 0 || par('__gps_mensal__') > 0)) {
         return { rs: period === 0 ? -par('__gps_m0__') : (period <= U.periods ? -par('__gps_mensal__') : 0) };
       }
@@ -510,18 +508,19 @@
       const avg = realizedAvg(line);
       return avg == null ? null : { rs: avg }; // projeção automática pela média dos realizados manuais
     }
-    // converte um valor nativo para a moeda de exibição; realizados usam a cotação indicada, projetados o câmbio
-    // futuro — a menos que o valor traga câmbio fixo próprio (fx), que sempre prevalece (Car Prep/Sticker)
+    // converte um valor nativo para a moeda de exibição; realizados usam a cotação indicada, projetados o câmbio futuro
     function toDisplay(v, rate) {
       if (v == null) return null;
-      const r = v.fx != null ? v.fx : rate;
-      if (currency === 'BRL') return Math.round('rs' in v ? v.rs : v.usd * r);
-      return Math.round('usd' in v ? v.usd : v.rs / r);
+      if (currency === 'BRL') return Math.round('rs' in v ? v.rs : v.usd * rate);
+      return Math.round('usd' in v ? v.usd : v.rs / rate);
     }
     // efetivo separando realizado (preto, cotação indicada — não muda com o slider) × projetado (roxo, câmbio futuro).
     // `status` diz qual dos dois campos é o "ativo" no período (o outro fica 0) — necessário pra exibir 0 como "-"
     // sem confundir com "não se aplica" (effNative/manual ausente, que continua totalmente em branco).
     function effSplit(line, period) {
+      // Car Preparation/Sticker: valor fixo literal por moeda, sem nenhum cálculo/câmbio/exceção
+      if (line === 'Car Preparation (wash + delivery)') return period === 0 ? { real: currency === 'BRL' ? -50 : -10, proj: 0, status: 'real' } : null;
+      if (line === 'Sticker') return period === 0 ? { real: currency === 'BRL' ? -15 : -3, proj: 0, status: 'real' } : null;
       const m = entered[ekey(line, period)]; // entradas manuais são em R$
       if (m) {
         const val = toDisplay({ rs: m.value }, m.kind === 'proj' ? cotacao : cotacaoReal);
@@ -535,11 +534,13 @@
         : { real: 0, proj: toDisplay(v, cotacao), status: 'proj' };
     }
     // linhas cujo lançamento pontual foi movido para o M13 (planilha original só vai até M12) — o orçado de
-    // referência no M13 reaproveita o valor do M12, já que não existe orçado nativo pós-contrato
+    // referência sai do M12 e passa a aparecer só no M13 (substituição, não duplicação)
     const M13_LINES = ['Vehicle Purchase', 'Initial Fee / Vehicle Sell', 'Deposit Refund'];
     // orçado (planilha, USD) na moeda de exibição: em R$ multiplica pelo câmbio em que foi construído
     const orcDisp = (line, period) => {
-      const srcP = (period === PMAX && M13_LINES.includes(line)) ? U.periods : period;
+      const isM13Line = M13_LINES.includes(line);
+      if (isM13Line && period === U.periods) return null; // M12 não mostra mais (valor foi para o M13)
+      const srcP = (isM13Line && period === PMAX) ? U.periods : period; // M13 reaproveita o valor do M12
       const o = orcVal(line, srcP);
       return o == null ? null : Math.round(o * (currency === 'BRL' ? ORCADO_FX : 1));
     };

@@ -102,6 +102,11 @@ button { font-family: inherit; cursor: pointer; }
 .ue-switch input::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: #fff; border-radius: 50%; transition: left .15s; }
 .ue-switch input:checked::after { left: 18px; }
 .ue-head-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.ue-cur-toggle { display: inline-flex; border: 1px solid var(--border-2); border-radius: var(--radius-sm); overflow: hidden; }
+.ue-cur-btn { font-size: 12px; font-weight: 600; padding: 6px 14px; border: none; background: var(--surface); color: var(--text-2); cursor: pointer; transition: background .15s, color .15s; }
+.ue-cur-btn + .ue-cur-btn { border-left: 1px solid var(--border-2); }
+.ue-cur-btn.active { background: var(--accent); color: #fff; }
+.ue-cur-btn:not(.active):hover { background: var(--surface-2); }
 .ue-refresh-btn { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-display); font-size: 12px; font-weight: 600; color: #fff; background: var(--accent); border: none; border-radius: 8px; padding: 8px 14px; cursor: pointer; transition: filter .15s, opacity .15s; white-space: nowrap; }
 .ue-refresh-btn:hover { filter: brightness(1.08); }
 .ue-refresh-btn:disabled { opacity: .6; cursor: default; }
@@ -142,9 +147,9 @@ button { font-family: inherit; cursor: pointer; }
 /* table-layout: fixed + só o rótulo com largura fixa: as colunas numéricas
    dividem o espaço restante igualmente e a tabela cabe sempre (não rola pro lado nem "samba") */
 .ue-table { border-collapse: collapse; width: 100%; font-size: 10.5px; white-space: nowrap; table-layout: fixed; }
-.ue-table th, .ue-table td { padding: 4px 5px; text-align: right; border-bottom: 1px solid var(--border); }
-.ue-table thead th { background: var(--text); color: #fff; font-weight: 600; font-size: 9.5px; text-transform: uppercase; letter-spacing: .5px; position: sticky; top: 0; }
-.ue-table thead th.ue-rowlabel { width: 196px; text-align: left !important; }
+.ue-table th, .ue-table td { padding: 4px 4px; text-align: right; border-bottom: 1px solid var(--border); }
+.ue-table thead th { background: var(--text); color: #fff; font-weight: 600; font-size: 9.5px; text-transform: uppercase; letter-spacing: .4px; position: sticky; top: 0; }
+.ue-table thead th.ue-rowlabel { width: 168px; text-align: left !important; }
 .ue-rowlabel { text-align: left !important; position: sticky; left: 0; z-index: 1; background: var(--surface); font-weight: 500; }
 .ue-table thead .ue-rowlabel { background: var(--text); z-index: 2; }
 .ue-orc { color: var(--text-2); }

@@ -6,8 +6,6 @@ const cron = require('node-cron');
 const { fetchAllTabs, fetchUeTabs } = require('./lib/sheet');
 const compute = require('./lib/compute');
 const ue = require('./lib/ue');
-const revisoes = require('./lib/revisoes');
-const frota = require('./lib/frota');
 const store = require('./lib/store');
 const C = require('./config/static');
 const auth = require('./config/auth');
@@ -29,10 +27,6 @@ async function refresh() {
     const [sheets, ueSheets] = await Promise.all([fetchAllTabs(C.TABS), fetchUeTabs(C.UE_TABS)]);
     const data = compute.build(sheets, refDate());
     data.ue = ue.build(ueSheets, sheets.importData, refDate());
-    try { data.ue.revisoes = await revisoes.fetchRevisoes(); }
-    catch (e) { console.error('[revisoes] falhou:', e.message); data.ue.revisoes = {}; }
-    try { data.ue.frota = await frota.fetchFrota(); }
-    catch (e) { console.error('[frota] falhou:', e.message); data.ue.frota = null; }
     cache = { data, updatedAt: new Date().toISOString(), ok: true, error: null };
     console.log(`[refresh] OK — ${data.kpis.recebidosAno} carros, ${data.ocorrencias.total} ocorrências (${cache.updatedAt})`);
   } catch (e) {
@@ -78,8 +72,8 @@ app.get('/api/refresh', async (_req, res) => {
 app.get('/api/me', (req, res) => res.json({ user: req.user }));
 
 // ---------- Unit Economics: valores realizados/projetados ----------
-// Settings globais (câmbio do orçado, % do Deposit Refund) — qualquer usuário autenticado pode alterar
-const UE_SETTINGS = ['__orcado_cambio__', '__refund_pct__'];
+// Settings globais (cotação dos realizados, % do Security Deposit Refund) — qualquer usuário autenticado pode alterar
+const UE_SETTINGS = ['__cotacao_real__', '__refund_pct__'];
 app.post('/api/ue/setting', async (req, res) => {
   const b = req.body || {};
   const line = String(b.line || '');

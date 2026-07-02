@@ -411,25 +411,27 @@
     let current = U.fleets[0].id;
     let model = U.fleets[0].model;
     let plateView = null; // null = visão agregada da frota; string = placa selecionada (valores ainda não diferem — vem depois)
-    let entered = {}; // "line@@period" -> {value, kind}
+    let entered = {}; // "line@@period" -> {value, kind} — valores manuais em R$ (moeda principal)
     let manualMode = false; // edição manual desligada por padrão
-    let kmSemana = 1200;    // km/semana da frota (slider, por frota)
-    let cotacao = 5.5;      // câmbio futuro R$/US$ (slider, global, admin)
-    let orcadoCambio = 5.0; // câmbio usado nos valores orçados (campo, global)
-    let refundPct = 0.13;   // correção a.a. do Deposit Refund (campo, global)
-    let params = {}; // parâmetros por frota: seguro, GPS, nº aluguéis, compra
+    let currency = 'BRL';   // moeda de exibição: R$ (principal) ou US$ (toggle no cabeçalho)
+    let cotacao = 5.5;      // câmbio futuro R$/US$ (slider, global) — converte os PROJETADOS
+    let cotacaoReal = 5.0;  // cotação indicada para os REALIZADOS (campo, global)
+    let refundPct = 0.13;   // correção a.a. do Security Deposit Refund (campo, global)
+    const ORCADO_FX = 5.0;  // câmbio em que o orçado (USD, planilha) foi construído — só para exibi-lo em R$
+    let params = {}; // parâmetros por frota: subrental, seguro, GPS, nº aluguéis, compra
     const LINE_PARAMS = {
+      'Subrental fee': [{ k: '__subrental_mensal__', label: 'Monthly Subrental fee (R$)' }],
       'Insurance': [{ k: '__ins_total__', label: 'Total insurance for the year (R$)' }, { k: '__ins_parcelas__', label: 'Number of installments (from M1)' }],
       'GPS': [{ k: '__gps_m0__', label: 'Amount at M0 (R$)' }, { k: '__gps_mensal__', label: 'Monthly amount, from M1 (R$)' }],
-      'Security Deposit': [{ k: '__num_alugueis__', label: 'Number of rentals for the deposit' }],
-      'Vehicle Purchase': [{ k: '__vehicle__', label: 'Purchase/buyback amount (R$) — enters at M12' }],
+      'Security Deposit': [{ k: '__num_alugueis__', label: 'Number of rentals (deposit = N × monthly Subrental)' }],
+      'Vehicle Purchase': [{ k: '__vehicle__', label: 'Purchase/buyback amount (R$) — enters at M13' }],
     };
+    // rótulo de exibição ≠ chave interna (que segue a planilha)
+    const DISPLAY_LABEL = { 'Deposit Refund': 'Security Deposit Refund' };
     const par = (k) => +params[k] || 0;
     const SEMANAS_MES = 52 / 12; // 4,3333
-    const REVISAO_KM = 10000;    // revisão a cada 10.000 km
+    const PMAX = U.periods + 1;  // M13 = período pós-contrato (só lançamentos pontuais; recorrências param no M12)
     const ekey = (l, p) => l + '@@' + p;
-    // Maintenance por dados reais da frota (odômetro + revisões feitas). R$ por período (magnitude), ÷ câmbio na hora.
-    let maintRealRS = [], maintProjRS = [], maintReady = false, nCarsMaint = 0;
     // separação realizado × projetado por TEMPO (início da frota até hoje)
     const hoje = U.hoje ? new Date(U.hoje + 'T12:00:00') : new Date();
     let elapsed = 0;      // meses decorridos desde o início da frota (fracionário)
@@ -466,95 +468,69 @@
       for (let p = 0; p <= U.periods; p++) { const e = entered[ekey(line, p)]; if (e && e.kind === 'real') { sum += e.value; n++; } }
       return n ? sum / n : null;
     }
-    // Custo de revisão (USD) no período, a um câmbio `cam`: revisão a cada X km × preço ÷ câmbio
-    function revisaoCustoAt(mdl, period, cam) {
-      const revs = (U.revisoes && U.revisoes[mdl]) || [];
-      const kmMes = kmSemana * SEMANAS_MES; // km/mês = km/semana × 52/12
-      if (!revs.length || kmMes <= 0 || cam <= 0) return 0;
-      let custoR = 0;
-      revs.forEach((r) => { if (Math.ceil(r.km / kmMes) === period) custoR += r.valor; });
-      return Math.round(custoR / cam);
-    }
-    const temRevisoes = (mdl) => !!(U.revisoes && U.revisoes[mdl] && U.revisoes[mdl].length);
-    // Maintenance por dados reais: realizado = revisões já feitas (mês inferido pelo km);
-    // projetado = próximas revisões a partir do odômetro atual de cada carro. Tudo em R$ (÷ câmbio depois), ÷ nº carros da planilha.
-    function computeMaint(f) {
-      maintRealRS = []; maintProjRS = []; maintReady = false; nCarsMaint = 0;
-      const fr = U.frota && U.frota.fleets && U.frota.fleets[current];
-      const prices = (U.revisoes && U.revisoes[model]) || [];
-      const nCars = f.cars || 0;
-      if (!fr || !fr.cars || !fr.cars.length || !prices.length || elapsed <= 0 || nCars <= 0) return;
-      const P = U.periods;
-      for (let p = 0; p <= P; p++) { maintRealRS[p] = 0; maintProjRS[p] = 0; }
-      const priceOf = (n) => { const r = prices.find((x) => x.n === n); return r ? r.valor : 0; };
-      const mesDoKm = (km, odo) => Math.ceil(km * elapsed / odo); // km acumula linearmente à média histórica do carro
-      fr.cars.forEach((car) => {
-        const odo = car.odo, done = car.done || 0;
-        if (odo <= 0) return;
-        // realizado: revisões 1..done já feitas, lançadas no mês inferido pelo km
-        for (let k = 1; k <= done; k++) { let mo = mesDoKm(k * REVISAO_KM, odo); if (mo < 1) mo = 1; if (mo <= P) maintRealRS[mo] += priceOf(k); }
-        // próximas revisões (done+1, done+2, ...): se o marco de km já foi ultrapassado (até o mês vigente
-        // incluso), conta como realizado (valor integral do mês); só marcos além do mês vigente são projetados
-        for (let n = done + 1; n <= 200; n++) {
-          const mo = mesDoKm(n * REVISAO_KM, odo);
-          if (mo > P) break;
-          if (mo <= realizedFull) maintRealRS[Math.max(1, mo)] += priceOf(n);
-          else maintProjRS[mo] += priceOf(n);
-        }
-      });
-      maintReady = true; nCarsMaint = nCars;
-    }
     // status do período: realizado (do início até o mês vigente, incluso — valor integral) × projetado (meses futuros)
     function periodStatus(p) { return (p === 0 || p <= realizedFull) ? 'real' : 'proj'; }
 
-    // valor "cru" da linha num período, a um câmbio `cam` (sem override manual; sem separar realizado/projetado)
-    function effRaw(line, period, cam) {
-      if (line === 'Maintenance' && temRevisoes(model)) return { value: -revisaoCustoAt(model, period, cam) };
-      if (line === 'Subrental fee') { const o = orcVal(line, period); return o == null ? null : { value: Math.round(o * (orcadoCambio / cam)) }; }
-      if (line === 'Car Preparation (wash + delivery)') return period === 0 ? { value: -10 } : null; // 10 USD fixo (M0)
-      if (line === 'Sticker') return period === 0 ? { value: -3 } : null; // 3 USD fixo (M0)
-      const usd = (rs) => -Math.round(rs / cam);
+    // valor NATIVO da linha num período: { rs } para valores em R$ (manuais/derivados) ou { usd } para
+    // valores fixos em dólar. Sem câmbio aqui — a conversão para a moeda de exibição acontece no effSplit.
+    // Recorrências mensais param no M12; o M13 só recebe os lançamentos pontuais pós-contrato.
+    function effNative(line, period) {
+      if (line === 'Subrental fee' && par('__subrental_mensal__') > 0) {
+        return { rs: (period >= 1 && period <= U.periods) ? -par('__subrental_mensal__') : 0 };
+      }
       if (line === 'Insurance' && par('__ins_total__') > 0 && par('__ins_parcelas__') >= 1) {
-        const N = Math.round(par('__ins_parcelas__'));
-        return { value: (period >= 1 && period <= N) ? usd(par('__ins_total__') / N) : 0 };
+        const N = Math.min(U.periods, Math.round(par('__ins_parcelas__')));
+        return { rs: (period >= 1 && period <= N) ? -(par('__ins_total__') / N) : 0 };
       }
+      if (line === 'Car Preparation (wash + delivery)') return period === 0 ? { usd: -10 } : null; // 10 USD fixo, saída (M0)
+      if (line === 'Sticker') return period === 0 ? { usd: -3 } : null; // 3 USD fixo, saída (M0)
       if (line === 'GPS' && (par('__gps_m0__') > 0 || par('__gps_mensal__') > 0)) {
-        return { value: usd(period === 0 ? par('__gps_m0__') : par('__gps_mensal__')) };
+        return { rs: period === 0 ? -par('__gps_m0__') : (period <= U.periods ? -par('__gps_mensal__') : 0) };
       }
-      const secDepMag = () => par('__num_alugueis__') > 0
-        ? par('__num_alugueis__') * Math.abs(orcVal('Subrental fee', 1) || 0)
-        : Math.abs(orcVal('Security Deposit', 0) || 0);
-      const vehMag = () => par('__vehicle__') > 0 ? Math.round(par('__vehicle__') / cam) : Math.abs(orcVal('Vehicle Purchase', U.periods) || 0);
-      if (line === 'Security Deposit' && par('__num_alugueis__') > 0) return { value: period === 0 ? -Math.round(secDepMag()) : 0 };
-      if (line === 'Vehicle Purchase' && par('__vehicle__') > 0) return { value: period === U.periods ? -vehMag() : 0 };
-      if (line === 'Deposit Refund') return { value: period === U.periods ? Math.round(secDepMag() * (1 + refundPct) * orcadoCambio / cam) : 0 };
-      if (line === 'Initial Fee / Vehicle Sell') return { value: period === U.periods ? Math.round(vehMag() * 1.03) : 0 };
+      // calção = nº de aluguéis × mensalidade do Subrental (ambos manuais, R$)
+      const secDepMag = () => (par('__num_alugueis__') > 0 && par('__subrental_mensal__') > 0)
+        ? par('__num_alugueis__') * par('__subrental_mensal__') : 0;
+      if (line === 'Security Deposit' && secDepMag() > 0) return { rs: period === 0 ? -secDepMag() : 0 };
+      if (line === 'Deposit Refund' && secDepMag() > 0) {
+        return { rs: period === PMAX ? secDepMag() * (1 + refundPct) : 0 }; // devolução corrigida, no M13
+      }
+      if (line === 'Vehicle Purchase' && par('__vehicle__') > 0) return { rs: period === PMAX ? -par('__vehicle__') : 0 };
+      if (line === 'Initial Fee / Vehicle Sell' && par('__vehicle__') > 0) {
+        return { rs: period === PMAX ? par('__vehicle__') * 1.03 : 0 }; // venda = 103% da compra, no M13
+      }
+      // demais linhas (Subscription, Maintenance...): sem cálculo automático — só orçado + entradas manuais
       const orc = orcVal(line, period);
       if (orc == null) return null;
       const avg = realizedAvg(line);
-      return avg == null ? null : { value: avg };
+      return avg == null ? null : { rs: avg }; // projeção automática pela média dos realizados manuais
     }
-    // efetivo separando realizado (preto, câmbio do orçado — não muda com o slider) × projetado (roxo, câmbio futuro)
+    // converte um valor nativo para a moeda de exibição; realizados usam a cotação indicada, projetados o câmbio futuro
+    function toDisplay(v, rate) {
+      if (v == null) return null;
+      if (currency === 'BRL') return Math.round('rs' in v ? v.rs : v.usd * rate);
+      return Math.round('usd' in v ? v.usd : v.rs / rate);
+    }
+    // efetivo separando realizado (preto, cotação indicada — não muda com o slider) × projetado (roxo, câmbio futuro)
     function effSplit(line, period) {
-      const m = entered[ekey(line, period)];
-      if (m) return m.kind === 'proj' ? { real: 0, proj: m.value } : { real: m.value, proj: 0 };
-      // Maintenance por dados reais: realizado (câmbio orçado) × projetado (câmbio futuro), já separados por revisão feita/prevista
-      if (line === 'Maintenance' && maintReady) {
-        const r = maintRealRS[period] ? -Math.round(maintRealRS[period] / orcadoCambio / nCarsMaint) : 0;
-        const pj = maintProjRS[period] ? -Math.round(maintProjRS[period] / cotacao / nCarsMaint) : 0;
-        return { real: r, proj: pj }; // mês sem revisão = 0 efetivo (não cai no orçado); orçado só aparece como referência cinza
+      const m = entered[ekey(line, period)]; // entradas manuais são em R$
+      if (m) {
+        const val = toDisplay({ rs: m.value }, m.kind === 'proj' ? cotacao : cotacaoReal);
+        return m.kind === 'proj' ? { real: 0, proj: val } : { real: val, proj: 0 };
       }
-      const vR = effRaw(line, period, orcadoCambio); // realizado usa o câmbio do orçado (fixo)
-      const vP = effRaw(line, period, cotacao);      // projetado usa o câmbio futuro (slider)
-      if (!vR && !vP) return null;
-      const rawR = vR ? vR.value : (vP ? vP.value : 0);
-      const rawP = vP ? vP.value : (vR ? vR.value : 0);
-      // mês vigente = realizado integral (mesma lógica de um mês já fechado); só meses futuros são projetados
-      return periodStatus(period) === 'real' ? { real: rawR, proj: 0 } : { real: 0, proj: rawP };
+      const v = effNative(line, period);
+      if (!v) return null;
+      return periodStatus(period) === 'real'
+        ? { real: toDisplay(v, cotacaoReal), proj: 0 }
+        : { real: 0, proj: toDisplay(v, cotacao) };
     }
+    // orçado (planilha, USD) na moeda de exibição: em R$ multiplica pelo câmbio em que foi construído
+    const orcDisp = (line, period) => {
+      const o = orcVal(line, period);
+      return o == null ? null : Math.round(o * (currency === 'BRL' ? ORCADO_FX : 1));
+    };
     function cellLeaf(line, period) {
       const e = effSplit(line, period);
-      const orc = orcVal(line, period);
+      const orc = orcDisp(line, period);
       let s = '';
       if (e && e.real) s += `<span class="ue-main ue-real">${ueFmt(e.real)}</span>`;
       if (e && e.proj) s += `<span class="ue-main ue-proj">${ueFmt(e.proj)}</span>`;
@@ -572,14 +548,15 @@
       lines.filter((l) => l.group === group).forEach((l) => {
         const e = effSplit(l.label, p);
         if (e) { sum += (e.real || 0) + (e.proj || 0); anyMain = true; }
-        else { const o = orcVal(l.label, p); sum += (o == null ? 0 : o); }
+        else { const o = orcDisp(l.label, p); sum += (o == null ? 0 : o); }
       });
       return { sum, anyMain, kind: periodStatus(p) === 'real' ? 'real' : 'proj' };
     }
     // Totalizadores por período (orçado da planilha; efetivo = soma realizado/projetado)
     function computeTotals(lines) {
-      const P = U.periods;
-      const sheet = (label, p) => { const l = lines.find((x) => x.label === label); return l ? l.values[p] : null; };
+      const P = PMAX;
+      const fx = currency === 'BRL' ? ORCADO_FX : 1;
+      const sheet = (label, p) => { const l = lines.find((x) => x.label === label); const v = l ? l.values[p] : null; return v == null ? null : Math.round(v * fx); };
       const per = { totalInflow: [], totalOutflow: [], net: [], acc: [] };
       let accEff = 0, accEnt = false, accProj = false;
       for (let p = 0; p <= P; p++) {
@@ -599,18 +576,18 @@
       }
       return per;
     }
-    // coluna "Total": soma dos períodos; para Acc, o total é o valor final (M12)
+    // coluna "Total": soma dos períodos (M0..M13); para Acc, o total é o valor final (M13)
     function colTotal(arr, isAcc) {
-      const P = U.periods;
+      const P = PMAX;
       if (isAcc) return arr[P];
       let orc = 0, effv = 0, hasMain = false, anyProj = false;
       for (let p = 0; p <= P; p++) { const c = arr[p]; orc += (c.orc == null ? 0 : c.orc); effv += (c.hasMain ? c.eff : (c.orc == null ? 0 : c.orc)); if (c.hasMain) { hasMain = true; if (c.kind === 'proj') anyProj = true; } }
       return { orc, eff: effv, hasMain, kind: anyProj ? 'proj' : 'real' };
     }
     function leafTotal(line) {
-      const P = U.periods;
+      const P = PMAX;
       let orc = 0, effv = 0, hasMain = false, anyProj = false;
-      for (let p = 0; p <= P; p++) { const o = orcVal(line, p); const oc = (o == null ? 0 : o); orc += oc; const e = effSplit(line, p); if (e) { effv += (e.real || 0) + (e.proj || 0); hasMain = true; if (periodStatus(p) !== 'real') anyProj = true; } else effv += oc; }
+      for (let p = 0; p <= P; p++) { const o = orcDisp(line, p); const oc = (o == null ? 0 : o); orc += oc; const e = effSplit(line, p); if (e) { effv += (e.real || 0) + (e.proj || 0); hasMain = true; if (periodStatus(p) !== 'real') anyProj = true; } else effv += oc; }
       return { orc, eff: effv, hasMain, kind: anyProj ? 'proj' : 'real' };
     }
 
@@ -650,9 +627,9 @@
       const ov = document.createElement('div');
       ov.className = 'ue-modal-overlay';
       ov.innerHTML =
-        `<div class="ue-modal"><div class="ue-modal-title">${line} — actual</div>` +
+        `<div class="ue-modal"><div class="ue-modal-title">${DISPLAY_LABEL[line] || line} — actual</div>` +
         fields.map((fl) => `<div class="ue-modal-field"><label>${fl.label}</label><input type="text" inputmode="decimal" data-k="${fl.k}" value="${params[fl.k] != null ? params[fl.k] : ''}"/></div>`).join('') +
-        `<div class="ue-modal-hint">R$ amounts convert to US$ at the future FX. (Security Deposit = number of rentals × budget M1 Subrental fee.)</div>` +
+        `<div class="ue-modal-hint">Amounts are in R$ (primary currency). Use the R$/US$ toggle in the header to view converted values.</div>` +
         `<div class="ue-modal-actions"><button type="button" class="ue-modal-cancel">Cancel</button><button type="button" class="ue-modal-save">Save</button></div></div>`;
       document.body.appendChild(ov);
       const close = () => ov.remove();
@@ -705,14 +682,13 @@
       plateView = null; // trocar de frota volta para a visão agregada
       const foto = (OCN.modelos[f.model] || {}).foto;
       fleetsEl.querySelectorAll('.ue-fleet-btn').forEach((b) => b.classList.toggle('active', b.dataset.id === current));
-      // carrega valores da frota (entradas + km/semana + params)
-      kmSemana = 1200; entered = {}; params = {};
+      // carrega valores da frota (entradas manuais + params)
+      entered = {}; params = {};
       try {
         const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(current), { cache: 'no-store' });
         if (r.ok) {
           const d = await r.json();
           (d.values || []).forEach((v) => {
-            if (v.line === '__km_sem__') { kmSemana = v.value; return; }
             if (String(v.line).startsWith('__')) { params[v.line] = v.value; return; }
             entered[ekey(v.line, v.period)] = { value: v.value, kind: v.kind };
           });
@@ -721,8 +697,7 @@
       // meses decorridos = (hoje - início) em semanas ÷ 4,3333; M0 é sempre realizado
       const ini = f.inicio ? new Date(f.inicio + 'T12:00:00') : null;
       elapsed = ini ? Math.max(0, (hoje - ini) / 86400000 / (SEMANAS_MES * 7)) : 0;
-      realizedFull = Math.min(U.periods, Math.ceil(elapsed)); // mês vigente conta inteiro como realizado
-      computeMaint(f); // Maintenance por dados reais da frota (depende de elapsed/realizedFull)
+      realizedFull = Math.min(PMAX, Math.ceil(elapsed)); // mês vigente conta inteiro como realizado
       const subInfo = ini
         ? `start ${fmtDate(f.inicio)} · today ${fmtDate(U.hoje)} · ${elapsed.toFixed(1)} months elapsed`
         : 'no start date in the base';
@@ -735,17 +710,26 @@
             `<div class="ue-fleet-sub">${subInfo}</div></div>` +
           `</div>` +
           `<div class="ue-head-actions">` +
+            `<div class="ue-cur-toggle" id="ueCurToggle">` +
+              `<button class="ue-cur-btn${currency === 'BRL' ? ' active' : ''}" data-c="BRL">R$</button>` +
+              `<button class="ue-cur-btn${currency === 'USD' ? ' active' : ''}" data-c="USD">US$</button>` +
+            `</div>` +
             (isAdmin ? `<label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Manual mode</span></label>` : '') +
-            `<button class="ue-refresh-btn" id="ueRefresh" title="Re-fetches the spreadsheet, revision prices and real fleet maintenance">↻ Refresh data</button>` +
+            `<button class="ue-refresh-btn" id="ueRefresh" title="Re-fetches the spreadsheet data">↻ Refresh data</button>` +
           `</div>` +
         `</div>` +
         `<div class="ue-sliders">` +
-          slider('ueKm', 'km/week (fleet)', 0, 3000, 25, kmSemana) +
           slider('ueCotacao', 'future FX (R$/US$)', 3, 8, 0.05, cotacao) +
-          field('ueOrcCambio', 'budget FX (R$/US$)', orcadoCambio, 0.05) +
-          field('ueRefundPct', 'Deposit Refund adj. (% p.a.)', Math.round(refundPct * 10000) / 100, 1) +
+          field('ueCotReal', 'FX for actuals (R$/US$)', cotacaoReal, 0.05) +
+          field('ueRefundPct', 'Security Deposit Refund adj. (% p.a.)', Math.round(refundPct * 10000) / 100, 1) +
         `</div>`;
       if (isAdmin) document.getElementById('ueManual').addEventListener('change', (e) => { manualMode = e.target.checked; renderTable(f); });
+      // toggle da moeda de exibição (R$ principal · US$ convertido)
+      document.querySelectorAll('#ueCurToggle .ue-cur-btn').forEach((b) => b.addEventListener('click', () => {
+        currency = b.dataset.c;
+        document.querySelectorAll('#ueCurToggle .ue-cur-btn').forEach((x) => x.classList.toggle('active', x === b));
+        renderTable(f);
+      }));
       // Atualizar dados: re-busca tudo no servidor (planilha, revisões, manutenções da frota) e re-renderiza
       const btnR = document.getElementById('ueRefresh');
       if (btnR) btnR.addEventListener('click', async () => {
@@ -758,9 +742,8 @@
           await loadFleet(); // reconstrói cabeçalho + tabela com os dados novos (botão volta ao normal)
         } catch (e) { btnR.textContent = '✗ failed — try again'; btnR.disabled = false; }
       });
-      wireSlider('ueKm', (v) => { kmSemana = v; }, () => kmSemana.toLocaleString('en-US') + ' km/wk', () => kmSemana, '__km_sem__', current, f);
       wireSlider('ueCotacao', (v) => { cotacao = v; }, () => 'R$ ' + cotacao.toFixed(2).replace('.', ','), () => cotacao, '__cotacao__', '__cfg__', f);
-      wireField('ueOrcCambio', (v) => { orcadoCambio = v; }, '__orcado_cambio__', () => orcadoCambio, f);
+      wireField('ueCotReal', (v) => { cotacaoReal = v; }, '__cotacao_real__', () => cotacaoReal, f);
       wireField('ueRefundPct', (v) => { refundPct = v / 100; }, '__refund_pct__', () => refundPct, f);
       renderTable(f);
       renderPlates(f);
@@ -774,16 +757,17 @@
       const gmap = { totalInflow: T.totalInflow, totalOutflow: T.totalOutflow, net: T.net, acc: T.acc };
       const editable = isAdmin && manualMode;
       let html = '<thead><tr><th class="ue-rowlabel">Line</th><th>M0</th>';
-      for (let p = 1; p <= U.periods; p++) html += `<th>M${p}</th>`;
+      for (let p = 1; p <= PMAX; p++) html += `<th>M${p}</th>`;
       html += '<th class="ue-totalcol">Total</th></tr></thead><tbody>';
       orc.lines.forEach((l) => {
         const leaf = isLeaf(l.group);
         const isParam = editable && LINE_PARAMS[l.label];
+        const shown = DISPLAY_LABEL[l.label] || l.label;
         const labelInner = isParam
-          ? `<span class="ue-param-label" data-pline="${l.label.replace(/"/g, '&quot;')}">${l.label} <span class="ue-pencil">✎</span></span>`
-          : l.label;
+          ? `<span class="ue-param-label" data-pline="${l.label.replace(/"/g, '&quot;')}">${shown} <span class="ue-pencil">✎</span></span>`
+          : shown;
         html += `<tr class="ue-row ue-${l.group} ${leaf ? 'ue-leaf' : 'ue-calc'}"><td class="ue-rowlabel">${labelInner}</td>`;
-        for (let p = 0; p <= U.periods; p++) {
+        for (let p = 0; p <= PMAX; p++) {
           if (leaf) {
             html += `<td class="ue-cell${editable ? ' ue-editable' : ''}" data-line="${l.label.replace(/"/g, '&quot;')}" data-period="${p}">${cellLeaf(l.label, p)}</td>`;
           } else {
@@ -843,14 +827,14 @@
       input.addEventListener('blur', () => { setTimeout(commit, 120); });
     }
 
-    // carrega os globais (câmbio futuro, câmbio do orçado, % refund) e então a primeira frota
+    // carrega os globais (câmbio futuro, cotação dos realizados, % refund) e então a primeira frota
     (async function () {
       try {
         const r = await fetch('/api/ue/values?fleet=__cfg__', { cache: 'no-store' });
         if (r.ok) {
           const d = await r.json(); const get = (k) => { const x = (d.values || []).find((v) => v.line === k); return x ? x.value : undefined; };
           const c = get('__cotacao__'); if (c != null) cotacao = c;
-          const oc = get('__orcado_cambio__'); if (oc != null) orcadoCambio = oc;
+          const cr = get('__cotacao_real__'); if (cr != null) cotacaoReal = cr;
           const rp = get('__refund_pct__'); if (rp != null) refundPct = rp;
         }
       } catch (e) { /* usa defaults */ }

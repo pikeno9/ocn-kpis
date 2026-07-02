@@ -259,22 +259,36 @@
   if (FS && FS.labels && document.getElementById('chartUtil')) {
     const sl = (arr) => arr.slice(0, vi + 1); // abr..mês atual (sem meses futuros vazios)
     const pctFmt = (v) => (v == null ? '' : String(Math.round(v * 10) / 10).replace('.', ',') + '%');
-    const utilDS = (label, pct, abs, color) => ({
+    const absFmt = (ctx) => { const a = ctx.dataset._abs ? ctx.dataset._abs[ctx.dataIndex] : null; return a == null ? '' : a; };
+    // Active: segmento grande — percentual em cima, absoluto embaixo, ambos dentro da barra roxa
+    const activeDS = (label, pct, abs, color) => ({
       label, data: sl(pct), _abs: sl(abs), backgroundColor: color, stack: 'u', borderRadius: 3, maxBarThickness: 88,
       datalabels: {
         display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0,
         color: (ctx) => txtOnBar(ctx.dataset.backgroundColor), anchor: 'center',
         labels: {
-          pct: { align: 'top', offset: 1, font: { size: 11, weight: 600 }, formatter: (v) => pctFmt(v) },       // percentual em cima
-          abs: { align: 'bottom', offset: 1, font: { size: 9, weight: 500 }, formatter: (v, ctx) => { const a = ctx.dataset._abs ? ctx.dataset._abs[ctx.dataIndex] : null; return a == null ? '' : a; } }, // absoluto abaixo, menor
+          pct: { align: 'top', offset: 1, font: { size: 11, weight: 600 }, formatter: (v) => pctFmt(v) },
+          abs: { align: 'bottom', offset: 1, font: { size: 9, weight: 500 }, formatter: (v, ctx) => absFmt(ctx) },
+        },
+      },
+    });
+    // Inactive: segmento fino — percentual e absoluto centralizados dentro da própria faixa cinza (halo branco para legibilidade)
+    const inactiveDS = (label, pct, abs, color) => ({
+      label, data: sl(pct), _abs: sl(abs), backgroundColor: color, stack: 'u', borderRadius: 3, maxBarThickness: 88,
+      datalabels: {
+        display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0,
+        anchor: 'center', color: '#111827', textStrokeColor: '#fff', textStrokeWidth: 3,
+        labels: {
+          pct: { align: 'center', offset: -5, font: { size: 11, weight: 600 }, formatter: (v) => pctFmt(v) },
+          abs: { align: 'center', offset: 5, font: { size: 9, weight: 500 }, formatter: (v, ctx) => absFmt(ctx) },
         },
       },
     });
     new Chart(document.getElementById('chartUtil'), {
       type: 'bar',
       data: { labels: sl(FS.labels), datasets: [
-        utilDS('Active Vehicles', FS.activePct, FS.active, '#5A00F8'),
-        utilDS('Inactive Vehicles', FS.inactivePct, FS.inactive, '#CBD5E1'),
+        activeDS('Active Vehicles', FS.activePct, FS.active, '#5A00F8'),
+        inactiveDS('Inactive Vehicles', FS.inactivePct, FS.inactive, '#CBD5E1'),
       ] },
       options: {
         responsive: true, maintainAspectRatio: false,

@@ -184,6 +184,7 @@ button { font-family: inherit; cursor: pointer; }
 .ue-proj { color: #6D28D9; }
 .ue-main + .ue-orc { font-size: 10px; opacity: .7; }
 .ue-editor { display: flex; flex-direction: column; gap: 3px; align-items: flex-end; }
+.ue-editor-cur { font-size: 9px; font-weight: 700; color: var(--accent); }
 .ue-input { width: 66px; padding: 2px 5px; font-size: 12px; border: 1px solid var(--accent); border-radius: 4px; text-align: right; font-family: var(--font); }
 .ue-kinds { display: flex; gap: 2px; }
 .ue-kbtn { font-size: 9px; padding: 1px 5px; border: 1px solid var(--border-2); background: #fff; border-radius: 3px; cursor: pointer; line-height: 1.4; }

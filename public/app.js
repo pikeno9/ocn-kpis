@@ -440,15 +440,19 @@
 
     const fmtNum = (v) => Math.abs(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
     const ueFmt = (v) => (v === null || v === undefined) ? '' : (v < 0 ? '(' + fmtNum(v) + ')' : fmtNum(v));
+    // entrada em pt-BR (ponto = milhar, vírgula = decimal) — mesma convenção do modal de parâmetros
     const parseInput = (raw) => {
-      raw = String(raw).trim().replace(/,/g, '');
+      raw = String(raw).trim();
       if (raw === '') return null;
-      const neg = /^\(.*\)$/.test(raw);
-      raw = raw.replace(/[()$\s]/g, '');
+      const neg = /^\(.*\)$/.test(raw) || /^-/.test(raw);
+      raw = raw.replace(/[()R$\s-]/gi, '').replace(/\./g, '').replace(',', '.');
+      if (raw === '') return null;
       const n = parseFloat(raw);
       if (isNaN(n)) return NaN;
       return neg ? -n : n;
     };
+    // número JS → string editável pt-BR (round-trip com parseInput)
+    const toInput = (v) => (v == null ? '' : String(v).replace('.', ','));
     const orcVal = (line, period) => {
       const l = (U.orcado[model] && U.orcado[model].lines.find((x) => x.label === line));
       return l ? l.values[period] : null; // period 0..12 (M0..M12)
@@ -479,8 +483,9 @@
         return { rs: (period >= 1 && period <= U.periods) ? -par('__subrental_mensal__') : 0 };
       }
       if (line === 'Insurance' && par('__ins_total__') > 0 && par('__ins_parcelas__') >= 1) {
-        const N = Math.min(U.periods, Math.round(par('__ins_parcelas__')));
-        return { rs: (period >= 1 && period <= N) ? -(par('__ins_total__') / N) : 0 };
+        // parcela = total/N; se N > 12, as parcelas além do M12 ficam fora da tabela (trunca, não reamortiza)
+        const N = Math.round(par('__ins_parcelas__'));
+        return { rs: (period >= 1 && period <= Math.min(N, U.periods)) ? -(par('__ins_total__') / N) : 0 };
       }
       if (line === 'Car Preparation (wash + delivery)') return period === 0 ? { usd: -10 } : null; // 10 USD fixo, saída (M0)
       if (line === 'Sticker') return period === 0 ? { usd: -3 } : null; // 3 USD fixo, saída (M0)
@@ -579,7 +584,8 @@
     // coluna "Total": soma dos períodos (M0..M13); para Acc, o total é o valor final (M13)
     function colTotal(arr, isAcc) {
       const P = PMAX;
-      if (isAcc) return arr[P];
+      // orçado da planilha termina no M12 — no Acc, mantém o acumulado final do orçado como referência cinza
+      if (isAcc) { const c = arr[P]; return (c && c.orc == null) ? { ...c, orc: arr[U.periods] ? arr[U.periods].orc : null } : c; }
       let orc = 0, effv = 0, hasMain = false, anyProj = false;
       for (let p = 0; p <= P; p++) { const c = arr[p]; orc += (c.orc == null ? 0 : c.orc); effv += (c.hasMain ? c.eff : (c.orc == null ? 0 : c.orc)); if (c.hasMain) { hasMain = true; if (c.kind === 'proj') anyProj = true; } }
       return { orc, eff: effv, hasMain, kind: anyProj ? 'proj' : 'real' };
@@ -628,7 +634,7 @@
       ov.className = 'ue-modal-overlay';
       ov.innerHTML =
         `<div class="ue-modal"><div class="ue-modal-title">${DISPLAY_LABEL[line] || line} — actual</div>` +
-        fields.map((fl) => `<div class="ue-modal-field"><label>${fl.label}</label><input type="text" inputmode="decimal" data-k="${fl.k}" value="${params[fl.k] != null ? params[fl.k] : ''}"/></div>`).join('') +
+        fields.map((fl) => `<div class="ue-modal-field"><label>${fl.label}</label><input type="text" inputmode="decimal" data-k="${fl.k}" value="${toInput(params[fl.k])}"/></div>`).join('') +
         `<div class="ue-modal-hint">Amounts are in R$ (primary currency). Use the R$/US$ toggle in the header to view converted values.</div>` +
         `<div class="ue-modal-actions"><button type="button" class="ue-modal-cancel">Cancel</button><button type="button" class="ue-modal-save">Save</button></div></div>`;
       document.body.appendChild(ov);
@@ -730,7 +736,7 @@
         document.querySelectorAll('#ueCurToggle .ue-cur-btn').forEach((x) => x.classList.toggle('active', x === b));
         renderTable(f);
       }));
-      // Atualizar dados: re-busca tudo no servidor (planilha, revisões, manutenções da frota) e re-renderiza
+      // Atualizar dados: re-busca a planilha no servidor e re-renderiza
       const btnR = document.getElementById('ueRefresh');
       if (btnR) btnR.addEventListener('click', async () => {
         btnR.disabled = true; btnR.textContent = '↻ Refreshing…';
@@ -794,7 +800,7 @@
       const e = entered[ekey(line, period)] || {};
       let kind = e.kind || 'real';
       td.innerHTML =
-        `<div class="ue-editor"><input class="ue-input" type="text" value="${e.value != null ? e.value : ''}" />` +
+        `<div class="ue-editor"><span class="ue-editor-cur">R$</span><input class="ue-input" type="text" value="${toInput(e.value)}" />` +
         `<div class="ue-kinds"><button type="button" class="ue-kbtn ${kind === 'real' ? 'on' : ''}" data-k="real">Real</button>` +
         `<button type="button" class="ue-kbtn ${kind === 'proj' ? 'on' : ''}" data-k="proj">Proj</button></div></div>`;
       const input = td.querySelector('.ue-input');

@@ -439,7 +439,7 @@
     const fmtDate = (iso) => { if (!iso) return '—'; const p = iso.split('-'); return p[2] + '/' + p[1] + '/' + p[0]; };
 
     const fmtNum = (v) => Math.abs(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
-    const ueFmt = (v) => (v === null || v === undefined) ? '' : (v < 0 ? '(' + fmtNum(v) + ')' : fmtNum(v));
+    const ueFmt = (v) => (v === null || v === undefined) ? '' : (v === 0 ? '-' : (v < 0 ? '(' + fmtNum(v) + ')' : fmtNum(v)));
     // entrada em pt-BR (ponto = milhar, vírgula = decimal) — mesma convenção do modal de parâmetros
     const parseInput = (raw) => {
       raw = String(raw).trim();
@@ -487,8 +487,9 @@
         const N = Math.round(par('__ins_parcelas__'));
         return { rs: (period >= 1 && period <= Math.min(N, U.periods)) ? -(par('__ins_total__') / N) : 0 };
       }
-      if (line === 'Car Preparation (wash + delivery)') return period === 0 ? { usd: -10 } : null; // 10 USD fixo, saída (M0)
-      if (line === 'Sticker') return period === 0 ? { usd: -3 } : null; // 3 USD fixo, saída (M0)
+      // fixos (R$50/R$15 ou 10/3 USD — conversão sempre no câmbio nominal 5,0, não na cotação editável dos realizados)
+      if (line === 'Car Preparation (wash + delivery)') return period === 0 ? { usd: -10, fx: ORCADO_FX } : null;
+      if (line === 'Sticker') return period === 0 ? { usd: -3, fx: ORCADO_FX } : null;
       if (line === 'GPS' && (par('__gps_m0__') > 0 || par('__gps_mensal__') > 0)) {
         return { rs: period === 0 ? -par('__gps_m0__') : (period <= U.periods ? -par('__gps_mensal__') : 0) };
       }
@@ -509,36 +510,44 @@
       const avg = realizedAvg(line);
       return avg == null ? null : { rs: avg }; // projeção automática pela média dos realizados manuais
     }
-    // converte um valor nativo para a moeda de exibição; realizados usam a cotação indicada, projetados o câmbio futuro
+    // converte um valor nativo para a moeda de exibição; realizados usam a cotação indicada, projetados o câmbio
+    // futuro — a menos que o valor traga câmbio fixo próprio (fx), que sempre prevalece (Car Prep/Sticker)
     function toDisplay(v, rate) {
       if (v == null) return null;
-      if (currency === 'BRL') return Math.round('rs' in v ? v.rs : v.usd * rate);
-      return Math.round('usd' in v ? v.usd : v.rs / rate);
+      const r = v.fx != null ? v.fx : rate;
+      if (currency === 'BRL') return Math.round('rs' in v ? v.rs : v.usd * r);
+      return Math.round('usd' in v ? v.usd : v.rs / r);
     }
-    // efetivo separando realizado (preto, cotação indicada — não muda com o slider) × projetado (roxo, câmbio futuro)
+    // efetivo separando realizado (preto, cotação indicada — não muda com o slider) × projetado (roxo, câmbio futuro).
+    // `status` diz qual dos dois campos é o "ativo" no período (o outro fica 0) — necessário pra exibir 0 como "-"
+    // sem confundir com "não se aplica" (effNative/manual ausente, que continua totalmente em branco).
     function effSplit(line, period) {
       const m = entered[ekey(line, period)]; // entradas manuais são em R$
       if (m) {
         const val = toDisplay({ rs: m.value }, m.kind === 'proj' ? cotacao : cotacaoReal);
-        return m.kind === 'proj' ? { real: 0, proj: val } : { real: val, proj: 0 };
+        return m.kind === 'proj' ? { real: 0, proj: val, status: 'proj' } : { real: val, proj: 0, status: 'real' };
       }
       const v = effNative(line, period);
       if (!v) return null;
-      return periodStatus(period) === 'real'
-        ? { real: toDisplay(v, cotacaoReal), proj: 0 }
-        : { real: 0, proj: toDisplay(v, cotacao) };
+      const st = periodStatus(period);
+      return st === 'real'
+        ? { real: toDisplay(v, cotacaoReal), proj: 0, status: 'real' }
+        : { real: 0, proj: toDisplay(v, cotacao), status: 'proj' };
     }
+    // linhas cujo lançamento pontual foi movido para o M13 (planilha original só vai até M12) — o orçado de
+    // referência no M13 reaproveita o valor do M12, já que não existe orçado nativo pós-contrato
+    const M13_LINES = ['Vehicle Purchase', 'Initial Fee / Vehicle Sell', 'Deposit Refund'];
     // orçado (planilha, USD) na moeda de exibição: em R$ multiplica pelo câmbio em que foi construído
     const orcDisp = (line, period) => {
-      const o = orcVal(line, period);
+      const srcP = (period === PMAX && M13_LINES.includes(line)) ? U.periods : period;
+      const o = orcVal(line, srcP);
       return o == null ? null : Math.round(o * (currency === 'BRL' ? ORCADO_FX : 1));
     };
     function cellLeaf(line, period) {
       const e = effSplit(line, period);
       const orc = orcDisp(line, period);
       let s = '';
-      if (e && e.real) s += `<span class="ue-main ue-real">${ueFmt(e.real)}</span>`;
-      if (e && e.proj) s += `<span class="ue-main ue-proj">${ueFmt(e.proj)}</span>`;
+      if (e) s += `<span class="ue-main ue-${e.status}">${ueFmt(e.status === 'real' ? e.real : e.proj)}</span>`;
       if (orc != null) s += `<span class="ue-orc">${ueFmt(orc)}</span>`;
       return s;
     }

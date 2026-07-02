@@ -279,8 +279,10 @@
         display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0,
         anchor: 'center', color: '#111827', textStrokeColor: '#fff', textStrokeWidth: 3,
         labels: {
-          pct: { align: 'center', offset: -5, font: { size: 11, weight: 600 }, formatter: (v) => pctFmt(v) },
-          abs: { align: 'center', offset: 5, font: { size: 9, weight: 500 }, formatter: (v, ctx) => absFmt(ctx) },
+          // pct exatamente no centro da faixa (align 'center' ignora offset — é isso que centraliza de fato);
+          // abs "empurrado" para baixo a partir do centro, para não colidir com o pct
+          pct: { align: 'center', font: { size: 11, weight: 600 }, formatter: (v) => pctFmt(v) },
+          abs: { align: 'bottom', offset: 8, font: { size: 8, weight: 500 }, formatter: (v, ctx) => absFmt(ctx) },
         },
       },
     });

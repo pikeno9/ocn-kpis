@@ -55,18 +55,26 @@ button { font-family: inherit; cursor: pointer; }
   .app-brand__text p, .app-user__info, .header-meta { display: none; }
 }
 
-/* ---- tela de loading ---- */
+/* ---- tela de loading (splash estilo ocn-clientes: logo pulsando + barra gradiente) ---- */
 .app-loading {
   position: fixed; inset: 0; z-index: 99999;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px;
-  background: var(--gradient-purple); color: #fff;
+  background: #180140; color: #fff;
+  transition: opacity .35s ease;
 }
-.app-loading.hidden { display: none; }
-.app-loading-logo { width: 190px; height: auto; opacity: .95; }
-.app-loading-spinner {
-  width: 32px; height: 32px; border: 3px solid rgba(255,255,255,.25);
-  border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite;
+.app-loading.hidden { opacity: 0; pointer-events: none; }
+.app-loading-logo { width: 150px; height: auto; object-fit: contain; animation: ocn-pulse 1.6s ease-in-out infinite; }
+.app-loading-track {
+  width: 120px; height: 3px; border-radius: 9999px;
+  background: rgba(255,255,255,0.15); overflow: hidden;
 }
+.app-loading-bar {
+  width: 100%; height: 100%; border-radius: 9999px;
+  background: linear-gradient(90deg, #5A00F8, #c026d3);
+  transform-origin: left center; animation: ocn-bar 2.2s ease-in-out infinite;
+}
+@keyframes ocn-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .55; transform: scale(.94); } }
+@keyframes ocn-bar { 0% { transform: scaleX(0); } 100% { transform: scaleX(1); } }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ---- Unit Economics ---- */

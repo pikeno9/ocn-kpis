@@ -1017,9 +1017,9 @@
     renderTimeSection(RD.swaps, 'chartSwaps', 'swapsDetail', 'swaps', 'Swap');
   }
 
-  // esconde a tela de loading quando o dashboard está pronto
+  // esconde a tela de loading quando o dashboard está pronto (fade 0.35s + display:none de garantia)
   const _ld = document.getElementById('appLoading');
-  if (_ld) _ld.classList.add('hidden');
+  if (_ld) { _ld.classList.add('hidden'); setTimeout(() => { _ld.style.display = 'none'; }, 450); }
 
   // ===================== OCORRÊNCIAS (lazy init) =====================
   let ocorReady = false;

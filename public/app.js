@@ -191,9 +191,10 @@
 
   render(buildMonthly());
 
-  // ---------- chart acumulado (Received Fleet) ----------
+  // ---------- chart acumulado (Received Fleet) — labels próprios (começa em Março) ----------
   const A = OCN.acumulado;
-  const cumTotal = M.labels.map((_, i) => (A.recebido.Polo[i] || 0) + (A.recebido.Argo[i] || 0) + (A.recebido.Tera[i] || 0));
+  const aLabels = A.labels || M.labels;
+  const cumTotal = aLabels.map((_, i) => (A.recebido.Polo[i] || 0) + (A.recebido.Argo[i] || 0) + (A.recebido.Tera[i] || 0));
   function cumDS(model, isTop) {
     // número por modelo dentro do segmento (menor); no último dataset da pilha, o TOTAL acima da barra
     const labels = { seg: { anchor: 'center', align: 'center', color: txtOnBar(COR[model]), font: { size: 12, weight: 700 }, formatter: (v) => (v > 0 ? v : '') } };
@@ -239,7 +240,7 @@
   new Chart(document.getElementById('chartAcum'), {
     type: 'bar',
     data: {
-      labels: M.labels,
+      labels: aLabels,
       datasets: [
         cumDS('Polo'), cumDS('Argo'), cumDS('Tera', true),
         // linha do budget: tracejada; rótulo só nos meses SEM barra (nos realizados o budget já está na linha de % e no tooltip),
@@ -269,22 +270,24 @@
     const pctFmt = (v) => (v == null ? '' : String(Math.round(v * 10) / 10).replace('.', ',') + '%'); // tooltip (com decimal)
     const pctTag = (v) => (v == null ? '' : '(' + Math.round(v) + '%)'); // rótulo na barra: entre parênteses, sem decimais
     const absFmt = (ctx) => { const a = ctx.dataset._abs ? ctx.dataset._abs[ctx.dataIndex] : null; return a == null ? '' : a; };
-    const baseActive = FS.active.slice(), baseInactive = FS.inactive.slice();
+    const baseActive = FS.active.slice(), baseInactive = FS.inactive.slice(), baseLoss = (FS.loss || FS.labels.map(() => 0)).slice();
     const ovr = { active: {}, inactive: {} };
     (OCN._fleetOvr || []).forEach((o) => { if (ovr[o.line] && o.value != null) ovr[o.line][o.period] = o.value; });
-    const eff = { active: [], inactive: [], total: [], activePct: [], inactivePct: [] };
+    const eff = { active: [], inactive: [], loss: [], total: [], activePct: [], inactivePct: [], lossPct: [] };
     function recalc() {
       for (let i = 0; i < FS.labels.length; i++) {
         const a = (ovr.active[i] != null) ? ovr.active[i] : baseActive[i];
         const n = (ovr.inactive[i] != null) ? ovr.inactive[i] : baseInactive[i];
-        const t = (a || 0) + (n || 0);
-        eff.active[i] = a; eff.inactive[i] = n; eff.total[i] = t || null;
+        const l = baseLoss[i] || 0; // perda total não é editável (só active/inactive)
+        const t = (a || 0) + (n || 0) + l;
+        eff.active[i] = a; eff.inactive[i] = n; eff.loss[i] = l; eff.total[i] = t || null;
         eff.activePct[i] = t ? (a / t) * 100 : null;
         eff.inactivePct[i] = t ? (n / t) * 100 : null;
+        eff.lossPct[i] = t ? (l / t) * 100 : null;
       }
     }
     let totalArr = [];
-    // Active: segmento grande — ABSOLUTO em destaque em cima, percentual menor embaixo, dentro da barra roxa
+    // Active: segmento grande — ABSOLUTO em destaque em cima, percentual menor embaixo
     const activeDS = (label, pct, abs, color) => ({
       label, data: sl(pct), _abs: sl(abs), backgroundColor: color, stack: 'u', borderRadius: 3, maxBarThickness: 88,
       datalabels: {
@@ -296,20 +299,33 @@
         },
       },
     });
-    // Inactive: segmento fino — absoluto em destaque no centro da faixa, percentual menor abaixo; halo branco.
-    // O topo da pilha também carrega o TOTAL da frota (acima da barra).
-    const inactiveDS = (label, pct, abs, color) => ({
+    // segmento fino (inactive/loss): absoluto no centro, percentual abaixo; halo pra ler sobre a barra
+    const thinDS = (label, pct, abs, color, dark) => ({
       label, data: sl(pct), _abs: sl(abs), backgroundColor: color, stack: 'u', borderRadius: 3, maxBarThickness: 88,
       datalabels: {
         display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0,
-        anchor: 'center', textAlign: 'center', color: '#111827', textStrokeColor: '#fff', textStrokeWidth: 3,
+        anchor: 'center', textAlign: 'center', color: dark ? '#fff' : '#111827', textStrokeColor: dark ? '#000' : '#fff', textStrokeWidth: dark ? 0 : 3,
         labels: {
           abs: { align: 'center', font: { size: 12, weight: 700 }, formatter: (v, ctx) => absFmt(ctx) },
           pct: { align: 'bottom', offset: 8, font: { size: 8, weight: 500 }, formatter: (v) => pctTag(v) },
-          total: { anchor: 'end', align: 'top', offset: 4, font: { size: 12, weight: 700 }, color: '#111827', textStrokeWidth: 0, formatter: (v, ctx) => (totalArr[ctx.dataIndex] != null ? totalArr[ctx.dataIndex] : '') },
         },
       },
     });
+    // total da frota (active+inactive+loss) acima de cada barra, via plugin (topo da pilha varia)
+    const utilTotalTag = {
+      id: 'utilTotalTag',
+      afterDatasetsDraw(chart) {
+        const ctx = chart.ctx, yScale = chart.scales.y, meta = chart.getDatasetMeta(0);
+        ctx.save();
+        ctx.font = '700 12px ' + ((Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif');
+        ctx.fillStyle = '#111827'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+        for (let i = 0; i < totalArr.length; i++) {
+          if (totalArr[i] == null || !meta.data[i]) continue;
+          ctx.fillText(String(totalArr[i]), meta.data[i].x, yScale.getPixelForValue(100) - 6);
+        }
+        ctx.restore();
+      },
+    };
     let chartUtil = null;
     function renderUtil() {
       recalc();
@@ -319,8 +335,10 @@
         type: 'bar',
         data: { labels: sl(FS.labels), datasets: [
           activeDS('Active Vehicles', eff.activePct, eff.active, '#5A00F8'),
-          inactiveDS('Inactive Vehicles', eff.inactivePct, eff.inactive, '#CBD5E1'),
+          thinDS('Inactive Vehicles', eff.inactivePct, eff.inactive, '#CBD5E1', false),
+          thinDS('Total loss', eff.lossPct, eff.loss, '#374151', true),
         ] },
+        plugins: [utilTotalTag],
         options: {
           responsive: true, maintainAspectRatio: false,
           plugins: {
@@ -519,6 +537,36 @@
       // histograma (gráfico principal): conta veículos por faixa de km/semana; clicar numa barra filtra a lista
       const counts = HIST_BINS.map(() => 0);
       set.forEach((p) => { counts[binIdxOf(p)]++; });
+      // linhas verticais: média actual (calculada) e budget 1.500 km/sem — mapeia km → posição na escala de faixas
+      const BUDGET_KM = 1500;
+      const bandCenter = (i) => (i === 0 ? 300 : i === HIST_BINS.length - 1 ? 2100 : 300 + 200 * i);
+      const kmToFrac = (v) => {
+        if (v <= bandCenter(0)) return 0;
+        const last = HIST_BINS.length - 1;
+        if (v >= bandCenter(last)) return last;
+        for (let i = 0; i < last; i++) { const a = bandCenter(i), b = bandCenter(i + 1); if (v >= a && v <= b) return i + (v - a) / (b - a); }
+        return 0;
+      };
+      const vLine = (chart, frac, color, label) => {
+        const xs = chart.scales.x, ys = chart.scales.y, ctx = chart.ctx;
+        const x0 = xs.getPixelForValue(0), x1 = xs.getPixelForValue(1);
+        const px = x0 + frac * (x1 - x0);
+        ctx.save();
+        ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+        ctx.beginPath(); ctx.moveTo(px, ys.bottom); ctx.lineTo(px, ys.top + 12); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = color; ctx.font = '700 10px ' + ((Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif');
+        ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+        ctx.fillText(label, px, ys.top + 10);
+        ctx.restore();
+      };
+      const avgLinesPlugin = {
+        id: 'avgLines',
+        afterDatasetsDraw(chart) {
+          vLine(chart, kmToFrac(avg), NAVY, 'actual avg ' + avg.toLocaleString('en-US'));
+          vLine(chart, kmToFrac(BUDGET_KM), '#EA580C', 'budget ' + BUDGET_KM.toLocaleString('en-US'));
+        },
+      };
       if (histChart) histChart.destroy();
       histChart = new Chart(document.getElementById('chartUtilHist'), {
         type: 'bar',
@@ -529,6 +577,7 @@
           borderRadius: 4, maxBarThickness: 70,
           datalabels: { anchor: 'end', align: 'top', offset: 2, color: '#1d1d1b', font: { size: 12, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => v },
         }] },
+        plugins: [avgLinesPlugin],
         options: {
           responsive: true, maintainAspectRatio: false, layout: { padding: { top: 20 } },
           onClick: (evt, els) => {
@@ -965,7 +1014,7 @@
       const closeId = detailId + 'Close';
       detailEl.innerHTML = `<div class="pay-detail-title">${section.labels[selIdx][0]} ${itemNoun} (${rows.length}) <button type="button" id="${closeId}">&times;</button></div>` +
         (rows.length
-          ? `<table class="rh-table"><thead><tr><th>Client</th><th>Plate</th><th>${eventLabel} date</th><th>Ready for realloc.</th><th>Reallocation date</th><th>Reason</th><th>Details</th></tr></thead><tbody>` +
+          ? `<table class="rh-table"><thead><tr><th>Client</th><th>Plate</th><th>Event date</th><th>Ready for realloc.</th><th>Reallocation date</th><th>Reason</th><th>Details</th></tr></thead><tbody>` +
             rows.map((it) => `<tr><td>${it.cliente || '—'}</td><td class="util-plate-col">${it.placa || '—'}</td><td>${it.dataEvento}</td><td>${it.dataPronto}</td><td>${it.dataRecolocacao}</td><td>${it.motivo}</td><td class="redeploy-details">${it.detalhamento}</td></tr>`).join('') +
             '</tbody></table>'
           : '<div style="color:var(--text-2);font-size:13px">No records.</div>');
@@ -980,10 +1029,10 @@
       data: {
         labels: section.labels,
         datasets: [
-          // dois tons de roxo: escuro no 1º estágio (era verde), claro no 2º (era o roxo padrão)
-          { label: eventLabel + ' → Ready', data: section.avgRecupParaPronto, backgroundColor: '#3A00A0', stack: 's', borderRadius: 3, maxBarThickness: 60, order: 1,
+          // dois tons de roxo: escuro = tempo de reparo (evento→pronto), claro = tempo de recolocação (pronto→alocado)
+          { label: 'Repair time', data: section.avgRecupParaPronto, backgroundColor: '#3A00A0', stack: 's', borderRadius: 3, maxBarThickness: 60, order: 1,
             datalabels: { color: '#fff', font: { size: 11, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => v } },
-          { label: 'Ready → Reallocated', data: section.avgProntoParaAlocado, backgroundColor: '#9366FF', stack: 's', borderRadius: 3, maxBarThickness: 60, order: 1,
+          { label: 'Relocation time', data: section.avgProntoParaAlocado, backgroundColor: '#9366FF', stack: 's', borderRadius: 3, maxBarThickness: 60, order: 1,
             datalabels: { labels: {
               value: { color: '#fff', font: { size: 11, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => v },
               total: { anchor: 'end', align: 'top', offset: 2, color: NAVY, font: { size: 12, weight: 700 }, display: (ctx) => totalDays[ctx.dataIndex] > 0, formatter: (v, ctx) => totalDays[ctx.dataIndex] },
@@ -1000,7 +1049,7 @@
           legend: { display: false }, datalabels: { clamp: true },
           tooltip: { callbacks: {
             title: (it) => section.labels[it[0].dataIndex][0] + ' · ' + section.total[it[0].dataIndex] + ' ' + itemNoun,
-            label: (c) => (c.dataset.type === 'scatter' ? '0 days to redeploy' : c.dataset.label + ': ' + c.parsed.y + ' days (avg)'),
+            label: (c) => (c.dataset.type === 'scatter' ? '0 working days' : c.dataset.label + ': ' + c.parsed.y + ' working days (avg)'),
             afterBody: () => 'Click for the list',
           } },
         },
@@ -1016,13 +1065,13 @@
     redeployReady = true;
     const RD = OCN.redeployment;
     const wrapEl = document.getElementById('sub-redeployment');
-    if (!RD || (!RD.recoveries && !RD.returns && !RD.swaps)) {
+    if (!RD || (!RD.combined && !RD.swaps)) {
       const cardEl = wrapEl && wrapEl.querySelector('.card');
       if (cardEl) cardEl.innerHTML = '<div style="color:var(--text-2);font-size:13px">No redeployment data (import_Time tab not available).</div>';
       return;
     }
-    renderTimeSection(RD.recoveries, 'chartRecoveries', 'recoveriesDetail', 'recoveries', 'Recovery');
-    renderTimeSection(RD.returns, 'chartReturns', 'returnsDetail', 'returns', 'Return');
+    // Recoveries + Returns num único gráfico; Car swaps continua no data mas o card fica oculto (HTML)
+    renderTimeSection(RD.combined, 'chartRecoveries', 'recoveriesDetail', 'cases', 'Event');
     renderTimeSection(RD.swaps, 'chartSwaps', 'swapsDetail', 'swaps', 'Swap');
   }
 
@@ -1168,7 +1217,7 @@
           },
         });
       }
-      renderOcorMensal('acc');
+      renderOcorMensal('monthly');
       const omTg = document.getElementById('ocorMensalToggle');
       if (omTg) omTg.querySelectorAll('.range-btn').forEach((b) => b.addEventListener('click', () => {
         omTg.querySelectorAll('.range-btn').forEach((x) => x.classList.toggle('active', x === b));
@@ -1290,10 +1339,12 @@
       inicio: U.fleets.map((x) => x.inicio).filter(Boolean).sort()[0] || null,
       placas: U.fleets.flatMap((x) => x.placas || []).sort(),
     });
-    fleetsEl.innerHTML = U.fleets
-      .map((f) => `<button class="ue-fleet-btn" data-id="${f.id}"><span class="n">${f.label}</span><span class="m">${f.modelLabel} · ${f.cars} cars</span></button>`)
-      .join('') +
-      `<button class="ue-fleet-btn" data-id="all"><span class="n">All fleets</span><span class="m">${totalCarsAll} cars</span></button>`;
+    // "All fleets" vem PRIMEIRO, antes das frotas individuais
+    fleetsEl.innerHTML =
+      `<button class="ue-fleet-btn" data-id="all"><span class="n">All fleets</span><span class="m">${totalCarsAll} cars</span></button>` +
+      U.fleets
+        .map((f) => `<button class="ue-fleet-btn" data-id="${f.id}"><span class="n">${f.label}</span><span class="m">${f.modelLabel} · ${f.cars} cars</span></button>`)
+        .join('');
     fleetsEl.querySelectorAll('.ue-fleet-btn').forEach((b) =>
       b.addEventListener('click', () => { current = b.dataset.id; loadFleet(); })
     );

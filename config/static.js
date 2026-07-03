@@ -61,6 +61,30 @@ function mapModelo(s) {
   return null;
 }
 
+// ---- Feriados + emendas em São Paulo (SP) 2026 — pra contar dias ÚTEIS no Redeployment ----
+// Inclui feriados nacionais, estadual (SP) e municipal (capital) + emendas (bridges) usuais.
+const FERIADOS_SP = new Set([
+  '2026-01-01', // Confraternização Universal
+  '2026-01-25', // Aniversário da cidade de São Paulo (domingo)
+  '2026-02-16', // Carnaval (segunda)
+  '2026-02-17', // Carnaval (terça)
+  '2026-02-18', // Quarta-feira de Cinzas
+  '2026-04-03', // Sexta-feira Santa
+  '2026-04-20', // emenda (segunda antes de Tiradentes/terça)
+  '2026-04-21', // Tiradentes (terça)
+  '2026-05-01', // Dia do Trabalho (sexta)
+  '2026-06-04', // Corpus Christi (quinta)
+  '2026-06-05', // emenda (sexta após Corpus Christi)
+  '2026-07-09', // Revolução Constitucionalista de 1932 (SP, quinta)
+  '2026-07-10', // emenda (sexta após 09/07)
+  '2026-09-07', // Independência (segunda)
+  '2026-10-12', // Nossa Senhora Aparecida (segunda)
+  '2026-11-02', // Finados (segunda)
+  '2026-11-15', // Proclamação da República (domingo)
+  '2026-11-20', // Consciência Negra (sexta)
+  '2026-12-25', // Natal (sexta)
+]);
+
 // ---- Regras de exceção (recebimento) ----
 // Datas que "transbordam" para outro dia (carro recebido no fim do mês contado no mês seguinte)
 const spilloverDates = { '31/05/2026': '01/06/2026' };
@@ -86,7 +110,9 @@ const esperado = {
   ],
   interativo: [false, true, true, true, true, true, true, true, true],
   anoTotal: 775,
-  acumulado: [50, 106, 170, 244, 328, 422, 528, 649, 775],
+  // Received Fleet (acumulado): começa em MARÇO, budget acumulado novo (Mar..Dez)
+  acumLabels: ['Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+  acumulado: [50, 100, 155, 215, 285, 365, 460, 560, 665, 775],
 };
 
 const semanaLabels = [['Week 1', '1–7'], ['Week 2', '8–14'], ['Week 3', '15–21'], ['Week 4', '22–28'], ['Week 5', '29–31']];
@@ -157,4 +183,5 @@ module.exports = {
   mLabels, mFull, esperado, semanaLabels, esperadoSemanal,
   proximoLote, notaMensal,
   statusItems, ocorrenciaTipos, churnTipos, churnExcluir, contratoNominalMeses,
+  FERIADOS_SP,
 };

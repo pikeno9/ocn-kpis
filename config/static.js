@@ -15,6 +15,8 @@ const TABS = {
   leads: 'import_Leads',
   time: 'import_Time',
   funil: 'funil',
+  leadsInDrive: 'Leads inDrive',
+  perfInDrive: 'Performance inDrive',
 };
 
 // API do painel de cobranças (matriz de pagamentos semanais por placa). Token só via env (repo público).

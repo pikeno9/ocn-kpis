@@ -57,6 +57,7 @@
       if (tab.dataset.sub === 'unit') initUnit();
       if (tab.dataset.sub === 'utilization') initUtilization();
       if (tab.dataset.sub === 'funnel') initFunnel();
+      if (tab.dataset.sub === 'indrive') initInDrive();
       if (tab.dataset.sub === 'payments') initPayments();
       if (tab.dataset.sub === 'redeployment') initRedeployment();
     });
@@ -621,6 +622,107 @@
     funnelChart('chartFunnel1', F.taxaEnvio, '#374151', F.enviados, F.contatos);
     funnelChart('chartFunnel2', F.taxaAprov, '#DC2626', F.aprovados, F.enviados);
     funnelChart('chartFunnel3', F.convBruta, '#2563EB', F.aprovados, F.contatos);
+  }
+
+  // ===================== CLIENTS / INDRIVE (lazy init) =====================
+  let inDriveReady = false;
+  function initInDrive() {
+    if (inDriveReady) return;
+    inDriveReady = true;
+    const ID = OCN.inDrive || {};
+    const PURPLE = '#5A00F8';
+    const wrapEl = document.getElementById('sub-indrive');
+    if (!ID.leads && !ID.perf) {
+      if (wrapEl) wrapEl.innerHTML = '<div style="color:var(--text-2);font-size:13px">No inDrive data (sheet tabs not available).</div>';
+      return;
+    }
+    const hideCard = (canvasId) => { const c = document.getElementById(canvasId); if (c) { const card = c.closest('.card'); if (card) card.style.display = 'none'; } };
+
+    // 1) Leads elegíveis — 2 linhas: elegíveis (destaque, valor + % do todo) e total (só valor)
+    const L = ID.leads;
+    if (!L) { hideCard('chartInDriveLeads'); } else {
+      new Chart(document.getElementById('chartInDriveLeads'), {
+        type: 'line',
+        data: { labels: L.labels, datasets: [
+          { label: 'Eligible for inDrive bonus', data: L.elegiveis, borderColor: PURPLE, backgroundColor: PURPLE, borderWidth: 2.5, tension: 0.3, pointRadius: 4, pointBackgroundColor: PURPLE,
+            datalabels: { align: 'bottom', anchor: 'start', offset: 6, color: PURPLE, font: { size: 10, weight: 700 }, textAlign: 'center', formatter: (v, ctx) => v.toLocaleString('en-US') + '\n(' + L.pct[ctx.dataIndex] + '%)' } },
+          { label: 'Total waitlist (approved)', data: L.total, borderColor: '#9ca3af', backgroundColor: '#9ca3af', borderWidth: 2, tension: 0.3, pointRadius: 3, pointBackgroundColor: '#9ca3af',
+            datalabels: { align: 'top', anchor: 'end', offset: 4, color: TXT2, font: { size: 10, weight: 600 }, formatter: (v) => v.toLocaleString('en-US') } },
+        ] },
+        options: {
+          responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24, bottom: 8 } },
+          plugins: {
+            legend: { display: false }, datalabels: { clamp: true },
+            tooltip: { callbacks: { label: (c) => c.dataset.label + ': ' + c.parsed.y.toLocaleString('en-US') + (c.datasetIndex === 0 ? ' (' + L.pct[c.dataIndex] + '% of total)' : '') } },
+          },
+          scales: {
+            // ticks afastados do eixo: rótulos dos pontos baixos descem além da área do gráfico
+            x: { grid: { display: false }, ticks: { color: TXT2, maxRotation: 0, padding: 28 } },
+            y: { beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, precision: 0 }, title: { display: true, text: 'leads (cumulative)', color: '#9ca3af', font: { size: 11 } } },
+          },
+        },
+      });
+    }
+
+    // 2) Base ativa — barras empilhadas acumuladas: elegíveis (destaque) + não elegíveis (rachurado), total no topo
+    const P = ID.perf;
+    if (!P) { hideCard('chartInDriveBase'); hideCard('chartInDriveConv'); } else {
+      // padrão rachurado (listras diagonais) pros não elegíveis
+      const pc = document.createElement('canvas'); pc.width = 8; pc.height = 8;
+      const px = pc.getContext('2d');
+      px.fillStyle = '#f3f4f6'; px.fillRect(0, 0, 8, 8);
+      px.strokeStyle = '#d1d5db'; px.lineWidth = 2;
+      px.beginPath(); px.moveTo(-2, 6); px.lineTo(6, -2); px.moveTo(2, 10); px.lineTo(10, 2); px.stroke();
+      const hatch = document.getElementById('chartInDriveBase').getContext('2d').createPattern(pc, 'repeat');
+      new Chart(document.getElementById('chartInDriveBase'), {
+        type: 'bar',
+        data: { labels: P.labels, datasets: [
+          { label: 'Eligible for inDrive bonus', data: P.elegiveis, backgroundColor: PURPLE, stack: 's', borderRadius: 3, maxBarThickness: 70,
+            datalabels: { color: '#fff', font: { size: 11, weight: 700 }, textAlign: 'center', formatter: (v, ctx) => v.toLocaleString('en-US') + '\n(' + P.pctElegiveis[ctx.dataIndex] + '%)' } },
+          { label: 'Not eligible', data: P.naoElegiveis, backgroundColor: hatch, borderColor: '#d1d5db', borderWidth: 1, stack: 's', borderRadius: 3, maxBarThickness: 70,
+            datalabels: { anchor: 'end', align: 'top', offset: 2, color: NAVY, font: { size: 12, weight: 700 }, formatter: (v, ctx) => P.ativos[ctx.dataIndex].toLocaleString('en-US') } },
+        ] },
+        options: {
+          responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24 } },
+          plugins: {
+            legend: { display: false }, datalabels: { clamp: true },
+            tooltip: { callbacks: {
+              title: (it) => P.full[it[0].dataIndex],
+              label: (c) => (c.datasetIndex === 0
+                ? 'Eligible: ' + c.parsed.y.toLocaleString('en-US') + ' (' + P.pctElegiveis[c.dataIndex] + '% of active base)'
+                : 'Not eligible: ' + c.parsed.y.toLocaleString('en-US') + ' · Active base: ' + P.ativos[c.dataIndex].toLocaleString('en-US')),
+            } },
+          },
+          scales: {
+            x: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } },
+            y: { stacked: true, beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, precision: 0 }, title: { display: true, text: 'active clients (cumulative)', color: '#9ca3af', font: { size: 11 } } },
+          },
+        },
+      });
+
+      // 3) Oportunidade capturada — % da base ativa que enviou prints (convertidos inDrive)
+      new Chart(document.getElementById('chartInDriveConv'), {
+        type: 'line',
+        data: { labels: P.labels, datasets: [{
+          data: P.pctCaptura, borderColor: '#16A34A', backgroundColor: 'rgba(22,163,74,0.07)', borderWidth: 2.5, fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: '#16A34A',
+          datalabels: { align: 'top', anchor: 'end', offset: 4, color: '#16A34A', font: { size: 11, weight: 700 }, formatter: (v) => v + '%' },
+        }] },
+        options: {
+          responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24 } },
+          plugins: {
+            legend: { display: false }, datalabels: { clamp: true },
+            tooltip: { callbacks: {
+              title: (it) => P.full[it[0].dataIndex],
+              label: (c) => 'Captured: ' + c.parsed.y + '% (' + P.prints[c.dataIndex] + '/' + P.ativos[c.dataIndex] + ' sent prints)',
+            } },
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: TXT2, maxRotation: 0 } },
+            y: { beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, callback: (v) => v + '%' }, title: { display: true, text: '% of active base', color: '#9ca3af', font: { size: 11 } } },
+          },
+        },
+      });
+    }
   }
 
   // ===================== CLIENTS / PAYMENTS (lazy init) =====================

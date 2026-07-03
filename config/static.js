@@ -19,6 +19,14 @@ const TABS = {
   perfInDrive: 'Performance inDrive',
 };
 
+// gviz tipa a coluna e descarta células cujo conteúdo não bate com o tipo inferido
+// (ex.: datas digitadas como TEXTO na coluna "Data do Evento" de Ocorrencias somem).
+// Para essas abas usamos o endpoint /export (valor exibido, sem inferência de tipo),
+// que exige o gid da aba em vez do nome.
+const TAB_GIDS = {
+  ocorrencias: '1260965965',
+};
+
 // API do painel de cobranças (matriz de pagamentos semanais por placa). Token só via env (repo público).
 const COBRANCAS_API = process.env.COBRANCAS_API || 'https://ocn-painel-cobrancas.vercel.app';
 const COBRANCAS_TOKEN = process.env.COBRANCAS_TOKEN || '';
@@ -142,7 +150,7 @@ const churnExcluir = ['troca de carro', 'troca'];
 const contratoNominalMeses = 12;
 
 module.exports = {
-  SHEET_ID, TABS, UE_TABS, UE_PERIODS, UE_FLEET_COL, COBRANCAS_API, COBRANCAS_TOKEN,
+  SHEET_ID, TABS, TAB_GIDS, UE_TABS, UE_PERIODS, UE_FLEET_COL, COBRANCAS_API, COBRANCAS_TOKEN,
   FROTA_API, FROTA_TOKEN, REVISOES_API, REVISAO_KM, modelos, corEsperado, mapModelo,
   spilloverDates, undatedReceivedDate,
   mLabels, mFull, esperado, semanaLabels, esperadoSemanal,

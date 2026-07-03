@@ -390,7 +390,10 @@
     function render() {
       const set = currentSet();
       const avg = Math.round(set.reduce((a, p) => a + p.kmWeek, 0) / (set.length || 1));
-      const maxWeeks = Math.max(...set.map((p) => p.weeksElapsed), 1);
+      // taxa média de km/dia do conjunto (soma dos km ÷ soma dos dias) — dita a inclinação da linha média
+      const totalKm = set.reduce((a, p) => a + p.odo, 0), totalDays = set.reduce((a, p) => a + p.daysElapsed, 0);
+      const kmPerDay = totalDays > 0 ? totalKm / totalDays : 0;
+      const maxDays = Math.max(...set.map((p) => p.daysElapsed), 1);
       kpisEl.innerHTML = `
         <div class="kpi-card"><div class="kpi-label"><i class="ti ti-car"></i> Vehicles shown</div><div class="kpi-value">${set.length}</div><div class="kpi-sub">${filter === 'all' ? 'all fleets' : 'Fleet ' + filter}</div></div>
         <div class="kpi-card"><div class="kpi-label"><i class="ti ti-road"></i> Average km/week</div><div class="kpi-value">${avg.toLocaleString('en-US')}</div><div class="kpi-sub">weighted by vehicles shown</div></div>
@@ -401,8 +404,8 @@
         type: 'scatter',
         data: {
           datasets: [
-            { label: 'Vehicle', data: set.map((p) => ({ x: p.weeksElapsed, y: p.kmWeek, meta: p })), backgroundColor: 'rgba(90,0,248,0.65)', borderColor: PURPLE_HEX, borderWidth: 1, pointRadius: 5, pointHoverRadius: 7 },
-            { label: 'Fleet average', data: [{ x: 0, y: avg }, { x: maxWeeks, y: avg }], type: 'line', borderColor: NAVY, borderWidth: 2, borderDash: [6, 4], pointRadius: 0, fill: false },
+            { label: 'Vehicle', data: set.map((p) => ({ x: p.daysElapsed, y: p.odo, meta: p })), backgroundColor: 'rgba(90,0,248,0.65)', borderColor: PURPLE_HEX, borderWidth: 1, pointRadius: 5, pointHoverRadius: 7 },
+            { label: 'Fleet average', data: [{ x: 0, y: 0 }, { x: maxDays, y: Math.round(kmPerDay * maxDays) }], type: 'line', borderColor: NAVY, borderWidth: 2, borderDash: [6, 4], pointRadius: 0, fill: false },
           ],
         },
         options: {
@@ -411,12 +414,12 @@
             legend: { display: false }, datalabels: { display: false },
             tooltip: { callbacks: {
               title: (it) => { const m = it[0].raw.meta; return m ? m.plate : ''; },
-              label: (c) => { const m = c.raw.meta; if (!m) return 'Fleet average: ' + Math.round(c.parsed.y).toLocaleString('en-US') + ' km/wk'; return [(m.driver || 'No driver') + ' · Fleet ' + m.fleet + ' · ' + m.modelLabel, Math.round(m.kmWeek).toLocaleString('en-US') + ' km/week · ' + m.weeksElapsed + ' weeks in fleet']; },
+              label: (c) => { const m = c.raw.meta; if (!m) return 'Fleet average pace: ' + Math.round(kmPerDay).toLocaleString('en-US') + ' km/day'; return [(m.driver || 'No driver') + ' · Fleet ' + m.fleet + ' · ' + m.modelLabel, Math.round(m.odo).toLocaleString('en-US') + ' km in ' + m.daysElapsed + ' days · ' + Math.round(m.kmWeek).toLocaleString('en-US') + ' km/week']; },
             } },
           },
           scales: {
-            x: { title: { display: true, text: 'weeks in fleet', color: '#9ca3af', font: { size: 11 } }, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2 } },
-            y: { beginAtZero: true, title: { display: true, text: 'km / week', color: '#9ca3af', font: { size: 11 } }, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2 } },
+            x: { title: { display: true, text: 'days in fleet', color: '#9ca3af', font: { size: 11 } }, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2 } },
+            y: { beginAtZero: true, title: { display: true, text: 'km', color: '#9ca3af', font: { size: 11 } }, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2 } },
           },
         },
       });

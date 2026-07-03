@@ -110,9 +110,7 @@ const esperado = {
   ],
   interativo: [false, true, true, true, true, true, true, true, true],
   anoTotal: 775,
-  // Received Fleet (acumulado): começa em MARÇO, budget acumulado novo (Mar..Dez)
-  acumLabels: ['Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
-  acumulado: [50, 100, 155, 215, 285, 365, 460, 560, 665, 775],
+  acumulado: [50, 106, 170, 244, 328, 422, 528, 649, 775],
 };
 
 const semanaLabels = [['Week 1', '1–7'], ['Week 2', '8–14'], ['Week 3', '15–21'], ['Week 4', '22–28'], ['Week 5', '29–31']];

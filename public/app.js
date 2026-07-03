@@ -191,7 +191,7 @@
 
   render(buildMonthly());
 
-  // ---------- chart acumulado (Received Fleet) — labels próprios (começa em Março) ----------
+  // ---------- chart acumulado (Received Fleet) ----------
   const A = OCN.acumulado;
   const aLabels = A.labels || M.labels;
   const cumTotal = aLabels.map((_, i) => (A.recebido.Polo[i] || 0) + (A.recebido.Argo[i] || 0) + (A.recebido.Tera[i] || 0));

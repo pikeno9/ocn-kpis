@@ -12,6 +12,7 @@ const TABS = {
   ocorrencias: 'Ocorrencias',
   clientes: 'import_clientes',
   rh: 'import_RH',
+  leads: 'import_Leads',
 };
 
 // API do painel de cobranças (matriz de pagamentos semanais por placa). Token só via env (repo público).

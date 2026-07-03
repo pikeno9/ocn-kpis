@@ -41,6 +41,7 @@
       tab.classList.add('active');
       document.getElementById('sec-' + tab.dataset.sec).classList.add('active');
       if (tab.dataset.sec === 'rh') initRH();
+      if (tab.dataset.sec === 'comercial') initLeads();
     });
   });
 
@@ -366,6 +367,78 @@
       }).join('') +
       '</tbody></table>';
   }
+
+  // ===================== CLIENTS / NEW LEADS (lazy init) =====================
+  let leadsReady = false;
+  function initLeads() {
+    if (leadsReady) return;
+    leadsReady = true;
+    const L = OCN.leads;
+    const kpisEl = document.getElementById('leadsKpis');
+    if (!L || !L.daily || !L.daily.dates.length) {
+      if (kpisEl) kpisEl.innerHTML = '<div style="color:var(--text-2);font-size:13px">No leads data (import_Leads tab not available).</div>';
+      return;
+    }
+    const nDays = L.daily.dates.length;
+    const avg = Math.round(L.total / nDays);
+    const bestM = L.monthly.values.indexOf(Math.max(...L.monthly.values));
+    const peak = L.events.length ? L.events.reduce((a, b) => (b.v > a.v ? b : a)) : null;
+    kpisEl.innerHTML = `
+      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-users-plus"></i> Total leads</div><div class="kpi-value">${L.total.toLocaleString('en-US')}</div><div class="kpi-sub">over ${nDays} days</div></div>
+      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-calendar-stats"></i> Best month</div><div class="kpi-value">${L.monthly.values[bestM].toLocaleString('en-US')}</div><div class="kpi-sub">${L.monthly.labels[bestM]}</div></div>
+      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-chart-line"></i> Daily average</div><div class="kpi-value">${avg}</div><div class="kpi-sub">leads / day</div></div>
+      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-flame"></i> Peak day</div><div class="kpi-value">${peak ? peak.v : '—'}</div><div class="kpi-sub">${peak ? (peak.event || '') : ''}</div></div>`;
+
+    const PURPLE = '#5A00F8';
+    const barDL = { anchor: 'end', align: 'top', offset: 2, color: NAVY, font: { size: 11, weight: 600 }, formatter: (v) => (v > 0 ? v : '') };
+    const baseOpts = (yTitle) => ({
+      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 22 } },
+      plugins: { legend: { display: false }, datalabels: { clamp: true }, tooltip: { callbacks: { label: (c) => 'Leads: ' + c.parsed.y } } },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: TXT2, autoSkip: true, maxRotation: 0 } },
+        y: { beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, precision: 0 }, title: { display: true, text: yTitle, color: '#9ca3af', font: { size: 11 } } },
+      },
+    });
+    // 1) mensal (barras)
+    new Chart(document.getElementById('chartLeadsM'), {
+      type: 'bar',
+      data: { labels: L.monthly.labels, datasets: [{ label: 'Leads', data: L.monthly.values, backgroundColor: PURPLE, borderRadius: 4, maxBarThickness: 70, datalabels: barDL }] },
+      options: baseOpts('leads'),
+    });
+    // 2) semanal (barras) — rótulo = data de início da semana
+    new Chart(document.getElementById('chartLeadsW'), {
+      type: 'bar',
+      data: { labels: L.weekly.labels, datasets: [{ label: 'Leads', data: L.weekly.values, backgroundColor: PURPLE, borderRadius: 3, maxBarThickness: 40, datalabels: { ...barDL, font: { size: 9, weight: 600 } } }] },
+      options: baseOpts('leads / week'),
+    });
+    // 3) diário (linha) — rótulo só nos dias de destaque (peakByDate)
+    const pk = L.daily.peakByDate;
+    new Chart(document.getElementById('chartLeadsD'), {
+      type: 'line',
+      data: { labels: L.daily.dates, datasets: [{
+        label: 'Leads', data: L.daily.values, borderColor: PURPLE, backgroundColor: 'rgba(90,0,248,0.06)',
+        borderWidth: 2, fill: true, tension: 0.3, pointRadius: (ctx) => (pk[L.daily.dates[ctx.dataIndex]] ? 4 : 0), pointBackgroundColor: PURPLE,
+        datalabels: { align: 'top', anchor: 'end', offset: 4, color: NAVY, font: { size: 10, weight: 700 }, display: (ctx) => !!pk[L.daily.dates[ctx.dataIndex]], formatter: (v, ctx) => { const p = pk[L.daily.dates[ctx.dataIndex]]; return p ? p.v : ''; } },
+      }] },
+      options: {
+        responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24 } },
+        plugins: {
+          legend: { display: false }, datalabels: { clamp: true },
+          tooltip: { callbacks: { title: (it) => fmtDMY(L.daily.dates[it[0].dataIndex]), label: (c) => { const p = pk[L.daily.dates[c.dataIndex]]; return 'Leads: ' + c.parsed.y + (p && p.event ? ' · ' + p.event : ''); } } },
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { color: TXT2, autoSkip: true, maxTicksLimit: 8, maxRotation: 0, callback: function (val) { return fmtDMY(this.getLabelForValue(val)); } } },
+          y: { beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, precision: 0 }, title: { display: true, text: 'leads / day', color: '#9ca3af', font: { size: 11 } } },
+        },
+      },
+    });
+    // painel de eventos (col F) — os disparos por trás dos picos
+    const evEl = document.getElementById('leadsEvents');
+    if (evEl) evEl.innerHTML = L.events.length
+      ? '<div class="leads-events">' + L.events.map((e) => `<div class="lead-ev"><div class="lead-ev-v">${e.v}</div><div class="lead-ev-body"><div class="lead-ev-name">${e.event}</div><div class="lead-ev-date">${fmtDMY(e.date)}</div></div></div>`).join('') + '</div>'
+      : '<div style="color:var(--text-2);font-size:13px">No events recorded.</div>';
+  }
+  const fmtDMY = (iso) => { if (!iso) return ''; const p = String(iso).split('-'); return p.length === 3 ? p[2] + '/' + p[1] : iso; };
 
   // esconde a tela de loading quando o dashboard está pronto
   const _ld = document.getElementById('appLoading');

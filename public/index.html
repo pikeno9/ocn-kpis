@@ -180,10 +180,35 @@
 
     <!-- ===================== CLIENTS ===================== -->
     <section class="section" id="sec-comercial">
-      <div class="coming-soon">
-        <i class="ti ti-chart-dots"></i>
-        <p>Clients</p>
-        <span>Area to be built</span>
+      <div class="sub-tabs">
+        <button class="sub-tab active" data-sub="leads">New Leads</button>
+      </div>
+      <div class="subsection active" id="sub-leads">
+        <div class="kpi-grid" id="leadsKpis"></div>
+        <div class="card">
+          <div class="sub2-title"><i class="ti ti-chart-bar"></i> New leads — monthly</div>
+          <div class="chart-box" style="height:300px;">
+            <canvas id="chartLeadsM" role="img" aria-label="New leads per month"></canvas>
+          </div>
+        </div>
+        <div class="card">
+          <div class="sub2-title"><i class="ti ti-chart-bar"></i> New leads — weekly</div>
+          <div class="chart-box" style="height:280px;">
+            <canvas id="chartLeadsW" role="img" aria-label="New leads per week"></canvas>
+          </div>
+        </div>
+        <div class="card">
+          <div class="sub2-title"><i class="ti ti-chart-line"></i> New leads — daily</div>
+          <div class="sub2-desc">Labels mark the highlight days; hover a peak for the event behind it.</div>
+          <div class="chart-box" style="height:300px;">
+            <canvas id="chartLeadsD" role="img" aria-label="New leads per day with highlighted peaks"></canvas>
+          </div>
+        </div>
+        <div class="card">
+          <div class="sub2-title"><i class="ti ti-bolt"></i> Key events</div>
+          <div class="sub2-desc">Actions behind the lead spikes</div>
+          <div id="leadsEvents"></div>
+        </div>
       </div>
     </section>
 

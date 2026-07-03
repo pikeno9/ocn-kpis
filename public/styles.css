@@ -278,6 +278,10 @@ button { font-family: inherit; cursor: pointer; }
 .sub-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .subsection { display: none; }
 .subsection.active { display: block; }
+/* Commercial Funnel: os 3 gráficos lado a lado (empilha em telas estreitas) */
+#sub-funnel.active { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; align-items: stretch; }
+#sub-funnel .card { margin-bottom: 0; }
+@media (max-width: 1100px) { #sub-funnel.active { grid-template-columns: 1fr; } }
 
 /* ---- headers ---- */
 .section-head { margin-bottom: 18px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }

@@ -258,17 +258,18 @@
   const FS = OCN.fleetStatus;
   if (FS && FS.labels && document.getElementById('chartUtil')) {
     const sl = (arr) => arr.slice(0, vi + 1); // abr..mês atual (sem meses futuros vazios)
-    const pctFmt = (v) => (v == null ? '' : String(Math.round(v * 10) / 10).replace('.', ',') + '%');
+    const pctFmt = (v) => (v == null ? '' : String(Math.round(v * 10) / 10).replace('.', ',') + '%'); // tooltip (com decimal)
+    const pctTag = (v) => (v == null ? '' : '(' + Math.round(v) + '%)'); // rótulo na barra: entre parênteses, sem decimais
     const absFmt = (ctx) => { const a = ctx.dataset._abs ? ctx.dataset._abs[ctx.dataIndex] : null; return a == null ? '' : a; };
     // Active: segmento grande — ABSOLUTO em destaque em cima, percentual menor embaixo, dentro da barra roxa
     const activeDS = (label, pct, abs, color) => ({
       label, data: sl(pct), _abs: sl(abs), backgroundColor: color, stack: 'u', borderRadius: 3, maxBarThickness: 88,
       datalabels: {
         display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0,
-        color: (ctx) => txtOnBar(ctx.dataset.backgroundColor), anchor: 'center',
+        color: (ctx) => txtOnBar(ctx.dataset.backgroundColor), anchor: 'center', textAlign: 'center',
         labels: {
           abs: { align: 'top', offset: 1, font: { size: 12, weight: 700 }, formatter: (v, ctx) => absFmt(ctx) },
-          pct: { align: 'bottom', offset: 1, font: { size: 9, weight: 500 }, formatter: (v) => pctFmt(v) },
+          pct: { align: 'bottom', offset: 1, font: { size: 9, weight: 500 }, formatter: (v) => pctTag(v) },
         },
       },
     });
@@ -279,10 +280,10 @@
       label, data: sl(pct), _abs: sl(abs), backgroundColor: color, stack: 'u', borderRadius: 3, maxBarThickness: 88,
       datalabels: {
         display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0,
-        anchor: 'center', color: '#111827', textStrokeColor: '#fff', textStrokeWidth: 3,
+        anchor: 'center', textAlign: 'center', color: '#111827', textStrokeColor: '#fff', textStrokeWidth: 3,
         labels: {
           abs: { align: 'center', font: { size: 12, weight: 700 }, formatter: (v, ctx) => absFmt(ctx) },
-          pct: { align: 'bottom', offset: 8, font: { size: 8, weight: 500 }, formatter: (v) => pctFmt(v) },
+          pct: { align: 'bottom', offset: 8, font: { size: 8, weight: 500 }, formatter: (v) => pctTag(v) },
           total: { anchor: 'end', align: 'top', offset: 4, font: { size: 12, weight: 700 }, color: '#111827', textStrokeWidth: 0, formatter: (v, ctx) => (totalArr[ctx.dataIndex] != null ? totalArr[ctx.dataIndex] : '') },
         },
       },

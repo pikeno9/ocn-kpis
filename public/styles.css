@@ -77,6 +77,14 @@ button { font-family: inherit; cursor: pointer; }
 @keyframes ocn-bar { 0% { transform: scaleX(0); } 100% { transform: scaleX(1); } }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ---- badge "in progress" numa sub-aba ---- */
+.sub-tab-wip {
+  display: inline-block; margin-left: 6px; padding: 1px 6px;
+  font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px;
+  border-radius: 9999px; background: #FEF3C7; color: #B45309; vertical-align: middle;
+}
+.sub-tab.active .sub-tab-wip { background: rgba(255,255,255,0.25); color: #fff; }
+
 /* ---- Unit Economics ---- */
 .ue-fleets { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
 .ue-fleet-btn {

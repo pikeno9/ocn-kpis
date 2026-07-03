@@ -694,8 +694,15 @@
             datalabels: { align: 'top', anchor: 'end', offset: 4, color: NAVY, font: { size: 10, weight: 700 }, formatter: (v) => (v == null ? '' : v + '%') },
           },
           {
+            // valor da média numa "tag" sobre a linha tracejada, no 1º ponto
             label: 'Average', data: F.labels.map(() => avg), borderColor: '#9ca3af', borderWidth: 1.5, borderDash: [5, 4],
-            pointRadius: 0, pointHoverRadius: 0, tension: 0, datalabels: { display: false },
+            pointRadius: 0, pointHoverRadius: 0, tension: 0,
+            datalabels: {
+              display: (ctx) => ctx.dataIndex === 0 && avg != null,
+              align: 'top', anchor: 'center', offset: 3,
+              backgroundColor: '#6b7280', color: '#fff', borderRadius: 4, padding: { top: 2, bottom: 2, left: 5, right: 5 },
+              font: { size: 10, weight: 700 }, formatter: () => 'avg ' + avg + '%',
+            },
           },
         ] },
         options: {
@@ -820,6 +827,8 @@
         eligible: { pct: pctOf(P.elegiveis), den: P.elegiveis, yTitle: '% of eligible clients', desc: 'Clients who sent the proof prints (converted to inDrive) as a share of the eligible clients', denLabel: 'eligible' },
         active: { pct: pctOf(P.ativos), den: P.ativos, yTitle: '% of active base', desc: 'Clients who sent the proof prints (converted to inDrive) as a share of the total active base', denLabel: 'active base' },
       };
+      // teto do eixo Y fixo (maior das duas visões) — a escala não muda ao alternar o denominador
+      const convYMax = Math.min(100, Math.ceil((Math.max(...CONV.eligible.pct, ...CONV.active.pct) + 1) / 10) * 10);
       const descEl = document.getElementById('idConvDesc');
       let convChart = null;
       function renderConv(mode) {
@@ -843,7 +852,7 @@
             },
             scales: {
               x: { grid: { display: false }, ticks: { color: TXT2, maxRotation: 0 } },
-              y: { beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, callback: (v) => v + '%' }, title: { display: true, text: C.yTitle, color: '#9ca3af', font: { size: 11 } } },
+              y: { beginAtZero: true, max: convYMax, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, callback: (v) => v + '%' }, title: { display: true, text: C.yTitle, color: '#9ca3af', font: { size: 11 } } },
             },
           },
         });
@@ -871,11 +880,11 @@
     }
     // categorias na ordem em que empilham (baixo → cima), cor por categoria
     const CATS = [
-      { key: 'onTime', label: 'Pago no prazo', color: '#16A34A' },
-      { key: 'late1', label: 'Atraso 1 dia', color: '#F59E0B' },
-      { key: 'late2', label: 'Atraso 2+ dias', color: '#B45309' },
-      { key: 'returned', label: 'Veículo devolvido', color: '#7C3AED' },
-      { key: 'recovered', label: 'Veículo recuperado', color: '#DC2626' },
+      { key: 'onTime', label: 'Paid on time', color: '#16A34A' },
+      { key: 'late1', label: '1 day late', color: '#F59E0B' },
+      { key: 'late2', label: '2+ days late', color: '#B45309' },
+      { key: 'returned', label: 'Vehicle returned', color: '#7C3AED' },
+      { key: 'recovered', label: 'Vehicle recovered', color: '#DC2626' },
     ];
     legendEl.innerHTML = CATS.map((c) => `<span class="it"><span class="sw" style="background:${c.color}"></span> ${c.label}</span>`).join('');
     const labels = P.weeks.map((w) => fmtDMY(w.date));

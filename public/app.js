@@ -201,8 +201,14 @@
     if (isTop) labels.total = { anchor: 'end', align: 'top', offset: 2, color: '#111827', font: { size: 12, weight: 700 }, display: (ctx) => cumTotal[ctx.dataIndex] > 0, formatter: (v, ctx) => cumTotal[ctx.dataIndex] };
     return { label: OCN.modelos[model].label, data: A.recebido[model], backgroundColor: COR[model], stack: 'r', borderRadius: 3, maxBarThickness: 48, order: 2, datalabels: { labels } };
   }
+  // até que mês há dado real (0 conta como dado; null = mês futuro, não conta)
+  const lastDataIdx = aLabels.reduce((acc, _, i) => ((A.recebido.Polo[i] != null || A.recebido.Argo[i] != null || A.recebido.Tera[i] != null) ? i : acc), -1);
+  // recebidos NOVOS no mês = diferença do acumulado (Março = 0)
+  const novosReal = cumTotal.map((v, i) => v - (i > 0 ? cumTotal[i - 1] : 0));
+  const novosBud = A.esperadoNovos || null; // esperado de novos por mês (linha "Novos" da aba)
   // duas linhas abaixo do eixo X, com legenda à esquerda:
-  // "Total Fleet (actual)" = soma realizada do mês; "Actual vs. Budget" = % entregue (verde >=100%, vermelho escuro <100%)
+  // "Total Fleet (actual)" = acumulado realizado; "Actual vs. Budget" = novos do mês ÷ novos esperados do mês
+  // (verde >=100%, vermelho <100%). Sem a aba de novos, cai no acumulado ÷ acumulado.
   const deltaRow = {
     id: 'deltaRow',
     afterDraw(chart) {
@@ -219,17 +225,18 @@
       const lx = chart.chartArea.left - 10;
       ctx.fillText('Total Fleet (actual)', lx, y1 + 1);
       ctx.fillText('Actual vs. Budget', lx, y2 + 1);
-      // valores por mês
+      // valores por mês (Março .. último mês com dado)
       ctx.textAlign = 'center';
-      for (let i = 0; i < cumTotal.length; i++) {
-        const real = cumTotal[i], bud = A.esperado[i];
-        if (!real) continue; // só meses com realizado
+      for (let i = 0; i <= lastDataIdx; i++) {
         const x = xScale.getPixelForValue(i);
         ctx.font = '700 11px ' + fam;
         ctx.fillStyle = '#111827';
-        ctx.fillText(String(real), x, y1);
-        if (bud) {
-          const pct = Math.round((real / bud) * 100);
+        ctx.fillText(String(cumTotal[i]), x, y1);
+        // % = novos do mês ÷ novos esperados (fallback: acumulado ÷ acumulado)
+        const budN = novosBud ? novosBud[i] : A.esperado[i];
+        const realN = novosBud ? novosReal[i] : cumTotal[i];
+        if (budN) {
+          const pct = Math.round((realN / budN) * 100);
           ctx.fillStyle = pct >= 100 ? '#16A34A' : '#B91C1C';
           ctx.fillText(pct + '%', x, y2);
         }
@@ -299,12 +306,13 @@
         },
       },
     });
-    // segmento fino (inactive/loss): absoluto no centro, percentual abaixo; halo pra ler sobre a barra
-    const thinDS = (label, pct, abs, color, dark) => ({
+    // segmento fino (inactive): absoluto no centro, percentual abaixo; halo pra ler sobre a barra.
+    // hideInner (loss) desliga os rótulos internos — o número vem do plugin lossTag ao lado da barra.
+    const thinDS = (label, pct, abs, color, hideInner) => ({
       label, data: sl(pct), _abs: sl(abs), backgroundColor: color, stack: 'u', borderRadius: 3, maxBarThickness: 88,
-      datalabels: {
+      datalabels: hideInner ? { display: false } : {
         display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0,
-        anchor: 'center', textAlign: 'center', color: dark ? '#fff' : '#111827', textStrokeColor: dark ? '#000' : '#fff', textStrokeWidth: dark ? 0 : 3,
+        anchor: 'center', textAlign: 'center', color: '#111827', textStrokeColor: '#fff', textStrokeWidth: 3,
         labels: {
           abs: { align: 'center', font: { size: 12, weight: 700 }, formatter: (v, ctx) => absFmt(ctx) },
           pct: { align: 'bottom', offset: 8, font: { size: 8, weight: 500 }, formatter: (v) => pctTag(v) },
@@ -326,10 +334,29 @@
         ctx.restore();
       },
     };
+    // nº de total loss ao lado do topo da barra (segmento fino demais p/ rótulo dentro), só quando >=1
+    let lossArr = [];
+    const lossTag = {
+      id: 'lossTag',
+      afterDatasetsDraw(chart) {
+        const ctx = chart.ctx, meta = chart.getDatasetMeta(2); // dataset "Total loss" (topo da pilha)
+        if (!meta || !meta.data.length) return;
+        ctx.save();
+        ctx.font = '700 11px ' + ((Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif');
+        ctx.fillStyle = '#374151'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        for (let i = 0; i < lossArr.length; i++) {
+          if ((lossArr[i] || 0) < 1 || !meta.data[i]) continue;
+          const bar = meta.data[i];
+          ctx.fillText(String(lossArr[i]), bar.x + bar.width / 2 + 5, bar.y + 3);
+        }
+        ctx.restore();
+      },
+    };
     let chartUtil = null;
     function renderUtil() {
       recalc();
       totalArr = sl(eff.total);
+      lossArr = sl(eff.loss);
       if (chartUtil) chartUtil.destroy();
       chartUtil = new Chart(document.getElementById('chartUtil'), {
         type: 'bar',
@@ -338,7 +365,7 @@
           thinDS('Inactive Vehicles', eff.inactivePct, eff.inactive, '#CBD5E1', false),
           thinDS('Total loss', eff.lossPct, eff.loss, '#374151', true),
         ] },
-        plugins: [utilTotalTag],
+        plugins: [utilTotalTag, lossTag],
         options: {
           responsive: true, maintainAspectRatio: false,
           plugins: {

@@ -57,6 +57,7 @@
       if (tab.dataset.sub === 'unit') initUnit();
       if (tab.dataset.sub === 'utilization') initUtilization();
       if (tab.dataset.sub === 'payments') initPayments();
+      if (tab.dataset.sub === 'redeployment') initRedeployment();
     });
   });
 
@@ -662,6 +663,63 @@
     }
     document.getElementById('payViewSelect').addEventListener('change', (e) => { mode = e.target.value === 'pct' ? 'pct' : 'abs'; render(); });
     render();
+  }
+
+  // ===================== VEHICLES / REDEPLOYMENT (lazy init) =====================
+  let redeployReady = false;
+  function initRedeployment() {
+    if (redeployReady) return;
+    redeployReady = true;
+    const R = OCN.redeployment && OCN.redeployment.recoveries;
+    const wrapEl = document.getElementById('sub-redeployment');
+    if (!R || !R.labels || !R.labels.length) {
+      const cardEl = wrapEl && wrapEl.querySelector('.card');
+      if (cardEl) cardEl.innerHTML = '<div style="color:var(--text-2);font-size:13px">No redeployment data (import_Time tab not available).</div>';
+      return;
+    }
+    let selIdx = null;
+    function renderDetail() {
+      const el = document.getElementById('recoveriesDetail');
+      if (selIdx == null) { el.innerHTML = ''; return; }
+      const rows = R.detail[selIdx] || [];
+      el.innerHTML = `<div class="pay-detail-title">${R.labels[selIdx][0]} recoveries (${rows.length}) <button type="button" id="recoveriesDetailClose">&times;</button></div>` +
+        (rows.length
+          ? '<table class="rh-table"><thead><tr><th>Recovery date</th><th>Ready for realloc.</th><th>Reallocation date</th><th>Details</th></tr></thead><tbody>' +
+            rows.map((it) => `<tr><td>${it.dataRecuperacao}</td><td>${it.dataPronto}</td><td>${it.dataRecolocacao}</td><td class="redeploy-details">${it.detalhamento}</td></tr>`).join('') +
+            '</tbody></table>'
+          : '<div style="color:var(--text-2);font-size:13px">No records.</div>');
+      const closeBtn = document.getElementById('recoveriesDetailClose');
+      if (closeBtn) closeBtn.addEventListener('click', () => { selIdx = null; renderDetail(); });
+    }
+    new Chart(document.getElementById('chartRecoveries'), {
+      type: 'bar',
+      data: {
+        labels: R.labels,
+        datasets: [
+          { label: 'Recovery → Ready', data: R.avgRecupParaPronto, backgroundColor: '#16A34A', stack: 's', borderRadius: 3, maxBarThickness: 60,
+            datalabels: { color: '#fff', font: { size: 11, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => v + 'd' } },
+          { label: 'Ready → Reallocated', data: R.avgProntoParaAlocado, backgroundColor: PURPLE_HEX, stack: 's', borderRadius: 3, maxBarThickness: 60,
+            datalabels: { color: '#fff', font: { size: 11, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => v + 'd' } },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, layout: { padding: { top: 22 } },
+        onClick: (evt, els) => { if (!els.length) return; selIdx = els[0].index; renderDetail(); },
+        onHover: (evt, els) => { evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
+        plugins: {
+          legend: { display: false }, datalabels: { clamp: true },
+          tooltip: { callbacks: {
+            title: (it) => R.labels[it[0].dataIndex][0] + ' · ' + R.total[it[0].dataIndex] + ' recoveries',
+            label: (c) => c.dataset.label + ': ' + c.parsed.y + ' days (avg)',
+            afterBody: () => 'Click for the list',
+          } },
+        },
+        scales: {
+          x: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } },
+          y: { stacked: true, beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, precision: 0 }, title: { display: true, text: 'avg. days', color: '#9ca3af', font: { size: 11 } } },
+        },
+      },
+    });
   }
 
   // esconde a tela de loading quando o dashboard está pronto

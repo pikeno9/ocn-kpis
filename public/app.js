@@ -200,21 +200,38 @@
     if (isTop) labels.total = { anchor: 'end', align: 'top', offset: 2, color: '#111827', font: { size: 12, weight: 700 }, display: (ctx) => cumTotal[ctx.dataIndex] > 0, formatter: (v, ctx) => cumTotal[ctx.dataIndex] };
     return { label: OCN.modelos[model].label, data: A.recebido[model], backgroundColor: COR[model], stack: 'r', borderRadius: 3, maxBarThickness: 48, order: 2, datalabels: { labels } };
   }
-  // linha abaixo do eixo X: % do budget entregue no mês (verde >=100%, vermelho escuro <100%)
+  // duas linhas abaixo do eixo X, com legenda à esquerda:
+  // "Total Fleet (actual)" = soma realizada do mês; "Actual vs. Budget" = % entregue (verde >=100%, vermelho escuro <100%)
   const deltaRow = {
     id: 'deltaRow',
     afterDraw(chart) {
       const ctx = chart.ctx, xScale = chart.scales.x;
-      const yPos = chart.chartArea.bottom + 26; // abaixo dos rótulos dos meses
+      const fam = (Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif';
+      const y1 = chart.chartArea.bottom + 26; // Total Fleet (actual)
+      const y2 = y1 + 19;                     // Actual vs. Budget
       ctx.save();
-      ctx.font = '700 11px ' + ((Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif');
-      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.textBaseline = 'top';
+      // legendas das linhas, à esquerda do eixo
+      ctx.font = '600 10px ' + fam;
+      ctx.fillStyle = '#6b7280';
+      ctx.textAlign = 'right';
+      const lx = chart.chartArea.left - 12;
+      ctx.fillText('Total Fleet (actual)', lx, y1 + 1);
+      ctx.fillText('Actual vs. Budget', lx, y2 + 1);
+      // valores por mês
+      ctx.textAlign = 'center';
       for (let i = 0; i < cumTotal.length; i++) {
         const real = cumTotal[i], bud = A.esperado[i];
-        if (!real || bud == null || !bud) continue; // só meses com realizado e budget
-        const pct = Math.round((real / bud) * 100);
-        ctx.fillStyle = pct >= 100 ? '#16A34A' : '#B91C1C';
-        ctx.fillText(pct + '%', xScale.getPixelForValue(i), yPos);
+        if (!real) continue; // só meses com realizado
+        const x = xScale.getPixelForValue(i);
+        ctx.font = '700 11px ' + fam;
+        ctx.fillStyle = '#111827';
+        ctx.fillText(String(real), x, y1);
+        if (bud) {
+          const pct = Math.round((real / bud) * 100);
+          ctx.fillStyle = pct >= 100 ? '#16A34A' : '#B91C1C';
+          ctx.fillText(pct + '%', x, y2);
+        }
       }
       ctx.restore();
     },
@@ -225,14 +242,16 @@
       labels: M.labels,
       datasets: [
         cumDS('Polo'), cumDS('Argo'), cumDS('Tera', true),
-        // linha do budget: tracejada; rótulo só nos meses SEM barra (nos realizados o budget já está na linha de % e no tooltip)
+        // linha do budget: tracejada; rótulo só nos meses SEM barra (nos realizados o budget já está na linha de % e no tooltip),
+        // na mesma fonte do totalizador das barras e ACIMA da bola preta
         { label: 'Budget', data: A.esperado, type: 'line', borderColor: NAVY, backgroundColor: NAVY, borderWidth: 2, borderDash: [5, 4], pointRadius: 4, pointHoverRadius: 6, tension: 0.25, order: 3,
-          datalabels: { color: NAVY, anchor: 'end', align: 'bottom', offset: 6, font: { size: 11, weight: 500 }, display: (ctx) => !cumTotal[ctx.dataIndex], formatter: (v) => ((v || v === 0) ? v : '') } },
+          datalabels: { color: '#111827', anchor: 'end', align: 'top', offset: 2, font: { size: 12, weight: 700 }, display: (ctx) => !cumTotal[ctx.dataIndex], formatter: (v) => ((v || v === 0) ? v : '') } },
       ],
     },
     plugins: [deltaRow],
     options: {
-      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 26, right: 20, bottom: 22 } },
+      // padding esquerdo abre espaço pras legendas das data rows; inferior, pras duas linhas de valores
+      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 26, right: 20, bottom: 42, left: 105 } },
       plugins: { legend: { display: false }, datalabels: { clamp: true }, tooltip: { callbacks: { label: (c) => (c.parsed.y == null ? null : c.dataset.label + ': ' + c.parsed.y) } } },
       scales: {
         x: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } },

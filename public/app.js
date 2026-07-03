@@ -399,6 +399,8 @@
     function currentSet() { return filter === 'all' ? UT.plates : UT.plates.filter((p) => p.fleet === filter); }
     function render() {
       const set = currentSet();
+      // faixa do histograma clicada filtra também o dispersão + a lista abaixo (mesmo conjunto nos dois)
+      const listSet = histBinIdx == null ? set : set.filter((p) => binIdxOf(p) === histBinIdx);
       const avg = Math.round(set.reduce((a, p) => a + p.kmWeek, 0) / (set.length || 1));
       // taxa média de km/dia do conjunto (soma dos km ÷ soma dos dias) — dita a inclinação da linha média
       const totalKm = set.reduce((a, p) => a + p.odo, 0), totalDays = set.reduce((a, p) => a + p.daysElapsed, 0);
@@ -408,6 +410,7 @@
         <div class="kpi-card"><div class="kpi-label"><i class="ti ti-car"></i> Vehicles shown</div><div class="kpi-value">${set.length}</div><div class="kpi-sub">${filter === 'all' ? 'all fleets' : 'Fleet ' + filter}</div></div>
         <div class="kpi-card"><div class="kpi-label"><i class="ti ti-road"></i> Average km/week</div><div class="kpi-value">${avg.toLocaleString('en-US')}</div><div class="kpi-sub">weighted by vehicles shown</div></div>
         <div class="kpi-card"><div class="kpi-label"><i class="ti ti-trophy"></i> Top vehicle</div><div class="kpi-value">${set.length ? Math.max(...set.map((p) => p.kmWeek)).toLocaleString('en-US') : '—'}</div><div class="kpi-sub">highest km/week</div></div>
+        <div class="kpi-card"><div class="kpi-label"><i class="ti ti-trending-down"></i> Lowest vehicle</div><div class="kpi-value">${set.length ? Math.min(...set.map((p) => p.kmWeek)).toLocaleString('en-US') : '—'}</div><div class="kpi-sub">lowest km/week</div></div>
         <div class="kpi-card"><div class="kpi-label"><i class="ti ti-calendar"></i> Data as of</div><div class="kpi-value" style="font-size:20px">${UT.asOf ? fmtDMY(UT.asOf.slice(0, 10)) : '—'}</div><div class="kpi-sub">last odometer sync</div></div>`;
       // histograma (gráfico principal): conta veículos por faixa de km/semana; clicar numa barra filtra a lista
       const counts = HIST_BINS.map(() => 0);
@@ -443,7 +446,7 @@
         type: 'scatter',
         data: {
           datasets: [
-            { label: 'Vehicle', data: set.map((p) => ({ x: p.daysElapsed, y: p.odo, meta: p })), backgroundColor: 'rgba(90,0,248,0.65)', borderColor: PURPLE_HEX, borderWidth: 1, pointRadius: 5, pointHoverRadius: 7 },
+            { label: 'Vehicle', data: listSet.map((p) => ({ x: p.daysElapsed, y: p.odo, meta: p })), backgroundColor: 'rgba(90,0,248,0.65)', borderColor: PURPLE_HEX, borderWidth: 1, pointRadius: 5, pointHoverRadius: 7 },
             { label: 'Fleet average', data: [{ x: 0, y: 0 }, { x: maxDays, y: Math.round(kmPerDay * maxDays) }], type: 'line', borderColor: NAVY, borderWidth: 2, borderDash: [6, 4], pointRadius: 0, fill: false },
           ],
         },
@@ -462,10 +465,9 @@
           },
         },
       });
-      // motoristas: lista filtrada pela frota + (se selecionada) a faixa do histograma clicada, maior km/semana primeiro
+      // veículos: lista filtrada pela frota + (se selecionada) a faixa do histograma clicada, maior km/semana primeiro
       const drvEl = document.getElementById('utilDrivers');
       const drvTitleEl = document.getElementById('utilDriversTitle');
-      const listSet = histBinIdx == null ? set : set.filter((p) => binIdxOf(p) === histBinIdx);
       if (drvTitleEl) {
         drvTitleEl.innerHTML = histBinIdx == null
           ? ''
@@ -475,8 +477,8 @@
       }
       const ranked = listSet.slice().sort((a, b) => b.kmWeek - a.kmWeek);
       drvEl.innerHTML = ranked.length
-        ? '<table class="rh-table"><thead><tr><th>Driver</th><th>Plate</th><th>Fleet</th><th>Model</th><th>Total km</th><th>Total weeks</th><th>km/week</th></tr></thead><tbody>' +
-          ranked.map((p) => `<tr><td>${p.driver || '—'}</td><td>${p.plate}</td><td>Fleet ${p.fleet}</td><td>${p.modelLabel}</td><td>${p.odo.toLocaleString('en-US')}</td><td>${p.weeksElapsed.toFixed(1)}</td><td>${p.kmWeek.toLocaleString('en-US')}</td></tr>`).join('') +
+        ? '<table class="rh-table"><thead><tr><th>Driver</th><th class="util-plate-col">Plate</th><th>Fleet</th><th>Model</th><th>Total km</th><th>Total weeks</th><th>km/week</th></tr></thead><tbody>' +
+          ranked.map((p) => `<tr><td>${p.driver || '—'}</td><td class="util-plate-col">${p.plate}</td><td>Fleet ${p.fleet}</td><td>${p.modelLabel}</td><td>${p.odo.toLocaleString('en-US')}</td><td>${p.weeksElapsed.toFixed(1)}</td><td>${p.kmWeek.toLocaleString('en-US')}</td></tr>`).join('') +
           '</tbody></table>'
         : '<div style="color:var(--text-2);font-size:13px">No vehicles in this band.</div>';
     }

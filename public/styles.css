@@ -205,6 +205,16 @@ button { font-family: inherit; cursor: pointer; }
 .lead-ev-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .lead-ev-name { font-size: 12.5px; font-weight: 600; color: var(--text); line-height: 1.25; }
 .lead-ev-date { font-size: 11px; color: var(--text-2); }
+/* ---- Payments: cabeçalho + dropdown + painel de detalhe por semana ---- */
+.pay-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.pay-select { font-size: 12.5px; font-weight: 600; padding: 7px 10px; border: 1px solid var(--border-2); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); cursor: pointer; }
+.pay-detail-title { display: flex; align-items: center; justify-content: space-between; font-weight: 700; font-size: 13px; color: var(--text); margin: 14px 0 10px; padding-top: 12px; border-top: 1px solid var(--border); }
+.pay-detail-title button { border: none; background: none; font-size: 18px; line-height: 1; color: var(--text-2); cursor: pointer; }
+.pay-detail-title button:hover { color: var(--text); }
+.pay-detail-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+.pay-detail-cat { font-size: 12px; font-weight: 700; margin-bottom: 4px; }
+.pay-detail-name { font-size: 12px; color: var(--text); padding: 2px 0; }
+.pay-detail-plate { color: var(--text-2); font-size: 10.5px; }
 .ue-tag { display: inline-block; padding: 1px 7px; border-radius: 999px; font-weight: 600; margin-right: 4px; }
 .ue-tag-orc { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border-2); }
 .ue-tag-real { background: #1d1d1b; color: #fff; }

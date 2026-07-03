@@ -219,6 +219,7 @@
     <section class="section" id="sec-comercial">
       <div class="sub-tabs">
         <button class="sub-tab active" data-sub="leads">New Leads</button>
+        <button class="sub-tab" data-sub="payments">Payments</button>
       </div>
       <div class="subsection active" id="sub-leads">
         <div class="kpi-grid" id="leadsKpis"></div>
@@ -245,6 +246,27 @@
           <div class="sub2-title"><i class="ti ti-bolt"></i> Key events</div>
           <div class="sub2-desc">Actions behind the lead spikes</div>
           <div id="leadsEvents"></div>
+        </div>
+      </div>
+
+      <!-- ---------- PAYMENTS ---------- -->
+      <div class="subsection" id="sub-payments">
+        <div class="card">
+          <div class="pay-head">
+            <div>
+              <div class="sub2-title"><i class="ti ti-calendar-dollar"></i> Weekly delinquency</div>
+              <div class="sub2-desc">Click a week to see the names</div>
+            </div>
+            <select id="payViewSelect" class="pay-select">
+              <option value="abs">Absolute (stacked bars)</option>
+              <option value="pct">Percentage (100% bars)</option>
+            </select>
+          </div>
+          <div class="legend" id="payLegend"></div>
+          <div class="chart-box" style="height:400px;">
+            <canvas id="chartPayments" role="img" aria-label="Weekly on-time vs late payments and churn"></canvas>
+          </div>
+          <div id="payDetail"></div>
         </div>
       </div>
     </section>

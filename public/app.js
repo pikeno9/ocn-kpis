@@ -56,6 +56,7 @@
       if (tab.dataset.sub === 'ocorrencias') initOcorrencias();
       if (tab.dataset.sub === 'unit') initUnit();
       if (tab.dataset.sub === 'utilization') initUtilization();
+      if (tab.dataset.sub === 'payments') initPayments();
     });
   });
 
@@ -582,6 +583,86 @@
       : '<div style="color:var(--text-2);font-size:13px">No events recorded.</div>';
   }
   const fmtDMY = (iso) => { if (!iso) return ''; const p = String(iso).split('-'); return p.length === 3 ? p[2] + '/' + p[1] : iso; };
+
+  // ===================== CLIENTS / PAYMENTS (lazy init) =====================
+  let paymentsReady = false;
+  function initPayments() {
+    if (paymentsReady) return;
+    paymentsReady = true;
+    const P = OCN.payments;
+    const legendEl = document.getElementById('payLegend');
+    const detailEl = document.getElementById('payDetail');
+    if (!P || !P.weeks || !P.weeks.length) {
+      if (legendEl) legendEl.innerHTML = '<div style="color:var(--text-2);font-size:13px">No payments data (payments API unavailable).</div>';
+      return;
+    }
+    // categorias na ordem em que empilham (baixo → cima), cor por categoria
+    const CATS = [
+      { key: 'onTime', label: 'Pago no prazo', color: '#16A34A' },
+      { key: 'late1', label: 'Atraso 1 dia', color: '#F59E0B' },
+      { key: 'late2', label: 'Atraso 2+ dias', color: '#B45309' },
+      { key: 'returned', label: 'Veículo devolvido', color: '#7C3AED' },
+      { key: 'recovered', label: 'Veículo recuperado', color: '#DC2626' },
+    ];
+    legendEl.innerHTML = CATS.map((c) => `<span class="it"><span class="sw" style="background:${c.color}"></span> ${c.label}</span>`).join('');
+    const labels = P.weeks.map((w) => fmtDMY(w.date));
+    const totals = P.weeks.map((w) => CATS.reduce((s, c) => s + w.counts[c.key], 0));
+    let mode = 'abs', chart, selWeekIdx = null;
+    function datasetsFor() {
+      return CATS.map((c) => {
+        const raw = P.weeks.map((w) => w.counts[c.key]);
+        const data = mode === 'pct' ? raw.map((v, i) => (totals[i] ? Math.round((v / totals[i]) * 1000) / 10 : 0)) : raw;
+        return {
+          label: c.label, data, backgroundColor: c.color, stack: 'w', maxBarThickness: 60,
+          datalabels: {
+            color: '#fff', font: { size: 10, weight: 700 },
+            display: (ctx) => ctx.dataset.data[ctx.dataIndex] > (mode === 'pct' ? 4 : 0),
+            formatter: (v) => (mode === 'pct' ? Math.round(v) + '%' : v),
+          },
+        };
+      });
+    }
+    function renderDetail() {
+      if (selWeekIdx == null) { detailEl.innerHTML = ''; return; }
+      const w = P.weeks[selWeekIdx];
+      detailEl.innerHTML = `<div class="pay-detail-title">Week of ${fmtDMY(w.date)} <button type="button" id="payDetailClose">&times;</button></div>` +
+        '<div class="pay-detail-grid">' + CATS.map((c) => {
+          const names = (w.names && w.names[c.key]) || [];
+          if (!names.length) return '';
+          return `<div class="pay-detail-col"><div class="pay-detail-cat" style="color:${c.color}">${c.label} (${names.length})</div>` +
+            names.map((n) => `<div class="pay-detail-name">${n.nome} <span class="pay-detail-plate">${n.placa}</span></div>`).join('') + '</div>';
+        }).join('') + '</div>';
+      const closeBtn = document.getElementById('payDetailClose');
+      if (closeBtn) closeBtn.addEventListener('click', () => { selWeekIdx = null; renderDetail(); });
+    }
+    function render() {
+      if (chart) chart.destroy();
+      chart = new Chart(document.getElementById('chartPayments'), {
+        type: 'bar',
+        data: { labels, datasets: datasetsFor() },
+        options: {
+          responsive: true, maintainAspectRatio: false, layout: { padding: { top: 22 } },
+          onClick: (evt, els) => { if (!els.length) return; selWeekIdx = els[0].index; renderDetail(); },
+          onHover: (evt, els) => { evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
+          plugins: {
+            legend: { display: false }, datalabels: { clamp: true },
+            tooltip: { callbacks: {
+              title: (it) => 'Week of ' + labels[it[0].dataIndex],
+              label: (c) => c.dataset.label + ': ' + c.parsed.y + (mode === 'pct' ? '%' : ''),
+              afterBody: () => 'Click for names',
+            } },
+          },
+          scales: {
+            x: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } },
+            y: { stacked: true, beginAtZero: true, max: mode === 'pct' ? 100 : undefined, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, precision: 0, callback: (v) => (mode === 'pct' ? v + '%' : v) } },
+          },
+        },
+      });
+      renderDetail();
+    }
+    document.getElementById('payViewSelect').addEventListener('change', (e) => { mode = e.target.value === 'pct' ? 'pct' : 'abs'; render(); });
+    render();
+  }
 
   // esconde a tela de loading quando o dashboard está pronto
   const _ld = document.getElementById('appLoading');

@@ -10,6 +10,7 @@ const cobrancas = require('./lib/cobrancas');
 const frota = require('./lib/frota');
 const revisoes = require('./lib/revisoes');
 const utilization = require('./lib/utilization');
+const payments = require('./lib/payments');
 const store = require('./lib/store');
 const C = require('./config/static');
 const auth = require('./config/auth');
@@ -39,6 +40,8 @@ async function refresh() {
     catch (e) { console.error('[revisoes] falhou:', e.message); data.ue.revisoes = {}; }
     try { data.utilization = utilization.build(sheets.importData, data.ue.frota, refDate(), data.ue.losses); }
     catch (e) { console.error('[utilization] falhou:', e.message); data.utilization = null; }
+    try { data.payments = payments.build(await payments.fetchMatriz(), sheets.clientes, refDate()); }
+    catch (e) { console.error('[payments] falhou:', e.message); data.payments = null; }
     cache = { data, updatedAt: new Date().toISOString(), ok: true, error: null };
     console.log(`[refresh] OK — ${data.kpis.recebidosAno} carros, ${data.ocorrencias.total} ocorrências (${cache.updatedAt})`);
   } catch (e) {

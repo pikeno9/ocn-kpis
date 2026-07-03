@@ -541,12 +541,17 @@
         const d = fr[pl];
         if (!d) return;
         const done = d.lastKm ? Math.round(d.lastKm / REVISAO_KM) : 0;
-        // realizado: revisões 1..done — a última na data real; anteriores pelo ritmo da própria placa
+        // realizado: revisões 1..done — mês inferido pelo ritmo de km da placa. ATENÇÃO: last_service_at é a
+        // data em que o registro foi FECHADO no site (pode atrasar semanas vs. a revisão real/agendada, que a
+        // API não expõe) — serve só de TETO: a revisão nunca ocorre depois do fechamento.
         for (let k = 1; k <= done; k++) {
-          let mo;
-          if (k === done && d.lastAt) mo = Math.ceil(((new Date(d.lastAt) - curIni) / 86400000) / (SEMANAS_MES * 7));
-          else { const pace = elapsed > 0 && d.odo > 0 ? d.odo / elapsed : 0; mo = pace > 0 ? Math.ceil(kmOf(k) / pace) : 1; }
-          if (mo < 1) mo = 1;
+          const pace = elapsed > 0 && d.odo > 0 ? d.odo / elapsed : 0; // km/mês da própria placa
+          let mo = pace > 0 ? Math.ceil(kmOf(k) / pace) : null;
+          if (k === done && d.lastAt) {
+            const moAt = Math.ceil(((new Date(d.lastAt) - curIni) / 86400000) / (SEMANAS_MES * 7));
+            mo = mo ? Math.min(mo, moAt) : moAt;
+          }
+          if (!mo || mo < 1) mo = 1;
           if (mo > realizedFull) mo = realizedFull; // evento que já ocorreu fica em mês realizado
           maintRealRS[mo] += priceOf(k);
         }

@@ -207,7 +207,7 @@
     afterDraw(chart) {
       const ctx = chart.ctx, xScale = chart.scales.x;
       const fam = (Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif';
-      const y1 = chart.chartArea.bottom + 26; // Total Fleet (actual)
+      const y1 = chart.chartArea.bottom + 40; // Total Fleet (actual) — desce mais pra não colar nos meses
       const y2 = y1 + 19;                     // Actual vs. Budget
       ctx.save();
       ctx.textBaseline = 'top';
@@ -250,8 +250,8 @@
     },
     plugins: [deltaRow],
     options: {
-      // padding esquerdo abre espaço pras legendas das data rows; inferior, pras duas linhas de valores
-      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 26, right: 20, bottom: 42, left: 105 } },
+      // padding esquerdo abre espaço pras legendas das data rows; inferior, pras duas linhas de valores (descidas: y1=bottom+40, y2=+59)
+      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 26, right: 20, bottom: 64, left: 105 } },
       plugins: { legend: { display: false }, datalabels: { clamp: true }, tooltip: { callbacks: { label: (c) => (c.parsed.y == null ? null : c.dataset.label + ': ' + c.parsed.y) } } },
       scales: {
         x: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } },
@@ -398,20 +398,30 @@
       if (cardEl) cardEl.innerHTML = '<div style="color:var(--text-2);font-size:13px">No headcount data (import_RH tab not available).</div>';
       return;
     }
-    // data row abaixo do eixo X: % de HC realizado vs. budget (fonte única, cinza escuro)
+    // data row abaixo do eixo X: % de HC realizado vs. budget, com legenda à esquerda.
+    // Cor: <100% = verde (abaixo do orçado é bom); >=100% = cinza escuro.
     const hcPctRow = {
       id: 'hcPctRow',
       afterDraw(chart) {
         const ctx = chart.ctx, xScale = chart.scales.x;
-        const yPos = chart.chartArea.bottom + 26;
+        const fam = (Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif';
+        const yPos = chart.chartArea.bottom + 40; // desce mais pra não colar nos rótulos dos meses
         ctx.save();
-        ctx.font = '700 11px ' + ((Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif');
-        ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-        ctx.fillStyle = '#374151';
+        ctx.textBaseline = 'top';
+        // legenda da linha, à esquerda do eixo
+        ctx.font = '600 10px ' + fam;
+        ctx.fillStyle = '#6b7280';
+        ctx.textAlign = 'right';
+        ctx.fillText('Actual vs. Budget', chart.chartArea.left - 12, yPos + 1);
+        // valores por mês
+        ctx.font = '700 11px ' + fam;
+        ctx.textAlign = 'center';
         for (let i = 0; i < H.labels.length; i++) {
           const a = H.actual[i], b = H.budget[i];
           if (a == null || !b) continue;
-          ctx.fillText(Math.round((a / b) * 100) + '%', xScale.getPixelForValue(i), yPos);
+          const pct = Math.round((a / b) * 100);
+          ctx.fillStyle = pct < 100 ? '#2FA84F' : '#374151';
+          ctx.fillText(pct + '%', xScale.getPixelForValue(i), yPos);
         }
         ctx.restore();
       },
@@ -434,7 +444,8 @@
       },
       plugins: [hcPctRow],
       options: {
-        responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24, bottom: 24 } },
+        // bottom acomoda a data row descida (yPos = bottom+40); left abre espaço pra legenda "Actual vs. Budget"
+        responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24, bottom: 46, left: 100 } },
         plugins: { legend: { display: false }, datalabels: { clamp: true }, tooltip: { callbacks: { label: (c) => (c.parsed.y == null ? null : c.dataset.label + ': ' + c.parsed.y) } } },
         scales: {
           x: { stacked: false, grid: { display: false }, ticks: { color: TXT2 } },
@@ -933,9 +944,10 @@
       data: {
         labels: section.labels,
         datasets: [
-          { label: eventLabel + ' → Ready', data: section.avgRecupParaPronto, backgroundColor: '#16A34A', stack: 's', borderRadius: 3, maxBarThickness: 60, order: 1,
+          // dois tons de roxo: escuro no 1º estágio (era verde), claro no 2º (era o roxo padrão)
+          { label: eventLabel + ' → Ready', data: section.avgRecupParaPronto, backgroundColor: '#3A00A0', stack: 's', borderRadius: 3, maxBarThickness: 60, order: 1,
             datalabels: { color: '#fff', font: { size: 11, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => v } },
-          { label: 'Ready → Reallocated', data: section.avgProntoParaAlocado, backgroundColor: PURPLE_HEX, stack: 's', borderRadius: 3, maxBarThickness: 60, order: 1,
+          { label: 'Ready → Reallocated', data: section.avgProntoParaAlocado, backgroundColor: '#9366FF', stack: 's', borderRadius: 3, maxBarThickness: 60, order: 1,
             datalabels: { labels: {
               value: { color: '#fff', font: { size: 11, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => v },
               total: { anchor: 'end', align: 'top', offset: 2, color: NAVY, font: { size: 12, weight: 700 }, display: (ctx) => totalDays[ctx.dataIndex] > 0, formatter: (v, ctx) => totalDays[ctx.dataIndex] },

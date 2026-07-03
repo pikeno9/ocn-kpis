@@ -63,9 +63,9 @@ const mLabels = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const mFull = ['April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 const esperado = {
-  total: [null, 56, 64, 74, 84, 94, 106, 121, 126],
+  total: [50, 56, 64, 74, 84, 94, 106, 121, 126],
   modelo: [
-    null,
+    { Polo: 50 },
     { Argo: 30, Polo: 26 },
     { Polo: 64 },
     { Polo: 74 },

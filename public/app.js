@@ -11,6 +11,11 @@
       if (r.ok) OCN = await r.json();
     } catch (e) { /* mantém fallback */ }
     if (!OCN) { console.error('OCN: sem dados'); return; }
+    // overrides manuais do gráfico Active × Inactive (fleet '__fleetstatus__' no store do UE)
+    try {
+      const r2 = await fetch('/api/ue/values?fleet=__fleetstatus__', { cache: 'no-store' });
+      if (r2.ok) OCN._fleetOvr = (await r2.json()).values || [];
+    } catch (e) { /* sem overrides */ }
     start(OCN);
   })();
 
@@ -104,40 +109,8 @@
     return { label: OCN.modelos[model].label, data, backgroundColor: COR[model], stack: 'r', borderRadius: 3, maxBarThickness: 48, order: 2, datalabels: dlBar };
   }
 
-  // Padrão hachurado (diagonal) para indicar previsão
-  function hatch(color) {
-    const c = document.createElement('canvas'); c.width = 8; c.height = 8;
-    const x = c.getContext('2d');
-    x.strokeStyle = color; x.lineWidth = 1.5;
-    x.beginPath();
-    x.moveTo(0, 8); x.lineTo(8, 0);
-    x.moveTo(-2, 2); x.lineTo(2, -2);
-    x.moveTo(6, 10); x.lineTo(10, 6);
-    x.stroke();
-    return x.createPattern(c, 'repeat');
-  }
-
-  const PL = OCN.proximoLote;
-  function forecastDS(data) {
-    const cor = COR[PL.modelo];
-    return {
-      label: 'Previsão (próx. lote)', data, backgroundColor: hatch(cor), borderColor: cor, borderWidth: 1.5,
-      stack: 'r', borderRadius: 3, maxBarThickness: 48, order: 2,
-      datalabels: { color: '#282728', anchor: 'center', align: 'center', font: { size: 10, weight: 500 }, formatter: (v) => (v > 0 ? v : '') },
-    };
-  }
-  function forecastMonthly() {
-    const a = new Array(OCN.mensal.labels.length).fill(0);
-    if (PL) a[PL.mesIndex] = PL.qtd;
-    return a;
-  }
-  function forecastWeekly(mi) {
-    const a = new Array(OCN.semanal.labels.length).fill(0);
-    if (PL && mi === PL.mesIndex) a[PL.semanaIndex] = PL.qtd;
-    return a;
-  }
   function lineDS(data, dashed) {
-    return { label: 'Expected', data, type: 'line', borderColor: NAVY, backgroundColor: NAVY, borderWidth: 2, borderDash: dashed ? [5, 4] : [], pointRadius: 4, pointHoverRadius: 6, tension: 0.25, spanGaps: false, order: 1, datalabels: dlLine };
+    return { label: 'Budget', data, type: 'line', borderColor: NAVY, backgroundColor: NAVY, borderWidth: 2, borderDash: dashed ? [5, 4] : [], pointRadius: 4, pointHoverRadius: 6, tension: 0.25, spanGaps: false, order: 1, datalabels: dlLine };
   }
 
   // ---------- estado / chart principal ----------
@@ -154,7 +127,7 @@
       onClick: (e, els) => {
         if (view !== 'monthly' || !els.length) return;
         const i = els[0].index;
-        if (!M.interativo[i]) { showToast('April has no expected date in the calendar'); return; }
+        if (!M.interativo[i]) { showToast('April has no weekly calendar detail'); return; }
         goWeekly(i);
       },
       onHover: (e, els) => { e.native.target.style.cursor = (view === 'monthly' && els.length && M.interativo[els[0].index]) ? 'pointer' : 'default'; },
@@ -164,9 +137,9 @@
           callbacks: {
             title: (it) => isMonthly ? (M.full[it[0].dataIndex] + '/26') : (M.full[cur] + ' · ' + W.labels[it[0].dataIndex][0]),
             label: (c) => {
-              if (c.dataset.label === 'Expected') {
+              if (c.dataset.label === 'Budget') {
                 const m = isMonthly ? M.esperadoModelo[c.dataIndex] : (W.esperadoModelo[cur] ? W.esperadoModelo[cur][c.dataIndex] : null);
-                return 'Expected: ' + (c.parsed.y == null ? '—' : c.parsed.y) + (m ? ' (' + mdlStr(m) + ')' : '');
+                return 'Budget: ' + (c.parsed.y == null ? '—' : c.parsed.y) + (m ? ' (' + mdlStr(m) + ')' : '');
               }
               return c.dataset.label + ': ' + c.parsed.y;
             },
@@ -181,11 +154,11 @@
   }
 
   function buildMonthly() {
-    return { type: 'bar', data: { labels: rng(M.labels), datasets: [barDS('Polo', rng(M.recebido.Polo)), barDS('Argo', rng(M.recebido.Argo)), barDS('Tera', rng(M.recebido.Tera)), forecastDS(rng(forecastMonthly())), lineDS(rng(M.esperadoTotal), true)] }, options: opts(true) };
+    return { type: 'bar', data: { labels: rng(M.labels), datasets: [barDS('Polo', rng(M.recebido.Polo)), barDS('Argo', rng(M.recebido.Argo)), barDS('Tera', rng(M.recebido.Tera)), lineDS(rng(M.esperadoTotal), true)] }, options: opts(true) };
   }
   function buildWeekly(mi) {
     const rp = (W.recebido.Polo[mi] || Z), ra = (W.recebido.Argo[mi] || Z), rt = (W.recebido.Tera[mi] || Z);
-    return { type: 'bar', data: { labels: W.labels, datasets: [barDS('Polo', rp), barDS('Argo', ra), barDS('Tera', rt), forecastDS(forecastWeekly(mi)), lineDS(W.esperadoTotal[mi] || [null, null, null, null, null], true)] }, options: opts(false) };
+    return { type: 'bar', data: { labels: W.labels, datasets: [barDS('Polo', rp), barDS('Argo', ra), barDS('Tera', rt), lineDS(W.esperadoTotal[mi] || [null, null, null, null, null], true)] }, options: opts(false) };
   }
   function render(cfg) { if (chartMensal) chartMensal.destroy(); chartMensal = new Chart(document.getElementById('chartMensal'), cfg); }
 
@@ -221,32 +194,27 @@
   // ---------- chart acumulado (Received Fleet) ----------
   const A = OCN.acumulado;
   const cumTotal = M.labels.map((_, i) => (A.recebido.Polo[i] || 0) + (A.recebido.Argo[i] || 0) + (A.recebido.Tera[i] || 0));
-  function cumDS(model) {
-    // número por modelo dentro do segmento (menor)
+  function cumDS(model, isTop) {
+    // número por modelo dentro do segmento (menor); no último dataset da pilha, o TOTAL acima da barra
     const labels = { seg: { anchor: 'center', align: 'center', color: txtOnBar(COR[model]), font: { size: 9, weight: 600 }, formatter: (v) => (v > 0 ? v : '') } };
+    if (isTop) labels.total = { anchor: 'end', align: 'top', offset: 2, color: '#111827', font: { size: 12, weight: 700 }, display: (ctx) => cumTotal[ctx.dataIndex] > 0, formatter: (v, ctx) => cumTotal[ctx.dataIndex] };
     return { label: OCN.modelos[model].label, data: A.recebido[model], backgroundColor: COR[model], stack: 'r', borderRadius: 3, maxBarThickness: 48, order: 2, datalabels: { labels } };
   }
-  // plugin: total ao lado da barra, no meio (vertical), com caixinha de borda pontilhada roxa (datalabels não faz traço pontilhado)
-  const acumTotalTag = {
-    id: 'acumTotalTag',
-    afterDatasetsDraw(chart) {
-      const ctx = chart.ctx, yScale = chart.scales.y, meta = chart.getDatasetMeta(0);
+  // linha abaixo do eixo X: % do budget entregue no mês (verde >=100%, vermelho escuro <100%)
+  const deltaRow = {
+    id: 'deltaRow',
+    afterDraw(chart) {
+      const ctx = chart.ctx, xScale = chart.scales.x;
+      const yPos = chart.chartArea.bottom + 26; // abaixo dos rótulos dos meses
       ctx.save();
-      ctx.font = "400 10px " + ((Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif');
-      ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.font = '700 11px ' + ((Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif');
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
       for (let i = 0; i < cumTotal.length; i++) {
-        const tot = cumTotal[i], bar = meta.data[i];
-        if (!tot || !bar) continue; // mês sem valor → sem caixinha
-        const txt = String(tot), tw = ctx.measureText(txt).width;
-        const padX = 5, padY = 3, h = 10 + padY * 2, w = tw + padX * 2;
-        const bx = bar.x + bar.width / 2 + 10; // à direita da barra, sem encostar
-        const py = yScale.getPixelForValue(tot / 2); // meio da barra (metade do acumulado)
-        const by = py - h / 2;
-        ctx.beginPath();
-        if (ctx.roundRect) ctx.roundRect(bx, by, w, h, 4); else ctx.rect(bx, by, w, h);
-        ctx.setLineDash([2, 2]); ctx.lineWidth = 1; ctx.strokeStyle = '#5A00F8'; ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.fillStyle = '#111827'; ctx.fillText(txt, bx + padX, py + 0.5);
+        const real = cumTotal[i], bud = A.esperado[i];
+        if (!real || bud == null || !bud) continue; // só meses com realizado e budget
+        const pct = Math.round((real / bud) * 100);
+        ctx.fillStyle = pct >= 100 ? '#16A34A' : '#B91C1C';
+        ctx.fillText(pct + '%', xScale.getPixelForValue(i), yPos);
       }
       ctx.restore();
     },
@@ -256,14 +224,15 @@
     data: {
       labels: M.labels,
       datasets: [
-        cumDS('Polo'), cumDS('Argo'), cumDS('Tera'),
-        // linha esperada: mesmo formato do gráfico mensal (tracejada + rótulo dlLine); order maior = desenhada ATRÁS das barras
-        { label: 'Budget', data: A.esperado, type: 'line', borderColor: NAVY, backgroundColor: NAVY, borderWidth: 2, borderDash: [5, 4], pointRadius: 4, pointHoverRadius: 6, tension: 0.25, order: 3, datalabels: dlLine },
+        cumDS('Polo'), cumDS('Argo'), cumDS('Tera', true),
+        // linha do budget: tracejada; rótulo só nos meses SEM barra (nos realizados o budget já está na linha de % e no tooltip)
+        { label: 'Budget', data: A.esperado, type: 'line', borderColor: NAVY, backgroundColor: NAVY, borderWidth: 2, borderDash: [5, 4], pointRadius: 4, pointHoverRadius: 6, tension: 0.25, order: 3,
+          datalabels: { color: NAVY, anchor: 'end', align: 'bottom', offset: 6, font: { size: 11, weight: 500 }, display: (ctx) => !cumTotal[ctx.dataIndex], formatter: (v) => ((v || v === 0) ? v : '') } },
       ],
     },
-    plugins: [acumTotalTag],
+    plugins: [deltaRow],
     options: {
-      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 26, right: 20 } },
+      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 26, right: 20, bottom: 22 } },
       plugins: { legend: { display: false }, datalabels: { clamp: true }, tooltip: { callbacks: { label: (c) => (c.parsed.y == null ? null : c.dataset.label + ': ' + c.parsed.y) } } },
       scales: {
         x: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } },
@@ -273,12 +242,29 @@
   });
 
   // ---------- chart utilização (Active × Inactive, 100% empilhado, sempre YTD) ----------
+  // Valores absolutos podem ser sobrescritos manualmente (admin) — os % são sempre recalculados.
+  // Overrides persistidos no store do UE com fleet '__fleetstatus__' (line active/inactive, period = índice do mês).
   const FS = OCN.fleetStatus;
   if (FS && FS.labels && document.getElementById('chartUtil')) {
     const sl = (arr) => arr.slice(0, vi + 1); // abr..mês atual (sem meses futuros vazios)
     const pctFmt = (v) => (v == null ? '' : String(Math.round(v * 10) / 10).replace('.', ',') + '%'); // tooltip (com decimal)
     const pctTag = (v) => (v == null ? '' : '(' + Math.round(v) + '%)'); // rótulo na barra: entre parênteses, sem decimais
     const absFmt = (ctx) => { const a = ctx.dataset._abs ? ctx.dataset._abs[ctx.dataIndex] : null; return a == null ? '' : a; };
+    const baseActive = FS.active.slice(), baseInactive = FS.inactive.slice();
+    const ovr = { active: {}, inactive: {} };
+    (OCN._fleetOvr || []).forEach((o) => { if (ovr[o.line] && o.value != null) ovr[o.line][o.period] = o.value; });
+    const eff = { active: [], inactive: [], total: [], activePct: [], inactivePct: [] };
+    function recalc() {
+      for (let i = 0; i < FS.labels.length; i++) {
+        const a = (ovr.active[i] != null) ? ovr.active[i] : baseActive[i];
+        const n = (ovr.inactive[i] != null) ? ovr.inactive[i] : baseInactive[i];
+        const t = (a || 0) + (n || 0);
+        eff.active[i] = a; eff.inactive[i] = n; eff.total[i] = t || null;
+        eff.activePct[i] = t ? (a / t) * 100 : null;
+        eff.inactivePct[i] = t ? (n / t) * 100 : null;
+      }
+    }
+    let totalArr = [];
     // Active: segmento grande — ABSOLUTO em destaque em cima, percentual menor embaixo, dentro da barra roxa
     const activeDS = (label, pct, abs, color) => ({
       label, data: sl(pct), _abs: sl(abs), backgroundColor: color, stack: 'u', borderRadius: 3, maxBarThickness: 88,
@@ -293,7 +279,6 @@
     });
     // Inactive: segmento fino — absoluto em destaque no centro da faixa, percentual menor abaixo; halo branco.
     // O topo da pilha também carrega o TOTAL da frota (acima da barra).
-    const totalArr = sl(FS.total || []);
     const inactiveDS = (label, pct, abs, color) => ({
       label, data: sl(pct), _abs: sl(abs), backgroundColor: color, stack: 'u', borderRadius: 3, maxBarThickness: 88,
       datalabels: {
@@ -306,25 +291,81 @@
         },
       },
     });
-    new Chart(document.getElementById('chartUtil'), {
-      type: 'bar',
-      data: { labels: sl(FS.labels), datasets: [
-        activeDS('Active Vehicles', FS.activePct, FS.active, '#5A00F8'),
-        inactiveDS('Inactive Vehicles', FS.inactivePct, FS.inactive, '#CBD5E1'),
-      ] },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false }, datalabels: { clamp: true },
-          tooltip: { callbacks: { label: (c) => { const abs = c.dataset._abs ? c.dataset._abs[c.dataIndex] : null; return c.dataset.label + ': ' + pctFmt(c.parsed.y) + (abs != null ? ' (' + abs + ')' : ''); } } },
+    let chartUtil = null;
+    function renderUtil() {
+      recalc();
+      totalArr = sl(eff.total);
+      if (chartUtil) chartUtil.destroy();
+      chartUtil = new Chart(document.getElementById('chartUtil'), {
+        type: 'bar',
+        data: { labels: sl(FS.labels), datasets: [
+          activeDS('Active Vehicles', eff.activePct, eff.active, '#5A00F8'),
+          inactiveDS('Inactive Vehicles', eff.inactivePct, eff.inactive, '#CBD5E1'),
+        ] },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false }, datalabels: { clamp: true },
+            tooltip: { callbacks: { label: (c) => { const abs = c.dataset._abs ? c.dataset._abs[c.dataIndex] : null; return c.dataset.label + ': ' + pctFmt(c.parsed.y) + (abs != null ? ' (' + abs + ')' : ''); } } },
+          },
+          scales: {
+            x: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } },
+            // teto acima de 100% dá folga para os rótulos no topo da barra; eixo Y sem labels (pedido do usuário)
+            y: { stacked: true, min: 0, max: 110, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { display: false } },
+          },
         },
-        scales: {
-          x: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } },
-          // teto acima de 100% dá folga para os rótulos no topo da barra; eixo Y sem labels (pedido do usuário)
-          y: { stacked: true, min: 0, max: 110, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { display: false } },
-        },
-      },
-    });
+      });
+    }
+    renderUtil();
+
+    // editor manual (admin): sobrescreve os absolutos; valor igual ao da planilha remove o override
+    const editBtn = document.getElementById('utilEditBtn');
+    const editEl = document.getElementById('utilEdit');
+    if (editBtn && editEl && meta.user && meta.user.role === 'admin') {
+      editBtn.style.display = 'inline-flex';
+      let open = false;
+      const inpStyle = 'width:80px;padding:4px 6px;border:1px solid #d1d5db;border-radius:6px;font-size:13px';
+      function renderEditor() {
+        if (!open) { editEl.innerHTML = ''; return; }
+        recalc();
+        const rows = sl(FS.labels).map((lab, i) =>
+          `<tr><td>${lab}</td>` +
+          `<td><input type="number" min="0" step="1" id="utilA${i}" value="${eff.active[i] != null ? eff.active[i] : ''}" style="${inpStyle}"></td>` +
+          `<td><input type="number" min="0" step="1" id="utilI${i}" value="${eff.inactive[i] != null ? eff.inactive[i] : ''}" style="${inpStyle}"></td>` +
+          `<td style="color:var(--text-2)">${(ovr.active[i] != null || ovr.inactive[i] != null) ? 'manual' : ''}</td></tr>`).join('');
+        editEl.innerHTML =
+          `<table class="rh-table" style="max-width:460px;margin-top:10px"><thead><tr><th>Month</th><th>Active</th><th>Inactive</th><th></th></tr></thead><tbody>${rows}</tbody></table>` +
+          `<div style="margin-top:10px;display:flex;gap:8px;align-items:center">` +
+          `<button class="backbtn" id="utilSave" style="display:inline-flex"><i class="ti ti-check"></i> Save</button>` +
+          `<button class="backbtn" id="utilCancel" style="display:inline-flex">Cancel</button>` +
+          `<span id="utilEditMsg" style="font-size:12px;color:var(--text-2)"></span></div>` +
+          `<div style="font-size:11.5px;color:var(--text-2);margin-top:6px">Leave a value equal to the sheet-computed one (or empty) to go back to automatic. Percentages are always recalculated.</div>`;
+        document.getElementById('utilCancel').addEventListener('click', () => { open = false; renderEditor(); });
+        document.getElementById('utilSave').addEventListener('click', save);
+      }
+      async function save() {
+        const msg = document.getElementById('utilEditMsg');
+        msg.textContent = 'Saving…';
+        const jobs = [];
+        const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); });
+        for (let i = 0; i <= vi && i < FS.labels.length; i++) {
+          [['active', 'utilA', baseActive], ['inactive', 'utilI', baseInactive]].forEach(([line, pre, baseArr]) => {
+            const inp = document.getElementById(pre + i);
+            if (!inp) return;
+            const v = inp.value === '' ? null : Number(inp.value);
+            const cur = ovr[line][i] != null ? ovr[line][i] : null;
+            if (v == null || v === baseArr[i]) {
+              if (cur != null) jobs.push(post('/api/ue/value/delete', { fleet: '__fleetstatus__', line, period: i }).then(() => { delete ovr[line][i]; }));
+            } else if (v !== cur && isFinite(v) && v >= 0) {
+              jobs.push(post('/api/ue/value', { fleet: '__fleetstatus__', line, period: i, value: v }).then(() => { ovr[line][i] = v; }));
+            }
+          });
+        }
+        try { await Promise.all(jobs); renderUtil(); renderEditor(); const m2 = document.getElementById('utilEditMsg'); if (m2) m2.textContent = 'Saved.'; }
+        catch (e) { msg.textContent = 'Error saving (' + e.message + ').'; }
+      }
+      editBtn.addEventListener('click', () => { open = !open; renderEditor(); });
+    }
   }
 
   // ===================== RH / HEAD COUNT (lazy init) =====================

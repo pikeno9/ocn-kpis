@@ -55,6 +55,7 @@
         <button class="sub-tab active" data-sub="frota">Fleet</button>
         <button class="sub-tab" data-sub="ocorrencias">Incidents</button>
         <button class="sub-tab" data-sub="unit">Unit Economics</button>
+        <button class="sub-tab" data-sub="utilization">Utilization</button>
       </div>
 
       <!-- ---------- FLEET ---------- -->
@@ -175,6 +176,35 @@
         <div class="ue-table-wrap"><table class="ue-table" id="ueTable"></table></div>
         <div class="ue-foot" id="ueFoot"></div>
         <div class="ue-plates" id="uePlates"></div>
+      </div>
+
+      <!-- ---------- UTILIZATION ---------- -->
+      <div class="subsection" id="sub-utilization">
+        <div class="section-head">
+          <div>
+            <div class="section-title"><i class="ti ti-gauge"></i> Utilization</div>
+            <div class="section-desc">Average weekly mileage per vehicle — our fleet runs above benchmark, meaning slower depreciation and stronger residual value</div>
+          </div>
+        </div>
+        <div class="kpi-grid" id="utilKpis"></div>
+        <div class="card">
+          <div class="util-controls">
+            <div class="ue-plates-label" style="margin:0">Filter by fleet</div>
+            <div class="ue-plates-grid" id="utilFleetBtns"></div>
+          </div>
+          <div class="legend" style="margin-top:10px">
+            <span class="it"><span class="sw" style="background:#5A00F8"></span> Vehicle (plate)</span>
+            <span class="it"><span class="sw-line"></span> Fleet average</span>
+          </div>
+          <div class="chart-box" style="height:380px;">
+            <canvas id="chartUtilKm" role="img" aria-label="Average weekly mileage per vehicle, scatter by weeks in fleet"></canvas>
+          </div>
+          <div class="hint"><i class="ti ti-pointer"></i> hover a dot for plate, driver and fleet</div>
+        </div>
+        <div class="card">
+          <div class="sub2-title"><i class="ti ti-steering-wheel"></i> Drivers — ranked by weekly mileage</div>
+          <div id="utilDrivers"></div>
+        </div>
       </div>
     </section>
 

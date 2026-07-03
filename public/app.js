@@ -55,6 +55,7 @@
       document.getElementById('sub-' + tab.dataset.sub).classList.add('active');
       if (tab.dataset.sub === 'ocorrencias') initOcorrencias();
       if (tab.dataset.sub === 'unit') initUnit();
+      if (tab.dataset.sub === 'utilization') initUtilization();
     });
   });
 
@@ -367,6 +368,75 @@
       }).join('') +
       '</tbody></table>';
   }
+
+  // ===================== VEHICLES / UTILIZATION (lazy init) =====================
+  let utilReady = false;
+  function initUtilization() {
+    if (utilReady) return;
+    utilReady = true;
+    const UT = OCN.utilization;
+    const kpisEl = document.getElementById('utilKpis');
+    if (!UT || !UT.plates || !UT.plates.length) {
+      if (kpisEl) kpisEl.innerHTML = '<div style="color:var(--text-2);font-size:13px">No utilization data (fleet odometer API unavailable).</div>';
+      return;
+    }
+    const fleetIds = [...new Set(UT.plates.map((p) => p.fleet))].sort((a, b) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0));
+    let filter = 'all';
+    const btnsEl = document.getElementById('utilFleetBtns');
+    btnsEl.innerHTML = `<button class="ue-plate-btn active" data-f="all">All fleets</button>` +
+      fleetIds.map((f) => `<button class="ue-plate-btn" data-f="${f}">Fleet ${f}</button>`).join('');
+    let chart;
+    function currentSet() { return filter === 'all' ? UT.plates : UT.plates.filter((p) => p.fleet === filter); }
+    function render() {
+      const set = currentSet();
+      const avg = Math.round(set.reduce((a, p) => a + p.kmWeek, 0) / (set.length || 1));
+      const maxWeeks = Math.max(...set.map((p) => p.weeksElapsed), 1);
+      kpisEl.innerHTML = `
+        <div class="kpi-card"><div class="kpi-label"><i class="ti ti-car"></i> Vehicles shown</div><div class="kpi-value">${set.length}</div><div class="kpi-sub">${filter === 'all' ? 'all fleets' : 'Fleet ' + filter}</div></div>
+        <div class="kpi-card"><div class="kpi-label"><i class="ti ti-road"></i> Average km/week</div><div class="kpi-value">${avg.toLocaleString('en-US')}</div><div class="kpi-sub">weighted by vehicles shown</div></div>
+        <div class="kpi-card"><div class="kpi-label"><i class="ti ti-trophy"></i> Top vehicle</div><div class="kpi-value">${set.length ? Math.max(...set.map((p) => p.kmWeek)).toLocaleString('en-US') : '—'}</div><div class="kpi-sub">highest km/week</div></div>
+        <div class="kpi-card"><div class="kpi-label"><i class="ti ti-calendar"></i> Data as of</div><div class="kpi-value" style="font-size:20px">${UT.asOf ? fmtDMY(UT.asOf.slice(0, 10)) : '—'}</div><div class="kpi-sub">last odometer sync</div></div>`;
+      if (chart) chart.destroy();
+      chart = new Chart(document.getElementById('chartUtilKm'), {
+        type: 'scatter',
+        data: {
+          datasets: [
+            { label: 'Vehicle', data: set.map((p) => ({ x: p.weeksElapsed, y: p.kmWeek, meta: p })), backgroundColor: 'rgba(90,0,248,0.65)', borderColor: PURPLE_HEX, borderWidth: 1, pointRadius: 5, pointHoverRadius: 7 },
+            { label: 'Fleet average', data: [{ x: 0, y: avg }, { x: maxWeeks, y: avg }], type: 'line', borderColor: NAVY, borderWidth: 2, borderDash: [6, 4], pointRadius: 0, fill: false },
+          ],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false }, datalabels: { display: false },
+            tooltip: { callbacks: {
+              title: (it) => { const m = it[0].raw.meta; return m ? m.plate : ''; },
+              label: (c) => { const m = c.raw.meta; if (!m) return 'Fleet average: ' + Math.round(c.parsed.y).toLocaleString('en-US') + ' km/wk'; return [(m.driver || 'No driver') + ' · Fleet ' + m.fleet + ' · ' + m.modelLabel, Math.round(m.kmWeek).toLocaleString('en-US') + ' km/week · ' + m.weeksElapsed + ' weeks in fleet']; },
+            } },
+          },
+          scales: {
+            x: { title: { display: true, text: 'weeks in fleet', color: '#9ca3af', font: { size: 11 } }, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2 } },
+            y: { beginAtZero: true, title: { display: true, text: 'km / week', color: '#9ca3af', font: { size: 11 } }, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2 } },
+          },
+        },
+      });
+      // motoristas (do conjunto atual), maior km/semana primeiro
+      const drvEl = document.getElementById('utilDrivers');
+      const ranked = set.slice().sort((a, b) => b.kmWeek - a.kmWeek);
+      drvEl.innerHTML = ranked.length
+        ? '<table class="rh-table"><thead><tr><th>Driver</th><th>Plate</th><th>Fleet</th><th>Model</th><th>km/week</th></tr></thead><tbody>' +
+          ranked.map((p) => `<tr><td>${p.driver || '—'}</td><td>${p.plate}</td><td>Fleet ${p.fleet}</td><td>${p.modelLabel}</td><td>${p.kmWeek.toLocaleString('en-US')}</td></tr>`).join('') +
+          '</tbody></table>'
+        : '<div style="color:var(--text-2);font-size:13px">No vehicles in this fleet yet.</div>';
+    }
+    btnsEl.querySelectorAll('.ue-plate-btn').forEach((b) => b.addEventListener('click', () => {
+      filter = b.dataset.f;
+      btnsEl.querySelectorAll('.ue-plate-btn').forEach((x) => x.classList.toggle('active', x === b));
+      render();
+    }));
+    render();
+  }
+  const PURPLE_HEX = '#5A00F8';
 
   // ===================== CLIENTS / NEW LEADS (lazy init) =====================
   let leadsReady = false;

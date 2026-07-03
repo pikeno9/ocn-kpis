@@ -85,6 +85,7 @@ button { font-family: inherit; cursor: pointer; }
 .ue-plates { margin-top: 18px; }
 .ue-plates-label { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px; }
 .ue-plates-grid { display: flex; gap: 8px; flex-wrap: wrap; }
+.util-controls { display: flex; flex-direction: column; gap: 6px; }
 .ue-plate-btn {
   padding: 6px 12px; border: 1px solid var(--border-2); border-radius: var(--radius-sm);
   background: var(--surface); color: var(--text); font-size: 12px; font-weight: 600; cursor: pointer;

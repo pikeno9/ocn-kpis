@@ -385,7 +385,16 @@
     const btnsEl = document.getElementById('utilFleetBtns');
     btnsEl.innerHTML = `<button class="ue-plate-btn active" data-f="all">All fleets</button>` +
       fleetIds.map((f) => `<button class="ue-plate-btn" data-f="${f}">Fleet ${f}</button>`).join('');
-    let chart;
+    // histograma: faixas de 200 km/sem (a 1ª "< 400" e a última "> 2000" são catch-all), tons de roxo crescentes
+    const HIST_BINS = [
+      { max: 400, label: '<400' }, { max: 600, label: '400-600' }, { max: 800, label: '600-800' },
+      { max: 1000, label: '800-1000' }, { max: 1200, label: '1000-1200' }, { max: 1400, label: '1200-1400' },
+      { max: 1600, label: '1400-1600' }, { max: 1800, label: '1600-1800' }, { max: 2000, label: '1800-2000' },
+      { max: Infinity, label: '>2000' },
+    ];
+    const LIGHT = [233, 216, 253], DARK = [59, 7, 100]; // lavanda claro -> roxo bem escuro
+    const binColor = (i, n) => { const t = n > 1 ? i / (n - 1) : 0; const c = LIGHT.map((v, k) => Math.round(v + (DARK[k] - v) * t)); return `rgb(${c[0]},${c[1]},${c[2]})`; };
+    let chart, histChart;
     function currentSet() { return filter === 'all' ? UT.plates : UT.plates.filter((p) => p.fleet === filter); }
     function render() {
       const set = currentSet();
@@ -399,6 +408,26 @@
         <div class="kpi-card"><div class="kpi-label"><i class="ti ti-road"></i> Average km/week</div><div class="kpi-value">${avg.toLocaleString('en-US')}</div><div class="kpi-sub">weighted by vehicles shown</div></div>
         <div class="kpi-card"><div class="kpi-label"><i class="ti ti-trophy"></i> Top vehicle</div><div class="kpi-value">${set.length ? Math.max(...set.map((p) => p.kmWeek)).toLocaleString('en-US') : '—'}</div><div class="kpi-sub">highest km/week</div></div>
         <div class="kpi-card"><div class="kpi-label"><i class="ti ti-calendar"></i> Data as of</div><div class="kpi-value" style="font-size:20px">${UT.asOf ? fmtDMY(UT.asOf.slice(0, 10)) : '—'}</div><div class="kpi-sub">last odometer sync</div></div>`;
+      // histograma (gráfico principal): conta veículos por faixa de km/semana
+      const counts = HIST_BINS.map(() => 0);
+      set.forEach((p) => { const idx = HIST_BINS.findIndex((b) => p.kmWeek < b.max); counts[idx >= 0 ? idx : HIST_BINS.length - 1]++; });
+      if (histChart) histChart.destroy();
+      histChart = new Chart(document.getElementById('chartUtilHist'), {
+        type: 'bar',
+        data: { labels: HIST_BINS.map((b) => b.label), datasets: [{
+          label: 'Vehicles', data: counts, backgroundColor: HIST_BINS.map((_, i) => binColor(i, HIST_BINS.length)),
+          borderRadius: 4, maxBarThickness: 70,
+          datalabels: { anchor: 'end', align: 'top', offset: 2, color: '#1d1d1b', font: { size: 12, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => v },
+        }] },
+        options: {
+          responsive: true, maintainAspectRatio: false, layout: { padding: { top: 20 } },
+          plugins: { legend: { display: false }, datalabels: { clamp: true }, tooltip: { callbacks: { label: (c) => c.parsed.y + ' vehicle' + (c.parsed.y === 1 ? '' : 's') } } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: TXT2 }, title: { display: true, text: 'km/week', color: '#9ca3af', font: { size: 11, style: 'italic' } } },
+            y: { display: false, beginAtZero: true, grid: { display: false } },
+          },
+        },
+      });
       if (chart) chart.destroy();
       chart = new Chart(document.getElementById('chartUtilKm'), {
         type: 'scatter',
@@ -427,8 +456,8 @@
       const drvEl = document.getElementById('utilDrivers');
       const ranked = set.slice().sort((a, b) => b.kmWeek - a.kmWeek);
       drvEl.innerHTML = ranked.length
-        ? '<table class="rh-table"><thead><tr><th>Driver</th><th>Plate</th><th>Fleet</th><th>Model</th><th>km/week</th></tr></thead><tbody>' +
-          ranked.map((p) => `<tr><td>${p.driver || '—'}</td><td>${p.plate}</td><td>Fleet ${p.fleet}</td><td>${p.modelLabel}</td><td>${p.kmWeek.toLocaleString('en-US')}</td></tr>`).join('') +
+        ? '<table class="rh-table"><thead><tr><th>Driver</th><th>Plate</th><th>Fleet</th><th>Model</th><th>Total km</th><th>Total weeks</th><th>km/week</th></tr></thead><tbody>' +
+          ranked.map((p) => `<tr><td>${p.driver || '—'}</td><td>${p.plate}</td><td>Fleet ${p.fleet}</td><td>${p.modelLabel}</td><td>${p.odo.toLocaleString('en-US')}</td><td>${p.weeksElapsed.toFixed(1)}</td><td>${p.kmWeek.toLocaleString('en-US')}</td></tr>`).join('') +
           '</tbody></table>'
         : '<div style="color:var(--text-2);font-size:13px">No vehicles in this fleet yet.</div>';
     }

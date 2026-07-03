@@ -17,6 +17,7 @@ const TABS = {
   funil: 'funil',
   leadsInDrive: 'Leads inDrive',
   perfInDrive: 'Performance inDrive',
+  carrosEsperados: 'CarrosEsperados',
 };
 
 // gviz tipa a coluna e descarta células cujo conteúdo não bate com o tipo inferido

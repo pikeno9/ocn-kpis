@@ -686,7 +686,8 @@
             tooltip: { callbacks: { label: (c) => `${c.parsed.y}% (${num[c.dataIndex]}/${den[c.dataIndex]})` } },
           },
           scales: {
-            x: { grid: { display: false }, ticks: { color: TXT2, maxRotation: 0 } },
+            // rótulos a 45º: com os 3 gráficos lado a lado não há largura pra datas na horizontal
+            x: { grid: { display: false }, ticks: { color: TXT2, minRotation: 45, maxRotation: 45 } },
             y: { beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, callback: (v) => v + '%' }, title: { display: true, text: '%', color: '#9ca3af', font: { size: 11 } } },
           },
         },

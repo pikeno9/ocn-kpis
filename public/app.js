@@ -667,38 +667,38 @@
 
   // ===================== VEHICLES / REDEPLOYMENT (lazy init) =====================
   let redeployReady = false;
-  function initRedeployment() {
-    if (redeployReady) return;
-    redeployReady = true;
-    const R = OCN.redeployment && OCN.redeployment.recoveries;
-    const wrapEl = document.getElementById('sub-redeployment');
-    if (!R || !R.labels || !R.labels.length) {
-      const cardEl = wrapEl && wrapEl.querySelector('.card');
-      if (cardEl) cardEl.innerHTML = '<div style="color:var(--text-2);font-size:13px">No redeployment data (import_Time tab not available).</div>';
+  // uma seção (Recoveries/Returns/Swaps) — mesmo gráfico+lista, só muda a fonte de dados e os rótulos
+  function renderTimeSection(section, chartId, detailId, itemNoun, eventLabel) {
+    const canvas = document.getElementById(chartId);
+    const detailEl = document.getElementById(detailId);
+    if (!canvas) return;
+    const card = canvas.closest('.card');
+    if (!section || !section.labels || !section.labels.length) {
+      if (card) card.style.display = 'none'; // sem dados nesse mês/bloco — não mostra card vazio
       return;
     }
     let selIdx = null;
     function renderDetail() {
-      const el = document.getElementById('recoveriesDetail');
-      if (selIdx == null) { el.innerHTML = ''; return; }
-      const rows = R.detail[selIdx] || [];
-      el.innerHTML = `<div class="pay-detail-title">${R.labels[selIdx][0]} recoveries (${rows.length}) <button type="button" id="recoveriesDetailClose">&times;</button></div>` +
+      if (selIdx == null) { detailEl.innerHTML = ''; return; }
+      const rows = section.detail[selIdx] || [];
+      const closeId = detailId + 'Close';
+      detailEl.innerHTML = `<div class="pay-detail-title">${section.labels[selIdx][0]} ${itemNoun} (${rows.length}) <button type="button" id="${closeId}">&times;</button></div>` +
         (rows.length
-          ? '<table class="rh-table"><thead><tr><th>Recovery date</th><th>Ready for realloc.</th><th>Reallocation date</th><th>Details</th></tr></thead><tbody>' +
-            rows.map((it) => `<tr><td>${it.dataRecuperacao}</td><td>${it.dataPronto}</td><td>${it.dataRecolocacao}</td><td class="redeploy-details">${it.detalhamento}</td></tr>`).join('') +
+          ? `<table class="rh-table"><thead><tr><th>Client</th><th>Plate</th><th>${eventLabel} date</th><th>Ready for realloc.</th><th>Reallocation date</th><th>Details</th></tr></thead><tbody>` +
+            rows.map((it) => `<tr><td>${it.cliente || '—'}</td><td class="util-plate-col">${it.placa || '—'}</td><td>${it.dataEvento}</td><td>${it.dataPronto}</td><td>${it.dataRecolocacao}</td><td class="redeploy-details">${it.detalhamento}</td></tr>`).join('') +
             '</tbody></table>'
           : '<div style="color:var(--text-2);font-size:13px">No records.</div>');
-      const closeBtn = document.getElementById('recoveriesDetailClose');
+      const closeBtn = document.getElementById(closeId);
       if (closeBtn) closeBtn.addEventListener('click', () => { selIdx = null; renderDetail(); });
     }
-    new Chart(document.getElementById('chartRecoveries'), {
+    new Chart(canvas, {
       type: 'bar',
       data: {
-        labels: R.labels,
+        labels: section.labels,
         datasets: [
-          { label: 'Recovery → Ready', data: R.avgRecupParaPronto, backgroundColor: '#16A34A', stack: 's', borderRadius: 3, maxBarThickness: 60,
+          { label: eventLabel + ' → Ready', data: section.avgRecupParaPronto, backgroundColor: '#16A34A', stack: 's', borderRadius: 3, maxBarThickness: 60,
             datalabels: { color: '#fff', font: { size: 11, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => v + 'd' } },
-          { label: 'Ready → Reallocated', data: R.avgProntoParaAlocado, backgroundColor: PURPLE_HEX, stack: 's', borderRadius: 3, maxBarThickness: 60,
+          { label: 'Ready → Reallocated', data: section.avgProntoParaAlocado, backgroundColor: PURPLE_HEX, stack: 's', borderRadius: 3, maxBarThickness: 60,
             datalabels: { color: '#fff', font: { size: 11, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => v + 'd' } },
         ],
       },
@@ -709,7 +709,7 @@
         plugins: {
           legend: { display: false }, datalabels: { clamp: true },
           tooltip: { callbacks: {
-            title: (it) => R.labels[it[0].dataIndex][0] + ' · ' + R.total[it[0].dataIndex] + ' recoveries',
+            title: (it) => section.labels[it[0].dataIndex][0] + ' · ' + section.total[it[0].dataIndex] + ' ' + itemNoun,
             label: (c) => c.dataset.label + ': ' + c.parsed.y + ' days (avg)',
             afterBody: () => 'Click for the list',
           } },
@@ -720,6 +720,20 @@
         },
       },
     });
+  }
+  function initRedeployment() {
+    if (redeployReady) return;
+    redeployReady = true;
+    const RD = OCN.redeployment;
+    const wrapEl = document.getElementById('sub-redeployment');
+    if (!RD || (!RD.recoveries && !RD.returns && !RD.swaps)) {
+      const cardEl = wrapEl && wrapEl.querySelector('.card');
+      if (cardEl) cardEl.innerHTML = '<div style="color:var(--text-2);font-size:13px">No redeployment data (import_Time tab not available).</div>';
+      return;
+    }
+    renderTimeSection(RD.recoveries, 'chartRecoveries', 'recoveriesDetail', 'recoveries', 'Recovery');
+    renderTimeSection(RD.returns, 'chartReturns', 'returnsDetail', 'returns', 'Return');
+    renderTimeSection(RD.swaps, 'chartSwaps', 'swapsDetail', 'swaps', 'Swap');
   }
 
   // esconde a tela de loading quando o dashboard está pronto

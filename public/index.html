@@ -320,6 +320,7 @@
         <div class="card">
           <div class="sub2-title"><i class="ti ti-chart-line"></i> Contacts → Analysis</div>
           <div class="sub2-desc">Share of unique contacts sent for analysis, per week</div>
+          <div class="legend"><span class="it"><span class="sw-line" style="border-color:#9ca3af"></span> Average</span></div>
           <div class="chart-box" style="height:280px;">
             <canvas id="chartFunnel1" role="img" aria-label="Weekly conversion rate from contacts to analysis"></canvas>
           </div>
@@ -327,6 +328,7 @@
         <div class="card">
           <div class="sub2-title"><i class="ti ti-chart-line"></i> Analysis → Approved</div>
           <div class="sub2-desc">Share of analyzed contacts approved, per week</div>
+          <div class="legend"><span class="it"><span class="sw-line" style="border-color:#9ca3af"></span> Average</span></div>
           <div class="chart-box" style="height:280px;">
             <canvas id="chartFunnel2" role="img" aria-label="Weekly conversion rate from analysis to approved"></canvas>
           </div>
@@ -334,6 +336,7 @@
         <div class="card">
           <div class="sub2-title"><i class="ti ti-chart-line"></i> Gross conversion</div>
           <div class="sub2-desc">Share of unique contacts approved, per week</div>
+          <div class="legend"><span class="it"><span class="sw-line" style="border-color:#9ca3af"></span> Average</span></div>
           <div class="chart-box" style="height:280px;">
             <canvas id="chartFunnel3" role="img" aria-label="Weekly gross conversion rate from contacts to approved"></canvas>
           </div>
@@ -369,10 +372,18 @@
           </div>
         </div>
         <div class="card">
-          <div class="sub2-title"><i class="ti ti-chart-line"></i> Opportunity captured</div>
-          <div class="sub2-desc">Clients who sent the proof prints (converted to inDrive) as a share of the total active base</div>
+          <div class="legend">
+            <div>
+              <div class="sub2-title"><i class="ti ti-chart-line"></i> Opportunity captured</div>
+              <div class="sub2-desc" id="idConvDesc"></div>
+            </div>
+            <div class="range-toggle" id="idConvToggle">
+              <button class="range-btn active" data-den="eligible">of eligible</button>
+              <button class="range-btn" data-den="active">of active base</button>
+            </div>
+          </div>
           <div class="chart-box" style="height:300px;">
-            <canvas id="chartInDriveConv" role="img" aria-label="Share of active base converted to inDrive per week"></canvas>
+            <canvas id="chartInDriveConv" role="img" aria-label="Share of clients converted to inDrive per week"></canvas>
           </div>
         </div>
       </div>

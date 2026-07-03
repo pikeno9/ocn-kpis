@@ -682,18 +682,27 @@
       return;
     }
     function funnelChart(canvasId, data, color, num, den) {
+      // média das semanas com valor (linha tracejada de referência)
+      const valid = data.filter((v) => v != null);
+      const avg = valid.length ? Math.round(valid.reduce((a, b) => a + b, 0) / valid.length) : null;
       new Chart(document.getElementById(canvasId), {
         type: 'line',
-        data: { labels: F.labels, datasets: [{
-          data, borderColor: color, backgroundColor: color, borderWidth: 2, tension: 0.3,
-          pointRadius: 4, pointBackgroundColor: color,
-          datalabels: { align: 'top', anchor: 'end', offset: 4, color: NAVY, font: { size: 10, weight: 700 }, formatter: (v) => (v == null ? '' : v + '%') },
-        }] },
+        data: { labels: F.labels, datasets: [
+          {
+            label: 'Weekly', data, borderColor: color, backgroundColor: color, borderWidth: 2, tension: 0.3,
+            pointRadius: 4, pointBackgroundColor: color,
+            datalabels: { align: 'top', anchor: 'end', offset: 4, color: NAVY, font: { size: 10, weight: 700 }, formatter: (v) => (v == null ? '' : v + '%') },
+          },
+          {
+            label: 'Average', data: F.labels.map(() => avg), borderColor: '#9ca3af', borderWidth: 1.5, borderDash: [5, 4],
+            pointRadius: 0, pointHoverRadius: 0, tension: 0, datalabels: { display: false },
+          },
+        ] },
         options: {
           responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24 } },
           plugins: {
             legend: { display: false }, datalabels: { clamp: true },
-            tooltip: { callbacks: { label: (c) => `${c.parsed.y}% (${num[c.dataIndex]}/${den[c.dataIndex]})` } },
+            tooltip: { callbacks: { label: (c) => (c.datasetIndex === 1 ? `Average: ${avg}%` : `${c.parsed.y}% (${num[c.dataIndex]}/${den[c.dataIndex]})`) } },
           },
           scales: {
             // rótulos a 45º: com os 3 gráficos lado a lado não há largura pra datas na horizontal
@@ -804,28 +813,47 @@
         },
       });
 
-      // 3) Oportunidade capturada — % da base ativa que enviou prints (convertidos inDrive)
-      new Chart(document.getElementById('chartInDriveConv'), {
-        type: 'line',
-        data: { labels: P.labels, datasets: [{
-          data: P.pctCaptura, borderColor: '#16A34A', backgroundColor: 'rgba(22,163,74,0.07)', borderWidth: 2.5, fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: '#16A34A',
-          datalabels: { align: 'top', anchor: 'end', offset: 4, color: '#16A34A', font: { size: 11, weight: 700 }, formatter: (v) => v + '%' },
-        }] },
-        options: {
-          responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24 } },
-          plugins: {
-            legend: { display: false }, datalabels: { clamp: true },
-            tooltip: { callbacks: {
-              title: (it) => P.full[it[0].dataIndex],
-              label: (c) => 'Captured: ' + c.parsed.y + '% (' + P.prints[c.dataIndex] + '/' + P.ativos[c.dataIndex] + ' sent prints)',
-            } },
+      // 3) Oportunidade capturada — prints enviados / denominador. Toggle: base ativa × elegíveis.
+      // Padrão = elegíveis (denominador coluna D). % de captura recalculado por visão.
+      const pctOf = (den) => P.prints.map((pr, i) => (den[i] ? Math.round((pr / den[i]) * 100) : 0));
+      const CONV = {
+        eligible: { pct: pctOf(P.elegiveis), den: P.elegiveis, yTitle: '% of eligible clients', desc: 'Clients who sent the proof prints (converted to inDrive) as a share of the eligible clients', denLabel: 'eligible' },
+        active: { pct: pctOf(P.ativos), den: P.ativos, yTitle: '% of active base', desc: 'Clients who sent the proof prints (converted to inDrive) as a share of the total active base', denLabel: 'active base' },
+      };
+      const descEl = document.getElementById('idConvDesc');
+      let convChart = null;
+      function renderConv(mode) {
+        const C = CONV[mode];
+        if (descEl) descEl.textContent = C.desc;
+        if (convChart) convChart.destroy();
+        convChart = new Chart(document.getElementById('chartInDriveConv'), {
+          type: 'line',
+          data: { labels: P.labels, datasets: [{
+            data: C.pct, borderColor: '#16A34A', backgroundColor: 'rgba(22,163,74,0.07)', borderWidth: 2.5, fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: '#16A34A',
+            datalabels: { align: 'top', anchor: 'end', offset: 4, color: '#16A34A', font: { size: 11, weight: 700 }, formatter: (v) => v + '%' },
+          }] },
+          options: {
+            responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24 } },
+            plugins: {
+              legend: { display: false }, datalabels: { clamp: true },
+              tooltip: { callbacks: {
+                title: (it) => P.full[it[0].dataIndex],
+                label: (c) => 'Captured: ' + c.parsed.y + '% (' + P.prints[c.dataIndex] + '/' + C.den[c.dataIndex] + ' — ' + C.denLabel + ')',
+              } },
+            },
+            scales: {
+              x: { grid: { display: false }, ticks: { color: TXT2, maxRotation: 0 } },
+              y: { beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, callback: (v) => v + '%' }, title: { display: true, text: C.yTitle, color: '#9ca3af', font: { size: 11 } } },
+            },
           },
-          scales: {
-            x: { grid: { display: false }, ticks: { color: TXT2, maxRotation: 0 } },
-            y: { beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, callback: (v) => v + '%' }, title: { display: true, text: '% of active base', color: '#9ca3af', font: { size: 11 } } },
-          },
-        },
-      });
+        });
+      }
+      renderConv('eligible');
+      const convTg = document.getElementById('idConvToggle');
+      if (convTg) convTg.querySelectorAll('.range-btn').forEach((b) => b.addEventListener('click', () => {
+        convTg.querySelectorAll('.range-btn').forEach((x) => x.classList.toggle('active', x === b));
+        renderConv(b.dataset.den === 'active' ? 'active' : 'eligible');
+      }));
     }
   }
 

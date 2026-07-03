@@ -147,6 +147,20 @@
         </div>
 
         <div class="card">
+          <div class="sub2-title"><i class="ti ti-chart-bar"></i> Incidents per month</div>
+          <div class="legend">
+            <span class="sub2-desc" id="ocorMensalNote" style="margin:0"></span>
+            <div class="range-toggle" id="ocorMensalToggle">
+              <button class="range-btn active" data-range="acc">Accumulated</button>
+              <button class="range-btn" data-range="monthly">Monthly</button>
+            </div>
+          </div>
+          <div class="chart-box" style="height:280px;">
+            <canvas id="chartOcorMensal" role="img" aria-label="Incidents per month, monthly or accumulated"></canvas>
+          </div>
+        </div>
+
+        <div class="card">
           <div class="sub2-title"><i class="ti ti-clock-hour-4"></i> Probability &amp; contracts</div>
           <div class="sub2-desc" id="ocorTaxaDesc"></div>
           <div class="mini-stats" id="ocorContratos"></div>

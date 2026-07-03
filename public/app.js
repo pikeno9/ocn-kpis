@@ -999,19 +999,37 @@
     ocorReady = true;
     const O = OCN.ocorrencias;
 
-    // KPIs
+    // KPIs — taxa exibida como % (7%), não decimal (0,07)
+    const taxaPct = (O.contratos.taxaCarroMesPct != null ? O.contratos.taxaCarroMesPct : Math.round(parseFloat(String(O.contratos.taxaCarroMes).replace(',', '.')) * 100)) + '%';
     document.getElementById('ocorKpis').innerHTML = `
       <div class="kpi-card"><div class="kpi-label"><i class="ti ti-alert-triangle"></i> Total incidents</div><div class="kpi-value">${O.total}</div><div class="kpi-sub">${O.foramOficina} went to the workshop</div></div>
       <div class="kpi-card"><div class="kpi-label"><i class="ti ti-shield-half"></i> With claim</div><div class="kpi-value">${O.comSinistro}</div><div class="kpi-sub">${O.comSinistroPct}% of incidents</div></div>
-      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-clock-hour-4"></i> Rate</div><div class="kpi-value">${O.contratos.taxaCarroMes}</div><div class="kpi-sub">incidents / car-month</div></div>`;
+      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-clock-hour-4"></i> Rate</div><div class="kpi-value">${taxaPct}</div><div class="kpi-sub">incidents / car-month</div></div>`;
 
     // Probability & contracts
     const c = O.contratos;
     document.getElementById('ocorTaxaDesc').textContent = c.taxaTexto;
     document.getElementById('ocorContratos').innerHTML = `
       <div class="mini-stat"><div class="v">${c.totalContratos}</div><div class="l">contracts (${c.ativos} active)</div></div>
-      <div class="mini-stat"><div class="v">${c.taxaCarroMes}</div><div class="l">incidents/car-month</div></div>
+      <div class="mini-stat"><div class="v">${taxaPct}</div><div class="l">incidents/car-month</div></div>
       <div class="mini-stat"><div class="v">${c.rescindidos}</div><div class="l">terminated contracts</div></div>`;
+
+    // plugin: total no centro da rosquinha
+    const centerText = (total) => ({
+      id: 'centerText',
+      afterDraw(chart) {
+        const meta = chart.getDatasetMeta(0);
+        if (!meta.data.length) return;
+        const { x, y } = meta.data[0];
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.font = '700 26px ' + ((Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif');
+        ctx.fillStyle = '#111827';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(String(total), x, y);
+        ctx.restore();
+      },
+    });
 
     // Expected contract duration
     const D = O.duracao;
@@ -1032,11 +1050,52 @@
     new Chart(document.getElementById('chartTipo'), {
       type: 'doughnut',
       data: { labels: O.porTipo.map((t) => t.label), datasets: [{ data: O.porTipo.map((t) => t.valor), backgroundColor: O.porTipo.map((t) => t.cor), borderColor: '#fff', borderWidth: 2 }] },
+      plugins: [centerText(O.total)],
       options: {
         responsive: true, maintainAspectRatio: false, cutout: '56%',
         plugins: { legend: { display: false }, datalabels: { color: (ctx) => txtOn(ctx.dataset.backgroundColor[ctx.dataIndex]), font: { size: 13, weight: 600 }, formatter: (v) => Math.round((v / O.total) * 100) + '%' }, tooltip: { callbacks: { label: (x) => `${x.label}: ${Math.round((x.parsed / O.total) * 100)}% (${x.parsed})` } } },
       },
     });
+
+    // Incidents per month — toggle Accumulated (default, fecha no total histórico) × Monthly
+    const OM = O.mensal;
+    const mensalCard = document.getElementById('chartOcorMensal') && document.getElementById('chartOcorMensal').closest('.card');
+    if (!OM || !OM.values || !OM.values.length) {
+      if (mensalCard) mensalCard.style.display = 'none';
+    } else {
+      const noteEl = document.getElementById('ocorMensalNote');
+      if (noteEl && OM.semData > 0) noteEl.textContent = `${OM.semData} of ${O.total} incidents have no event date in the sheet and are not plotted yet.`;
+      const accVals = OM.values.reduce((a, v, i) => { a.push((i > 0 ? a[i - 1] : 0) + v); return a; }, []);
+      let ocorMensalChart = null;
+      function renderOcorMensal(mode) {
+        const vals = mode === 'monthly' ? OM.values : accVals;
+        if (ocorMensalChart) ocorMensalChart.destroy();
+        ocorMensalChart = new Chart(document.getElementById('chartOcorMensal'), {
+          type: 'bar',
+          data: { labels: OM.labels, datasets: [{
+            data: vals, backgroundColor: '#5A00F8', borderRadius: 4, maxBarThickness: 70,
+            datalabels: { anchor: 'end', align: 'top', offset: 2, color: NAVY, font: { size: 12, weight: 700 }, formatter: (v) => (v > 0 ? v : '') },
+          }] },
+          options: {
+            responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24 } },
+            plugins: {
+              legend: { display: false }, datalabels: { clamp: true },
+              tooltip: { callbacks: { label: (x) => (mode === 'monthly' ? 'Incidents: ' : 'Accumulated: ') + x.parsed.y } },
+            },
+            scales: {
+              x: { grid: { display: false }, ticks: { color: TXT2 } },
+              y: { beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, precision: 0 }, title: { display: true, text: mode === 'monthly' ? 'incidents / month' : 'incidents (accumulated)', color: '#9ca3af', font: { size: 11 } } },
+            },
+          },
+        });
+      }
+      renderOcorMensal('acc');
+      const omTg = document.getElementById('ocorMensalToggle');
+      if (omTg) omTg.querySelectorAll('.range-btn').forEach((b) => b.addEventListener('click', () => {
+        omTg.querySelectorAll('.range-btn').forEach((x) => x.classList.toggle('active', x === b));
+        renderOcorMensal(b.dataset.range === 'monthly' ? 'monthly' : 'acc');
+      }));
+    }
 
     // Sinistro por tipo (barra empilhada horizontal) — tons de roxo
     const S = O.sinistroPorTipo;
@@ -1060,6 +1119,7 @@
     new Chart(document.getElementById('chartChurn'), {
       type: 'doughnut',
       data: { labels: O.churn.map((t) => t.label), datasets: [{ data: O.churn.map((t) => t.valor), backgroundColor: O.churn.map((t) => t.cor), borderColor: '#fff', borderWidth: 2 }] },
+      plugins: [centerText(churnTotal)],
       options: {
         responsive: true, maintainAspectRatio: false, cutout: '56%',
         plugins: { legend: { display: false }, datalabels: { color: (ctx) => txtOn(ctx.dataset.backgroundColor[ctx.dataIndex]), font: { size: 13, weight: 600 }, formatter: (v) => Math.round((v / churnTotal) * 100) + '%' }, tooltip: { callbacks: { label: (x) => `${x.label}: ${Math.round((x.parsed / churnTotal) * 100)}% (${x.parsed})` } } },

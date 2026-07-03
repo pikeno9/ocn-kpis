@@ -260,29 +260,30 @@
     const sl = (arr) => arr.slice(0, vi + 1); // abr..mês atual (sem meses futuros vazios)
     const pctFmt = (v) => (v == null ? '' : String(Math.round(v * 10) / 10).replace('.', ',') + '%');
     const absFmt = (ctx) => { const a = ctx.dataset._abs ? ctx.dataset._abs[ctx.dataIndex] : null; return a == null ? '' : a; };
-    // Active: segmento grande — percentual em cima, absoluto embaixo, ambos dentro da barra roxa
+    // Active: segmento grande — ABSOLUTO em destaque em cima, percentual menor embaixo, dentro da barra roxa
     const activeDS = (label, pct, abs, color) => ({
       label, data: sl(pct), _abs: sl(abs), backgroundColor: color, stack: 'u', borderRadius: 3, maxBarThickness: 88,
       datalabels: {
         display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0,
         color: (ctx) => txtOnBar(ctx.dataset.backgroundColor), anchor: 'center',
         labels: {
-          pct: { align: 'top', offset: 1, font: { size: 11, weight: 600 }, formatter: (v) => pctFmt(v) },
-          abs: { align: 'bottom', offset: 1, font: { size: 9, weight: 500 }, formatter: (v, ctx) => absFmt(ctx) },
+          abs: { align: 'top', offset: 1, font: { size: 12, weight: 700 }, formatter: (v, ctx) => absFmt(ctx) },
+          pct: { align: 'bottom', offset: 1, font: { size: 9, weight: 500 }, formatter: (v) => pctFmt(v) },
         },
       },
     });
-    // Inactive: segmento fino — percentual e absoluto centralizados dentro da própria faixa cinza (halo branco para legibilidade)
+    // Inactive: segmento fino — absoluto em destaque no centro da faixa, percentual menor abaixo; halo branco.
+    // O topo da pilha também carrega o TOTAL da frota (acima da barra).
+    const totalArr = sl(FS.total || []);
     const inactiveDS = (label, pct, abs, color) => ({
       label, data: sl(pct), _abs: sl(abs), backgroundColor: color, stack: 'u', borderRadius: 3, maxBarThickness: 88,
       datalabels: {
         display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0,
         anchor: 'center', color: '#111827', textStrokeColor: '#fff', textStrokeWidth: 3,
         labels: {
-          // pct exatamente no centro da faixa (align 'center' ignora offset — é isso que centraliza de fato);
-          // abs "empurrado" para baixo a partir do centro, para não colidir com o pct
-          pct: { align: 'center', font: { size: 11, weight: 600 }, formatter: (v) => pctFmt(v) },
-          abs: { align: 'bottom', offset: 8, font: { size: 8, weight: 500 }, formatter: (v, ctx) => absFmt(ctx) },
+          abs: { align: 'center', font: { size: 12, weight: 700 }, formatter: (v, ctx) => absFmt(ctx) },
+          pct: { align: 'bottom', offset: 8, font: { size: 8, weight: 500 }, formatter: (v) => pctFmt(v) },
+          total: { anchor: 'end', align: 'top', offset: 4, font: { size: 12, weight: 700 }, color: '#111827', textStrokeWidth: 0, formatter: (v, ctx) => (totalArr[ctx.dataIndex] != null ? totalArr[ctx.dataIndex] : '') },
         },
       },
     });
@@ -300,8 +301,8 @@
         },
         scales: {
           x: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } },
-          // teto acima de 100% dá folga para o rótulo do segmento fino (Inactive) não sair da barra; tick > 100% escondido
-          y: { stacked: true, min: 0, max: 108, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, stepSize: 10, callback: (v) => (v <= 100 ? v + '%' : '') } },
+          // teto acima de 100% dá folga para os rótulos no topo da barra; eixo Y sem labels (pedido do usuário)
+          y: { stacked: true, min: 0, max: 110, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { display: false } },
         },
       },
     });

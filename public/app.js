@@ -399,7 +399,7 @@
       return;
     }
     // data row abaixo do eixo X: % de HC realizado vs. budget, com legenda à esquerda.
-    // Cor: <100% = verde (abaixo do orçado é bom); >=100% = cinza escuro.
+    // Fonte toda em cinza escuro (sem cor condicional).
     const hcPctRow = {
       id: 'hcPctRow',
       afterDraw(chart) {
@@ -413,15 +413,14 @@
         ctx.fillStyle = '#6b7280';
         ctx.textAlign = 'right';
         ctx.fillText('Actual vs. Budget', chart.chartArea.left - 12, yPos + 1);
-        // valores por mês
+        // valores por mês — todos em cinza escuro
         ctx.font = '700 11px ' + fam;
         ctx.textAlign = 'center';
+        ctx.fillStyle = '#374151';
         for (let i = 0; i < H.labels.length; i++) {
           const a = H.actual[i], b = H.budget[i];
           if (a == null || !b) continue;
-          const pct = Math.round((a / b) * 100);
-          ctx.fillStyle = pct < 100 ? '#2FA84F' : '#374151';
-          ctx.fillText(pct + '%', xScale.getPixelForValue(i), yPos);
+          ctx.fillText(Math.round((a / b) * 100) + '%', xScale.getPixelForValue(i), yPos);
         }
         ctx.restore();
       },
@@ -1069,7 +1068,8 @@
       },
     });
 
-    // Incidents per month — toggle Accumulated (default, fecha no total histórico) × Monthly
+    // Incidents per month — barras empilhadas por TIPO (mesma separação do donut);
+    // toggle Accumulated (default, fecha no total histórico) × Monthly.
     const OM = O.mensal;
     const mensalCard = document.getElementById('chartOcorMensal') && document.getElementById('chartOcorMensal').closest('.card');
     if (!OM || !OM.values || !OM.values.length) {
@@ -1077,26 +1077,56 @@
     } else {
       const noteEl = document.getElementById('ocorMensalNote');
       if (noteEl && OM.semData > 0) noteEl.textContent = `${OM.semData} of ${O.total} incidents have no event date in the sheet and are not plotted yet.`;
-      const accVals = OM.values.reduce((a, v, i) => { a.push((i > 0 ? a[i - 1] : 0) + v); return a; }, []);
+      const tipos = OM.porTipo || [];
+      // legenda de tipos (mesmas cores do donut)
+      const legEl = document.getElementById('ocorMensalLegend');
+      if (legEl) legEl.innerHTML = tipos.map((t) => `<span class="it"><span class="sw" style="background:${t.cor}"></span> ${t.label}</span>`).join('');
+      const accum = (arr) => arr.reduce((a, v, i) => { a.push((i > 0 ? a[i - 1] : 0) + v); return a; }, []);
+      // total da pilha por mês (para o totalizador acima da barra)
+      const totalsMonthly = OM.labels.map((_, i) => tipos.reduce((s, t) => s + (t.values[i] || 0), 0));
+      const totalsAcc = accum(totalsMonthly);
+      let stackTotals = totalsAcc;
+      const stackTotalPlugin = {
+        id: 'ocorStackTotal',
+        afterDatasetsDraw(chart) {
+          const ctx = chart.ctx, yScale = chart.scales.y;
+          const meta = chart.getDatasetMeta(0);
+          ctx.save();
+          ctx.font = '700 12px ' + ((Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif');
+          ctx.fillStyle = '#111827'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+          for (let i = 0; i < stackTotals.length; i++) {
+            const tot = stackTotals[i];
+            if (!tot || !meta.data[i]) continue;
+            ctx.fillText(String(tot), meta.data[i].x, yScale.getPixelForValue(tot) - 4);
+          }
+          ctx.restore();
+        },
+      };
       let ocorMensalChart = null;
       function renderOcorMensal(mode) {
-        const vals = mode === 'monthly' ? OM.values : accVals;
+        stackTotals = mode === 'monthly' ? totalsMonthly : totalsAcc;
+        const datasets = tipos.map((t) => ({
+          label: t.label, data: mode === 'monthly' ? t.values : accum(t.values),
+          backgroundColor: t.cor, stack: 'occ', borderRadius: 2, maxBarThickness: 70,
+          datalabels: { display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, color: txtOnBar(t.cor), font: { size: 10, weight: 700 }, formatter: (v) => v },
+        }));
         if (ocorMensalChart) ocorMensalChart.destroy();
         ocorMensalChart = new Chart(document.getElementById('chartOcorMensal'), {
           type: 'bar',
-          data: { labels: OM.labels, datasets: [{
-            data: vals, backgroundColor: '#5A00F8', borderRadius: 4, maxBarThickness: 70,
-            datalabels: { anchor: 'end', align: 'top', offset: 2, color: NAVY, font: { size: 12, weight: 700 }, formatter: (v) => (v > 0 ? v : '') },
-          }] },
+          data: { labels: OM.labels, datasets },
+          plugins: [stackTotalPlugin],
           options: {
             responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24 } },
             plugins: {
               legend: { display: false }, datalabels: { clamp: true },
-              tooltip: { callbacks: { label: (x) => (mode === 'monthly' ? 'Incidents: ' : 'Accumulated: ') + x.parsed.y } },
+              tooltip: { callbacks: {
+                label: (x) => `${x.dataset.label}: ${x.parsed.y}`,
+                footer: (items) => (mode === 'monthly' ? 'Total: ' : 'Accumulated: ') + stackTotals[items[0].dataIndex],
+              } },
             },
             scales: {
-              x: { grid: { display: false }, ticks: { color: TXT2 } },
-              y: { beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, precision: 0 }, title: { display: true, text: mode === 'monthly' ? 'incidents / month' : 'incidents (accumulated)', color: '#9ca3af', font: { size: 11 } } },
+              x: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } },
+              y: { stacked: true, beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, precision: 0 }, title: { display: true, text: mode === 'monthly' ? 'incidents / month' : 'incidents (accumulated)', color: '#9ca3af', font: { size: 11 } } },
             },
           },
         });

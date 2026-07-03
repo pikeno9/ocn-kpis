@@ -188,6 +188,16 @@ button { font-family: inherit; cursor: pointer; }
 .rh-gap-neg { color: #B45309; font-weight: 700; }
 .rh-gap-pos { color: #2FA84F; font-weight: 700; }
 .rh-gap-zero { color: var(--text-2); }
+/* ---- RH: matriz cargo × mês (Actual em destaque + Budget entre parênteses) ---- */
+.rh-matrix-wrap { overflow-x: auto; }
+.rh-matrix { font-size: 12px; white-space: nowrap; }
+.rh-matrix th, .rh-matrix td { text-align: center; }
+.rh-matrix th:first-child, .rh-matrix td:first-child { text-align: left; white-space: normal; min-width: 200px; }
+.rh-matrix tbody td:first-child { font-style: italic; color: var(--text-2); }
+.rh-cell-act { font-weight: 700; }
+.rh-cell-bud { color: var(--text-3, #9ca3af); font-size: 10.5px; margin-left: 3px; }
+.rh-total-row td { font-weight: 700; border-top: 2px solid var(--border-2); background: var(--surface-2); }
+.rh-total-row td:first-child { font-style: normal; color: var(--text); }
 /* ---- Leads: painel de eventos (col F) ---- */
 .leads-events { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; margin-top: 8px; }
 .lead-ev { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }

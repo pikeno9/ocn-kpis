@@ -354,19 +354,25 @@
         },
       },
     });
-    // tabela de cargos do mês vigente (actual × budget × gap), ordenada pelo orçado
-    const mEl = document.getElementById('rhRolesMonth');
-    if (mEl && H.currentLabel) mEl.textContent = H.currentLabel;
+    // matriz de cargos × meses (mesma ordem de linhas/colunas da planilha, só até o mês vigente):
+    // cada célula = Actual em destaque + Budget menor/cinza entre parênteses; cor indica o gap.
     const rolesEl = document.getElementById('rhRoles');
-    const rows = H.roles.filter((r) => (r.act || 0) > 0 || (r.bud || 0) > 0).sort((a, b) => (b.bud - a.bud) || (b.act - a.act));
-    rolesEl.innerHTML =
-      '<table class="rh-table"><thead><tr><th>Role</th><th>Actual</th><th>Budget</th><th>Gap</th></tr></thead><tbody>' +
-      rows.map((r) => {
-        const gapR = (r.act || 0) - (r.bud || 0);
-        const cls = gapR < 0 ? 'rh-gap-neg' : (gapR > 0 ? 'rh-gap-pos' : 'rh-gap-zero');
-        return `<tr><td>${r.role}</td><td>${r.act || 0}</td><td>${r.bud || 0}</td><td class="${cls}">${gapR === 0 ? '-' : (gapR > 0 ? '+' + gapR : gapR)}</td></tr>`;
-      }).join('') +
-      '</tbody></table>';
+    const upTo = H.currentIdx >= 0 ? H.currentIdx : H.labels.length - 1;
+    const monthIdxs = H.labels.map((_, i) => i).filter((i) => i <= upTo);
+    const gapCell = (act, bud) => {
+      const gap = act - bud;
+      const cls = gap < 0 ? 'rh-gap-neg' : (gap > 0 ? 'rh-gap-pos' : 'rh-gap-zero');
+      return `<span class="rh-cell-act ${cls}">${act}</span><span class="rh-cell-bud">(${bud})</span>`;
+    };
+    let html = '<table class="rh-table rh-matrix"><thead><tr><th>HC per role</th>' +
+      monthIdxs.map((i) => `<th>${H.months[i]}</th>`).join('') + '</tr></thead><tbody>';
+    H.roles.forEach((r) => {
+      html += `<tr><td>${r.role}</td>` + monthIdxs.map((i) => `<td>${gapCell(r.act[i], r.bud[i])}</td>`).join('') + '</tr>';
+    });
+    html += `<tr class="rh-total-row"><td>Total HC</td>` +
+      monthIdxs.map((i) => `<td>${gapCell(H.totalActual[i] != null ? H.totalActual[i] : 0, H.totalBudget[i] != null ? H.totalBudget[i] : 0)}</td>`).join('') +
+      '</tr></tbody></table>';
+    rolesEl.innerHTML = html;
   }
 
   // ===================== VEHICLES / UTILIZATION (lazy init) =====================

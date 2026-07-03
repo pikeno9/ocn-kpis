@@ -86,6 +86,9 @@ button { font-family: inherit; cursor: pointer; }
 .ue-plates-label { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px; }
 .ue-plates-grid { display: flex; gap: 8px; flex-wrap: wrap; }
 .util-controls { display: flex; flex-direction: column; gap: 6px; }
+.util-filter-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--accent); background: var(--purple-soft); border-radius: 999px; padding: 3px 6px 3px 10px; }
+.util-filter-tag button { border: none; background: none; color: var(--accent); font-size: 15px; line-height: 1; cursor: pointer; padding: 0 2px; }
+.util-filter-tag button:hover { color: var(--purple-deep); }
 .ue-plate-btn {
   padding: 6px 12px; border: 1px solid var(--border-2); border-radius: var(--radius-sm);
   background: var(--surface); color: var(--text); font-size: 12px; font-weight: 600; cursor: pointer;

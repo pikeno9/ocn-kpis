@@ -37,7 +37,7 @@ async function refresh() {
     catch (e) { console.error('[frota] falhou:', e.message); data.ue.frota = null; }
     try { data.ue.revisoes = await revisoes.fetchRevisoes(); }
     catch (e) { console.error('[revisoes] falhou:', e.message); data.ue.revisoes = {}; }
-    try { data.utilization = utilization.build(sheets.importData, data.ue.frota, refDate()); }
+    try { data.utilization = utilization.build(sheets.importData, data.ue.frota, refDate(), data.ue.losses); }
     catch (e) { console.error('[utilization] falhou:', e.message); data.utilization = null; }
     cache = { data, updatedAt: new Date().toISOString(), ok: true, error: null };
     console.log(`[refresh] OK — ${data.kpis.recebidosAno} carros, ${data.ocorrencias.total} ocorrências (${cache.updatedAt})`);

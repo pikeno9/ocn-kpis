@@ -393,21 +393,29 @@
     if (rhReady) return;
     rhReady = true;
     const H = OCN.rh;
-    const kpisEl = document.getElementById('rhKpis');
     if (!H || !H.months || !H.months.length) {
-      if (kpisEl) kpisEl.innerHTML = '<div style="color:var(--text-2);font-size:13px">No headcount data (import_RH tab not available).</div>';
+      const cardEl = document.getElementById('chartHC') && document.getElementById('chartHC').closest('.card');
+      if (cardEl) cardEl.innerHTML = '<div style="color:var(--text-2);font-size:13px">No headcount data (import_RH tab not available).</div>';
       return;
     }
-    const cur = H.currentIdx;
-    const act = cur >= 0 ? (H.actual[cur] || 0) : null;
-    const bud = cur >= 0 ? (H.budget[cur] || 0) : null;
-    const gap = (act != null && bud != null) ? act - bud : null;
-    const yearEnd = H.budget[H.budget.length - 1];
-    kpisEl.innerHTML = `
-      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-users"></i> Current headcount</div><div class="kpi-value">${act != null ? act : '—'}</div><div class="kpi-sub">${H.currentLabel || ''} (actual)</div></div>
-      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-target"></i> Budgeted for ${H.currentLabel || 'now'}</div><div class="kpi-value">${bud != null ? bud : '—'}</div><div class="kpi-sub">${(act != null && bud > 0) ? Math.round((act / bud) * 100) + '% of budget' : ''}</div></div>
-      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-arrows-diff"></i> Gap vs. budget</div><div class="kpi-value">${gap == null ? '—' : (gap > 0 ? '+' + gap : gap)}</div><div class="kpi-sub">open positions this month</div></div>
-      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-calendar-stats"></i> Year-end budget</div><div class="kpi-value">${yearEnd != null ? yearEnd : '—'}</div><div class="kpi-sub">Dec (planned team size)</div></div>`;
+    // data row abaixo do eixo X: % de HC realizado vs. budget (fonte única, cinza escuro)
+    const hcPctRow = {
+      id: 'hcPctRow',
+      afterDraw(chart) {
+        const ctx = chart.ctx, xScale = chart.scales.x;
+        const yPos = chart.chartArea.bottom + 26;
+        ctx.save();
+        ctx.font = '700 11px ' + ((Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif');
+        ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        ctx.fillStyle = '#374151';
+        for (let i = 0; i < H.labels.length; i++) {
+          const a = H.actual[i], b = H.budget[i];
+          if (a == null || !b) continue;
+          ctx.fillText(Math.round((a / b) * 100) + '%', xScale.getPixelForValue(i), yPos);
+        }
+        ctx.restore();
+      },
+    };
     // gráfico principal: barras = Actual, linha tracejada = Budget
     new Chart(document.getElementById('chartHC'), {
       type: 'bar',
@@ -416,12 +424,17 @@
         datasets: [
           { label: 'Active HC (Actual)', data: H.actual, backgroundColor: '#5A00F8', borderRadius: 3, maxBarThickness: 48, order: 2,
             datalabels: { anchor: 'end', align: 'bottom', offset: 2, color: '#fff', font: { size: 11, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => v } },
+          // rótulo do budget vai pra BAIXO da bolinha quando o budget está abaixo do realizado
+          // (senão invade o rótulo da barra — ex. Março: budget 5 × realizado 8); halo branco pra ler dentro da barra roxa
           { label: 'Active HC (Budget)', data: H.budget, type: 'line', borderColor: NAVY, backgroundColor: NAVY, borderWidth: 2, borderDash: [5, 4], pointRadius: 4, pointHoverRadius: 6, tension: 0.25, order: 1,
-            datalabels: { color: NAVY, anchor: 'end', align: 'top', offset: 4, font: { size: 10, weight: 600 }, formatter: (v) => (v == null ? '' : v) } },
+            datalabels: { color: NAVY, anchor: 'end', offset: 4, font: { size: 10, weight: 600 }, textStrokeColor: '#fff', textStrokeWidth: 3,
+              align: (ctx) => { const i = ctx.dataIndex; const a = H.actual[i], b = H.budget[i]; return (a != null && b != null && b < a) ? 'bottom' : 'top'; },
+              formatter: (v) => (v == null ? '' : v) } },
         ],
       },
+      plugins: [hcPctRow],
       options: {
-        responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24 } },
+        responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24, bottom: 24 } },
         plugins: { legend: { display: false }, datalabels: { clamp: true }, tooltip: { callbacks: { label: (c) => (c.parsed.y == null ? null : c.dataset.label + ': ' + c.parsed.y) } } },
         scales: {
           x: { stacked: false, grid: { display: false }, ticks: { color: TXT2 } },

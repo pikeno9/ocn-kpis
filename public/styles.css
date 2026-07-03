@@ -185,8 +185,9 @@ button { font-family: inherit; cursor: pointer; }
 .rh-table thead th { background: var(--text); color: #fff; font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; }
 .rh-table tbody tr:hover { background: var(--surface-2); }
 .rh-table td { font-weight: 500; }
-.rh-gap-neg { color: #B45309; font-weight: 700; }
-.rh-gap-pos { color: #2FA84F; font-weight: 700; }
+/* abaixo do budget = verde (HC dentro do planejado); acima do budget = vermelho */
+.rh-gap-neg { color: #2FA84F; font-weight: 700; }
+.rh-gap-pos { color: #B91C1C; font-weight: 700; }
 .rh-gap-zero { color: var(--text-2); }
 /* ---- RH: matriz cargo × mês (Actual em destaque + Budget entre parênteses) ---- */
 .rh-matrix-wrap { overflow-x: auto; }

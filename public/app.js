@@ -684,8 +684,8 @@
       const closeId = detailId + 'Close';
       detailEl.innerHTML = `<div class="pay-detail-title">${section.labels[selIdx][0]} ${itemNoun} (${rows.length}) <button type="button" id="${closeId}">&times;</button></div>` +
         (rows.length
-          ? `<table class="rh-table"><thead><tr><th>Client</th><th>Plate</th><th>${eventLabel} date</th><th>Ready for realloc.</th><th>Reallocation date</th><th>Details</th></tr></thead><tbody>` +
-            rows.map((it) => `<tr><td>${it.cliente || '—'}</td><td class="util-plate-col">${it.placa || '—'}</td><td>${it.dataEvento}</td><td>${it.dataPronto}</td><td>${it.dataRecolocacao}</td><td class="redeploy-details">${it.detalhamento}</td></tr>`).join('') +
+          ? `<table class="rh-table"><thead><tr><th>Client</th><th>Plate</th><th>${eventLabel} date</th><th>Ready for realloc.</th><th>Reallocation date</th><th>Reason</th><th>Details</th></tr></thead><tbody>` +
+            rows.map((it) => `<tr><td>${it.cliente || '—'}</td><td class="util-plate-col">${it.placa || '—'}</td><td>${it.dataEvento}</td><td>${it.dataPronto}</td><td>${it.dataRecolocacao}</td><td>${it.motivo}</td><td class="redeploy-details">${it.detalhamento}</td></tr>`).join('') +
             '</tbody></table>'
           : '<div style="color:var(--text-2);font-size:13px">No records.</div>');
       const closeBtn = document.getElementById(closeId);

@@ -196,7 +196,7 @@
   const cumTotal = M.labels.map((_, i) => (A.recebido.Polo[i] || 0) + (A.recebido.Argo[i] || 0) + (A.recebido.Tera[i] || 0));
   function cumDS(model, isTop) {
     // número por modelo dentro do segmento (menor); no último dataset da pilha, o TOTAL acima da barra
-    const labels = { seg: { anchor: 'center', align: 'center', color: txtOnBar(COR[model]), font: { size: 9, weight: 600 }, formatter: (v) => (v > 0 ? v : '') } };
+    const labels = { seg: { anchor: 'center', align: 'center', color: txtOnBar(COR[model]), font: { size: 12, weight: 700 }, formatter: (v) => (v > 0 ? v : '') } };
     if (isTop) labels.total = { anchor: 'end', align: 'top', offset: 2, color: '#111827', font: { size: 12, weight: 700 }, display: (ctx) => cumTotal[ctx.dataIndex] > 0, formatter: (v, ctx) => cumTotal[ctx.dataIndex] };
     return { label: OCN.modelos[model].label, data: A.recebido[model], backgroundColor: COR[model], stack: 'r', borderRadius: 3, maxBarThickness: 48, order: 2, datalabels: { labels } };
   }
@@ -212,10 +212,10 @@
       ctx.save();
       ctx.textBaseline = 'top';
       // legendas das linhas, à esquerda do eixo
-      ctx.font = '600 10px ' + fam;
+      ctx.font = '600 9px ' + fam;
       ctx.fillStyle = '#6b7280';
       ctx.textAlign = 'right';
-      const lx = chart.chartArea.left - 12;
+      const lx = chart.chartArea.left - 10;
       ctx.fillText('Total Fleet (actual)', lx, y1 + 1);
       ctx.fillText('Actual vs. Budget', lx, y2 + 1);
       // valores por mês
@@ -250,8 +250,8 @@
     },
     plugins: [deltaRow],
     options: {
-      // padding esquerdo abre espaço pras legendas das data rows; inferior, pras duas linhas de valores (descidas: y1=bottom+40, y2=+59)
-      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 26, right: 20, bottom: 64, left: 105 } },
+      // padding esquerdo enxuto (só o necessário pra legenda das data rows caber); inferior, pras duas linhas de valores (y1=bottom+40, y2=+59)
+      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 26, right: 20, bottom: 64, left: 74 } },
       plugins: { legend: { display: false }, datalabels: { clamp: true }, tooltip: { callbacks: { label: (c) => (c.parsed.y == null ? null : c.dataset.label + ': ' + c.parsed.y) } } },
       scales: {
         x: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } },

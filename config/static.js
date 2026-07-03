@@ -45,10 +45,10 @@ const UE_FLEET_COL = 14; // coluna "O" (frota) em import_data = identifica a fro
 
 // Identidade dos modelos (color-code) — VW (Polo/Tera) em tons de azul; Fiat (Argo) em laranja vivo
 const modelos = {
-  // paleta em tons de roxo (escuro→claro), a pedido do usuário
-  Polo: { label: 'Polo Track', cor: '#4C1D95', foto: 'cars/polo.png' }, // roxo escuro
-  Argo: { label: 'Argo Drive', cor: '#8B5CF6', foto: 'cars/argo.webp' }, // roxo médio
-  Tera: { label: 'Tera', cor: '#C4B5FD', foto: 'cars/tera.png' },        // roxo claro
+  // paleta em tons de roxo bem espaçados (escuro→médio→claro), a pedido do usuário
+  Polo: { label: 'Polo Track', cor: '#3B0A91', foto: 'cars/polo.png' }, // roxo bem escuro
+  Argo: { label: 'Argo Drive', cor: '#7C3AED', foto: 'cars/argo.webp' }, // roxo médio saturado
+  Tera: { label: 'Tera', cor: '#DDD6FE', foto: 'cars/tera.png' },        // roxo bem claro
 };
 const corEsperado = '#282728';
 

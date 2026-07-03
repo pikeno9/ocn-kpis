@@ -40,6 +40,7 @@
       document.querySelectorAll('.section').forEach((s) => s.classList.remove('active'));
       tab.classList.add('active');
       document.getElementById('sec-' + tab.dataset.sec).classList.add('active');
+      if (tab.dataset.sec === 'rh') initRH();
     });
   });
 
@@ -307,6 +308,63 @@
         },
       },
     });
+  }
+
+  // ===================== RH / HEAD COUNT (lazy init) =====================
+  let rhReady = false;
+  function initRH() {
+    if (rhReady) return;
+    rhReady = true;
+    const H = OCN.rh;
+    const kpisEl = document.getElementById('rhKpis');
+    if (!H || !H.months || !H.months.length) {
+      if (kpisEl) kpisEl.innerHTML = '<div style="color:var(--text-2);font-size:13px">No headcount data (import_RH tab not available).</div>';
+      return;
+    }
+    const cur = H.currentIdx;
+    const act = cur >= 0 ? (H.actual[cur] || 0) : null;
+    const bud = cur >= 0 ? (H.budget[cur] || 0) : null;
+    const gap = (act != null && bud != null) ? act - bud : null;
+    const yearEnd = H.budget[H.budget.length - 1];
+    kpisEl.innerHTML = `
+      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-users"></i> Current headcount</div><div class="kpi-value">${act != null ? act : '—'}</div><div class="kpi-sub">${H.currentLabel || ''} (actual)</div></div>
+      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-target"></i> Budgeted for ${H.currentLabel || 'now'}</div><div class="kpi-value">${bud != null ? bud : '—'}</div><div class="kpi-sub">${(act != null && bud > 0) ? Math.round((act / bud) * 100) + '% of budget' : ''}</div></div>
+      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-arrows-diff"></i> Gap vs. budget</div><div class="kpi-value">${gap == null ? '—' : (gap > 0 ? '+' + gap : gap)}</div><div class="kpi-sub">open positions this month</div></div>
+      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-calendar-stats"></i> Year-end budget</div><div class="kpi-value">${yearEnd != null ? yearEnd : '—'}</div><div class="kpi-sub">Dec (planned team size)</div></div>`;
+    // gráfico principal: barras = Actual, linha tracejada = Budget
+    new Chart(document.getElementById('chartHC'), {
+      type: 'bar',
+      data: {
+        labels: H.labels,
+        datasets: [
+          { label: 'Active HC (Actual)', data: H.actual, backgroundColor: '#5A00F8', borderRadius: 3, maxBarThickness: 48, order: 2,
+            datalabels: { anchor: 'end', align: 'bottom', offset: 2, color: '#fff', font: { size: 11, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => v } },
+          { label: 'Active HC (Budget)', data: H.budget, type: 'line', borderColor: NAVY, backgroundColor: NAVY, borderWidth: 2, borderDash: [5, 4], pointRadius: 4, pointHoverRadius: 6, tension: 0.25, order: 1,
+            datalabels: { color: NAVY, anchor: 'end', align: 'top', offset: 4, font: { size: 10, weight: 600 }, formatter: (v) => (v == null ? '' : v) } },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24 } },
+        plugins: { legend: { display: false }, datalabels: { clamp: true }, tooltip: { callbacks: { label: (c) => (c.parsed.y == null ? null : c.dataset.label + ': ' + c.parsed.y) } } },
+        scales: {
+          x: { stacked: false, grid: { display: false }, ticks: { color: TXT2 } },
+          y: { beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, precision: 0 }, title: { display: true, text: 'people', color: '#9ca3af', font: { size: 11 } } },
+        },
+      },
+    });
+    // tabela de cargos do mês vigente (actual × budget × gap), ordenada pelo orçado
+    const mEl = document.getElementById('rhRolesMonth');
+    if (mEl && H.currentLabel) mEl.textContent = H.currentLabel;
+    const rolesEl = document.getElementById('rhRoles');
+    const rows = H.roles.filter((r) => (r.act || 0) > 0 || (r.bud || 0) > 0).sort((a, b) => (b.bud - a.bud) || (b.act - a.act));
+    rolesEl.innerHTML =
+      '<table class="rh-table"><thead><tr><th>Role</th><th>Actual</th><th>Budget</th><th>Gap</th></tr></thead><tbody>' +
+      rows.map((r) => {
+        const gapR = (r.act || 0) - (r.bud || 0);
+        const cls = gapR < 0 ? 'rh-gap-neg' : (gapR > 0 ? 'rh-gap-pos' : 'rh-gap-zero');
+        return `<tr><td>${r.role}</td><td>${r.act || 0}</td><td>${r.bud || 0}</td><td class="${cls}">${gapR === 0 ? '-' : (gapR > 0 ? '+' + gapR : gapR)}</td></tr>`;
+      }).join('') +
+      '</tbody></table>';
   }
 
   // esconde a tela de loading quando o dashboard está pronto

@@ -189,10 +189,26 @@
 
     <!-- ===================== HR ===================== -->
     <section class="section" id="sec-rh">
-      <div class="coming-soon">
-        <i class="ti ti-users-group"></i>
-        <p>Human Resources</p>
-        <span>Area to be built</span>
+      <div class="sub-tabs">
+        <button class="sub-tab active" data-sub="headcount">Head Count</button>
+      </div>
+      <div class="subsection active" id="sub-headcount">
+        <div class="kpi-grid" id="rhKpis"></div>
+        <div class="card">
+          <div class="sub2-title"><i class="ti ti-users"></i> Head Count — Actual vs. Budget</div>
+          <div class="legend">
+            <span class="it"><span class="sw" style="background:#5A00F8"></span> Active HC (Actual)</span>
+            <span class="it"><span class="sw-line"></span> Active HC (Budget)</span>
+          </div>
+          <div class="chart-box" style="height:320px;">
+            <canvas id="chartHC" role="img" aria-label="Headcount actual (bars) vs budget (line) by month"></canvas>
+          </div>
+        </div>
+        <div class="card">
+          <div class="sub2-title"><i class="ti ti-list-details"></i> Roles — <span id="rhRolesMonth">current month</span></div>
+          <div class="sub2-desc">Actual vs. budgeted headcount per role</div>
+          <div id="rhRoles"></div>
+        </div>
       </div>
     </section>
   </main>

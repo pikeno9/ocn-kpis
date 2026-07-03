@@ -61,7 +61,18 @@
 
   // ---------- Status atual da frota / big numbers ----------
   const SF = OCN.statusFrota;
-  document.getElementById('fleetSub').textContent = SF.total + ' registered vehicles';
+  const fleetSubEl = document.getElementById('fleetSub');
+  const metaUpdatedAt = (OCN._meta && OCN._meta.updatedAt) || null;
+  if (fleetSubEl) {
+    if (metaUpdatedAt) {
+      const d = new Date(metaUpdatedAt);
+      const dd = d.toLocaleDateString('en-GB', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit' });
+      const hm = d.toLocaleTimeString('en-GB', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
+      fleetSubEl.textContent = `Updated at ${dd} at ${hm} BRT`;
+    } else {
+      fleetSubEl.textContent = SF.total + ' registered vehicles';
+    }
+  }
   const stripe = 'repeating-linear-gradient(45deg, rgba(40,39,40,0.13) 0, rgba(40,39,40,0.13) 5px, rgba(40,39,40,0.04) 5px, rgba(40,39,40,0.04) 10px)';
   document.getElementById('fleetGrid').innerHTML = SF.items.map((it) => {
     const bg = it.listrado ? stripe : it.cor + '14';
@@ -243,7 +254,7 @@
       datasets: [
         cumDS('Polo'), cumDS('Argo'), cumDS('Tera'),
         // linha esperada: mesmo formato do gráfico mensal (tracejada + rótulo dlLine); order maior = desenhada ATRÁS das barras
-        { label: 'Expected (cum.)', data: A.esperado, type: 'line', borderColor: NAVY, backgroundColor: NAVY, borderWidth: 2, borderDash: [5, 4], pointRadius: 4, pointHoverRadius: 6, tension: 0.25, order: 3, datalabels: dlLine },
+        { label: 'Budget', data: A.esperado, type: 'line', borderColor: NAVY, backgroundColor: NAVY, borderWidth: 2, borderDash: [5, 4], pointRadius: 4, pointHoverRadius: 6, tension: 0.25, order: 3, datalabels: dlLine },
       ],
     },
     plugins: [acumTotalTag],
@@ -252,7 +263,7 @@
       plugins: { legend: { display: false }, datalabels: { clamp: true }, tooltip: { callbacks: { label: (c) => (c.parsed.y == null ? null : c.dataset.label + ': ' + c.parsed.y) } } },
       scales: {
         x: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } },
-        y: { stacked: true, beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, precision: 0 }, title: { display: true, text: 'cars (cum.)', color: '#9ca3af', font: { size: 11 } } },
+        y: { stacked: true, beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, precision: 0 }, title: { display: true, text: 'cars', color: '#9ca3af', font: { size: 11 } } },
       },
     },
   });

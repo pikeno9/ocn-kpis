@@ -56,6 +56,7 @@
       if (tab.dataset.sub === 'ocorrencias') initOcorrencias();
       if (tab.dataset.sub === 'unit') initUnit();
       if (tab.dataset.sub === 'utilization') initUtilization();
+      if (tab.dataset.sub === 'funnel') initFunnel();
       if (tab.dataset.sub === 'payments') initPayments();
       if (tab.dataset.sub === 'redeployment') initRedeployment();
     });
@@ -584,6 +585,43 @@
       : '<div style="color:var(--text-2);font-size:13px">No events recorded.</div>';
   }
   const fmtDMY = (iso) => { if (!iso) return ''; const p = String(iso).split('-'); return p.length === 3 ? p[2] + '/' + p[1] : iso; };
+
+  // ===================== CLIENTS / COMMERCIAL FUNNEL (lazy init) =====================
+  let funnelReady = false;
+  function initFunnel() {
+    if (funnelReady) return;
+    funnelReady = true;
+    const F = OCN.funnel;
+    const wrapEl = document.getElementById('sub-funnel');
+    if (!F || !F.labels || !F.labels.length) {
+      if (wrapEl) wrapEl.innerHTML = '<div style="color:var(--text-2);font-size:13px">No funnel data (funil tab not available).</div>';
+      return;
+    }
+    function funnelChart(canvasId, data, color, num, den) {
+      new Chart(document.getElementById(canvasId), {
+        type: 'line',
+        data: { labels: F.labels, datasets: [{
+          data, borderColor: color, backgroundColor: color, borderWidth: 2, tension: 0.3,
+          pointRadius: 4, pointBackgroundColor: color,
+          datalabels: { align: 'top', anchor: 'end', offset: 4, color: NAVY, font: { size: 10, weight: 700 }, formatter: (v) => (v == null ? '' : v + '%') },
+        }] },
+        options: {
+          responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24 } },
+          plugins: {
+            legend: { display: false }, datalabels: { clamp: true },
+            tooltip: { callbacks: { label: (c) => `${c.parsed.y}% (${num[c.dataIndex]}/${den[c.dataIndex]})` } },
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: TXT2, maxRotation: 0 } },
+            y: { beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, callback: (v) => v + '%' }, title: { display: true, text: '%', color: '#9ca3af', font: { size: 11 } } },
+          },
+        },
+      });
+    }
+    funnelChart('chartFunnel1', F.taxaEnvio, '#374151', F.enviados, F.contatos);
+    funnelChart('chartFunnel2', F.taxaAprov, '#DC2626', F.aprovados, F.enviados);
+    funnelChart('chartFunnel3', F.convBruta, '#2563EB', F.aprovados, F.contatos);
+  }
 
   // ===================== CLIENTS / PAYMENTS (lazy init) =====================
   let paymentsReady = false;

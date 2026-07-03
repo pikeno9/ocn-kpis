@@ -266,6 +266,7 @@
     <section class="section" id="sec-comercial">
       <div class="sub-tabs">
         <button class="sub-tab active" data-sub="leads">New Leads</button>
+        <button class="sub-tab" data-sub="funnel">Commercial Funnel</button>
         <button class="sub-tab" data-sub="payments">Payments</button>
       </div>
       <div class="subsection active" id="sub-leads">
@@ -293,6 +294,31 @@
           <div class="sub2-title"><i class="ti ti-bolt"></i> Key events</div>
           <div class="sub2-desc">Actions behind the lead spikes</div>
           <div id="leadsEvents"></div>
+        </div>
+      </div>
+
+      <!-- ---------- COMMERCIAL FUNNEL ---------- -->
+      <div class="subsection" id="sub-funnel">
+        <div class="card">
+          <div class="sub2-title"><i class="ti ti-chart-line"></i> Contacts → Analysis</div>
+          <div class="sub2-desc">Share of unique contacts sent for analysis, per week</div>
+          <div class="chart-box" style="height:280px;">
+            <canvas id="chartFunnel1" role="img" aria-label="Weekly conversion rate from contacts to analysis"></canvas>
+          </div>
+        </div>
+        <div class="card">
+          <div class="sub2-title"><i class="ti ti-chart-line"></i> Analysis → Approved</div>
+          <div class="sub2-desc">Share of analyzed contacts approved, per week</div>
+          <div class="chart-box" style="height:280px;">
+            <canvas id="chartFunnel2" role="img" aria-label="Weekly conversion rate from analysis to approved"></canvas>
+          </div>
+        </div>
+        <div class="card">
+          <div class="sub2-title"><i class="ti ti-chart-line"></i> Gross conversion</div>
+          <div class="sub2-desc">Share of unique contacts approved, per week</div>
+          <div class="chart-box" style="height:280px;">
+            <canvas id="chartFunnel3" role="img" aria-label="Weekly gross conversion rate from contacts to approved"></canvas>
+          </div>
         </div>
       </div>
 

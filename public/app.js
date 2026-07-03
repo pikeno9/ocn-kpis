@@ -195,10 +195,9 @@
   const A = OCN.acumulado;
   const aLabels = A.labels || M.labels;
   const cumTotal = aLabels.map((_, i) => (A.recebido.Polo[i] || 0) + (A.recebido.Argo[i] || 0) + (A.recebido.Tera[i] || 0));
-  function cumDS(model, isTop) {
-    // número por modelo dentro do segmento (menor); no último dataset da pilha, o TOTAL acima da barra
+  function cumDS(model) {
+    // número por modelo dentro do segmento (o TOTAL vem do plugin acumTotalTag, no topo real da barra)
     const labels = { seg: { anchor: 'center', align: 'center', color: txtOnBar(COR[model]), font: { size: 12, weight: 700 }, formatter: (v) => (v > 0 ? v : '') } };
-    if (isTop) labels.total = { anchor: 'end', align: 'top', offset: 2, color: '#111827', font: { size: 12, weight: 700 }, display: (ctx) => cumTotal[ctx.dataIndex] > 0, formatter: (v, ctx) => cumTotal[ctx.dataIndex] };
     return { label: OCN.modelos[model].label, data: A.recebido[model], backgroundColor: COR[model], stack: 'r', borderRadius: 3, maxBarThickness: 48, order: 2, datalabels: { labels } };
   }
   // até que mês há dado real (0 conta como dado; null = mês futuro, não conta)
@@ -249,11 +248,10 @@
     data: {
       labels: aLabels,
       datasets: [
-        cumDS('Polo'), cumDS('Argo'), cumDS('Tera', true),
-        // linha do budget: tracejada; rótulo só nos meses SEM barra (nos realizados o budget já está na linha de % e no tooltip),
-        // na mesma fonte do totalizador das barras e ACIMA da bola preta
+        cumDS('Polo'), cumDS('Argo'), cumDS('Tera'),
+        // linha do budget: tracejada; valor do budget acima da bolinha em TODOS os meses
         { label: 'Budget', data: A.esperado, type: 'line', borderColor: NAVY, backgroundColor: NAVY, borderWidth: 2, borderDash: [5, 4], pointRadius: 4, pointHoverRadius: 6, tension: 0.25, order: 3,
-          datalabels: { color: '#111827', anchor: 'end', align: 'top', offset: 2, font: { size: 12, weight: 700 }, display: (ctx) => !cumTotal[ctx.dataIndex], formatter: (v) => ((v || v === 0) ? v : '') } },
+          datalabels: { color: '#111827', anchor: 'end', align: 'top', offset: 4, font: { size: 12, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] != null, formatter: (v) => ((v || v === 0) ? v : '') } },
       ],
     },
     plugins: [deltaRow],

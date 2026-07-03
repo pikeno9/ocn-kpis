@@ -679,30 +679,50 @@
     }
     const hideCard = (canvasId) => { const c = document.getElementById(canvasId); if (c) { const card = c.closest('.card'); if (card) card.style.display = 'none'; } };
 
-    // 1) Leads elegíveis — 2 linhas: elegíveis (destaque, valor + % do todo) e total (só valor)
+    // 1) Leads elegíveis — 2 linhas: elegíveis (destaque, valor + % do todo) e total (só valor).
+    // Toggle Accumulated (default) × Weekly: a planilha traz ACUMULADO; a visão semanal é a
+    // diferença entre semanas consecutivas (leads novos que entraram naquela semana).
     const L = ID.leads;
     if (!L) { hideCard('chartInDriveLeads'); } else {
-      new Chart(document.getElementById('chartInDriveLeads'), {
-        type: 'line',
-        data: { labels: L.labels, datasets: [
-          { label: 'Eligible for inDrive bonus', data: L.elegiveis, borderColor: PURPLE, backgroundColor: PURPLE, borderWidth: 2.5, tension: 0.3, pointRadius: 4, pointBackgroundColor: PURPLE,
-            datalabels: { align: 'bottom', anchor: 'start', offset: 6, color: PURPLE, font: { size: 10, weight: 700 }, textAlign: 'center', formatter: (v, ctx) => v.toLocaleString('en-US') + '\n(' + L.pct[ctx.dataIndex] + '%)' } },
-          { label: 'Total waitlist (approved)', data: L.total, borderColor: '#9ca3af', backgroundColor: '#9ca3af', borderWidth: 2, tension: 0.3, pointRadius: 3, pointBackgroundColor: '#9ca3af',
-            datalabels: { align: 'top', anchor: 'end', offset: 4, color: TXT2, font: { size: 10, weight: 600 }, formatter: (v) => v.toLocaleString('en-US') } },
-        ] },
-        options: {
-          responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24, bottom: 8 } },
-          plugins: {
-            legend: { display: false }, datalabels: { clamp: true },
-            tooltip: { callbacks: { label: (c) => c.dataset.label + ': ' + c.parsed.y.toLocaleString('en-US') + (c.datasetIndex === 0 ? ' (' + L.pct[c.dataIndex] + '% of total)' : '') } },
+      const delta = (arr) => arr.map((v, i) => Math.max(0, v - (i > 0 ? arr[i - 1] : 0)));
+      const elegW = delta(L.elegiveis), totW = delta(L.total);
+      const pctW = totW.map((t, i) => (t ? Math.round((elegW[i] / t) * 100) : 0));
+      const SERIES = {
+        acc: { eleg: L.elegiveis, tot: L.total, pct: L.pct, yTitle: 'leads (cumulative)' },
+        weekly: { eleg: elegW, tot: totW, pct: pctW, yTitle: 'new leads / week' },
+      };
+      let leadsChart = null;
+      function renderLeadsChart(mode) {
+        const S = SERIES[mode];
+        if (leadsChart) leadsChart.destroy();
+        leadsChart = new Chart(document.getElementById('chartInDriveLeads'), {
+          type: 'line',
+          data: { labels: L.labels, datasets: [
+            { label: 'Eligible for inDrive bonus', data: S.eleg, borderColor: PURPLE, backgroundColor: PURPLE, borderWidth: 2.5, tension: 0.3, pointRadius: 4, pointBackgroundColor: PURPLE,
+              datalabels: { align: 'bottom', anchor: 'start', offset: 6, color: PURPLE, font: { size: 10, weight: 700 }, textAlign: 'center', formatter: (v, ctx) => v.toLocaleString('en-US') + '\n(' + S.pct[ctx.dataIndex] + '%)' } },
+            { label: 'Total waitlist (approved)', data: S.tot, borderColor: '#9ca3af', backgroundColor: '#9ca3af', borderWidth: 2, tension: 0.3, pointRadius: 3, pointBackgroundColor: '#9ca3af',
+              datalabels: { align: 'top', anchor: 'end', offset: 4, color: TXT2, font: { size: 10, weight: 600 }, formatter: (v) => v.toLocaleString('en-US') } },
+          ] },
+          options: {
+            responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24, bottom: 8 } },
+            plugins: {
+              legend: { display: false }, datalabels: { clamp: true },
+              tooltip: { callbacks: { label: (c) => c.dataset.label + ': ' + c.parsed.y.toLocaleString('en-US') + (c.datasetIndex === 0 ? ' (' + S.pct[c.dataIndex] + '% of total)' : '') } },
+            },
+            scales: {
+              // ticks afastados do eixo: rótulos dos pontos baixos descem além da área do gráfico
+              x: { grid: { display: false }, ticks: { color: TXT2, maxRotation: 0, padding: 28 } },
+              y: { beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, precision: 0 }, title: { display: true, text: S.yTitle, color: '#9ca3af', font: { size: 11 } } },
+            },
           },
-          scales: {
-            // ticks afastados do eixo: rótulos dos pontos baixos descem além da área do gráfico
-            x: { grid: { display: false }, ticks: { color: TXT2, maxRotation: 0, padding: 28 } },
-            y: { beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, precision: 0 }, title: { display: true, text: 'leads (cumulative)', color: '#9ca3af', font: { size: 11 } } },
-          },
-        },
-      });
+        });
+      }
+      renderLeadsChart('acc');
+      const tg = document.getElementById('idLeadsToggle');
+      if (tg) tg.querySelectorAll('.range-btn').forEach((b) => b.addEventListener('click', () => {
+        tg.querySelectorAll('.range-btn').forEach((x) => x.classList.toggle('active', x === b));
+        renderLeadsChart(b.dataset.range === 'weekly' ? 'weekly' : 'acc');
+      }));
     }
 
     // 2) Base ativa — barras empilhadas acumuladas: elegíveis (destaque) + não elegíveis (rachurado), total no topo

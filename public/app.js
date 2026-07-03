@@ -831,15 +831,23 @@
       const closeBtn = document.getElementById(closeId);
       if (closeBtn) closeBtn.addEventListener('click', () => { selIdx = null; renderDetail(); });
     }
+    // total de dias do mês (verde+roxo) — vira o totalizador acima da barra;
+    // meses com total 0 não têm barra clicável, ganham uma bolinha preta no zero
+    const totalDays = section.labels.map((_, i) => Math.round(((section.avgRecupParaPronto[i] || 0) + (section.avgProntoParaAlocado[i] || 0)) * 10) / 10);
     new Chart(canvas, {
       type: 'bar',
       data: {
         labels: section.labels,
         datasets: [
-          { label: eventLabel + ' → Ready', data: section.avgRecupParaPronto, backgroundColor: '#16A34A', stack: 's', borderRadius: 3, maxBarThickness: 60,
-            datalabels: { color: '#fff', font: { size: 11, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => v + 'd' } },
-          { label: 'Ready → Reallocated', data: section.avgProntoParaAlocado, backgroundColor: PURPLE_HEX, stack: 's', borderRadius: 3, maxBarThickness: 60,
-            datalabels: { color: '#fff', font: { size: 11, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => v + 'd' } },
+          { label: eventLabel + ' → Ready', data: section.avgRecupParaPronto, backgroundColor: '#16A34A', stack: 's', borderRadius: 3, maxBarThickness: 60, order: 1,
+            datalabels: { color: '#fff', font: { size: 11, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => v } },
+          { label: 'Ready → Reallocated', data: section.avgProntoParaAlocado, backgroundColor: PURPLE_HEX, stack: 's', borderRadius: 3, maxBarThickness: 60, order: 1,
+            datalabels: { labels: {
+              value: { color: '#fff', font: { size: 11, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => v },
+              total: { anchor: 'end', align: 'top', offset: 2, color: NAVY, font: { size: 12, weight: 700 }, display: (ctx) => totalDays[ctx.dataIndex] > 0, formatter: (v, ctx) => totalDays[ctx.dataIndex] },
+            } } },
+          { type: 'scatter', label: 'zero', data: totalDays.map((t) => (t === 0 ? 0 : null)), pointRadius: 6, pointHoverRadius: 8, pointBackgroundColor: '#111827', pointBorderColor: '#111827', order: 0,
+            datalabels: { anchor: 'end', align: 'top', offset: 4, color: NAVY, font: { size: 12, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] != null, formatter: () => 0 } },
         ],
       },
       options: {
@@ -850,7 +858,7 @@
           legend: { display: false }, datalabels: { clamp: true },
           tooltip: { callbacks: {
             title: (it) => section.labels[it[0].dataIndex][0] + ' · ' + section.total[it[0].dataIndex] + ' ' + itemNoun,
-            label: (c) => c.dataset.label + ': ' + c.parsed.y + ' days (avg)',
+            label: (c) => (c.dataset.type === 'scatter' ? '0 days to redeploy' : c.dataset.label + ': ' + c.parsed.y + ' days (avg)'),
             afterBody: () => 'Click for the list',
           } },
         },

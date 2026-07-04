@@ -471,7 +471,13 @@
         labels: H.labels,
         datasets: [
           { label: 'Active HC (Actual)', data: H.actual, backgroundColor: '#5A00F8', borderRadius: 3, maxBarThickness: 48, order: 2,
-            datalabels: { anchor: 'end', align: 'bottom', offset: 2, color: '#fff', font: { size: 11, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => v } },
+            // barra pequena (ex. Feb=2): rótulo ACIMA da barra, em preto, pra não colar no eixo X
+            datalabels: {
+              anchor: 'end', display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, font: { size: 11, weight: 700 }, formatter: (v) => v,
+              align: (ctx) => (ctx.dataset.data[ctx.dataIndex] <= 3 ? 'top' : 'bottom'),
+              offset: (ctx) => (ctx.dataset.data[ctx.dataIndex] <= 3 ? 4 : 2),
+              color: (ctx) => (ctx.dataset.data[ctx.dataIndex] <= 3 ? '#111827' : '#fff'),
+            } },
           // rótulo do budget vai pra BAIXO da bolinha quando o budget está abaixo do realizado
           // (senão invade o rótulo da barra — ex. Março: budget 5 × realizado 8); halo branco pra ler dentro da barra roxa
           { label: 'Active HC (Budget)', data: H.budget, type: 'line', borderColor: NAVY, backgroundColor: NAVY, borderWidth: 2, borderDash: [5, 4], pointRadius: 4, pointHoverRadius: 6, tension: 0.25, order: 1,
@@ -780,12 +786,12 @@
             datalabels: { align: 'top', anchor: 'end', offset: 4, color: NAVY, font: { size: 10, weight: 700 }, formatter: (v) => (v == null ? '' : v + '%') },
           },
           {
-            // valor da média numa "tag" sobre a linha tracejada, no 1º ponto
+            // valor da média numa "tag" ABAIXO da linha tracejada, no início do eixo X (1º ponto)
             label: 'Average', data: F.labels.map(() => avg), borderColor: '#9ca3af', borderWidth: 1.5, borderDash: [5, 4],
             pointRadius: 0, pointHoverRadius: 0, tension: 0,
             datalabels: {
               display: (ctx) => ctx.dataIndex === 0 && avg != null,
-              align: 'top', anchor: 'center', offset: 3,
+              align: 'bottom', anchor: 'center', offset: 4,
               backgroundColor: '#6b7280', color: '#fff', borderRadius: 4, padding: { top: 2, bottom: 2, left: 5, right: 5 },
               font: { size: 10, weight: 700 }, formatter: () => 'avg ' + avg + '%',
             },
@@ -981,20 +987,25 @@
     // semanas que são a ÚLTIMA do mês (destaque cinza atrás: semanas fracas nas plataformas)
     const MONTH_END_WEEKS = ['04/05', '01/06', '29/06'];
     legendEl.innerHTML = CATS.map((c) => `<span class="it"><span class="sw" style="background:${c.color}"></span> ${c.label}</span>`).join('') +
-      '<span class="it"><span class="sw" style="background:rgba(120,120,140,0.16)"></span> Last week of month</span>';
+      '<span class="it"><span style="display:inline-block;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid #6b7280;vertical-align:middle;margin-right:6px"></span> Last week of month</span>';
     const labels = P.weeks.map((w) => fmtDMY(w.date));
     const totals = P.weeks.map((w) => CATS.reduce((s, c) => s + w.counts[c.key], 0));
     let mode = 'pct', chart, selWeekIdx = null; // padrão: Percentage (100% bars)
-    // fundo cinza claro atrás das últimas semanas do mês
+    // pequeno triângulo invertido ACIMA da barra nas últimas semanas do mês (semanas fracas nas plataformas)
     const monthEndBg = {
-      id: 'monthEndBg',
-      beforeDatasetsDraw(ch) {
+      id: 'monthEndMark',
+      afterDatasetsDraw(ch) {
         const xs = ch.scales.x, ca = ch.chartArea, ctx = ch.ctx;
-        if (!xs || xs.getPixelForValue(1) == null) return;
-        const half = Math.abs(xs.getPixelForValue(1) - xs.getPixelForValue(0)) / 2;
+        if (!xs || xs.getPixelForValue(0) == null) return;
         ctx.save();
-        ctx.fillStyle = 'rgba(120,120,140,0.14)';
-        labels.forEach((lab, i) => { if (MONTH_END_WEEKS.includes(lab)) { const cx = xs.getPixelForValue(i); ctx.fillRect(cx - half, ca.top, half * 2, ca.bottom - ca.top); } });
+        ctx.fillStyle = '#6b7280';
+        labels.forEach((lab, i) => {
+          if (!MONTH_END_WEEKS.includes(lab)) return;
+          const cx = xs.getPixelForValue(i), y = ca.top - 4; // logo acima da área do gráfico
+          ctx.beginPath();
+          ctx.moveTo(cx - 6, y - 8); ctx.lineTo(cx + 6, y - 8); ctx.lineTo(cx, y); // triângulo invertido ▽
+          ctx.closePath(); ctx.fill();
+        });
         ctx.restore();
       },
     };

@@ -202,12 +202,9 @@
   }
   // até que mês há dado real (0 conta como dado; null = mês futuro, não conta)
   const lastDataIdx = aLabels.reduce((acc, _, i) => ((A.recebido.Polo[i] != null || A.recebido.Argo[i] != null || A.recebido.Tera[i] != null) ? i : acc), -1);
-  // recebidos NOVOS no mês = diferença do acumulado (Março = 0)
-  const novosReal = cumTotal.map((v, i) => v - (i > 0 ? cumTotal[i - 1] : 0));
-  const novosBud = A.esperadoNovos || null; // esperado de novos por mês (linha "Novos" da aba)
   // duas linhas abaixo do eixo X, com legenda à esquerda:
-  // "Total Fleet (actual)" = acumulado realizado; "Actual vs. Budget" = novos do mês ÷ novos esperados do mês
-  // (verde >=100%, vermelho <100%). Sem a aba de novos, cai no acumulado ÷ acumulado.
+  // "Total Fleet (actual)" = acumulado realizado (total das barras);
+  // "Actual vs. Budget" = total das barras ÷ valor da linha (budget) no mês (verde >=100%, vermelho <100%).
   const deltaRow = {
     id: 'deltaRow',
     afterDraw(chart) {
@@ -231,11 +228,10 @@
         ctx.font = '700 11px ' + fam;
         ctx.fillStyle = '#111827';
         ctx.fillText(String(cumTotal[i]), x, y1);
-        // % = novos do mês ÷ novos esperados (fallback: acumulado ÷ acumulado)
-        const budN = novosBud ? novosBud[i] : A.esperado[i];
-        const realN = novosBud ? novosReal[i] : cumTotal[i];
-        if (budN) {
-          const pct = Math.round((realN / budN) * 100);
+        // % = total das barras (actual acumulado) ÷ valor da linha (budget) naquele mês
+        const bud = A.esperado[i];
+        if (bud) {
+          const pct = Math.round((cumTotal[i] / bud) * 100);
           ctx.fillStyle = pct >= 100 ? '#16A34A' : '#B91C1C';
           ctx.fillText(pct + '%', x, y2);
         }

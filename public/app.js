@@ -1149,9 +1149,14 @@
     renderTimeSection(RD.swaps, 'chartSwaps', 'swapsDetail', 'swaps', 'Swap');
   }
 
-  // esconde a tela de loading quando o dashboard está pronto (fade 0.35s + display:none de garantia)
+  // esconde a tela de loading quando o dashboard está pronto:
+  // 1) completa a barra até 100% (.done, 0.25s), 2) fade out (.hidden, 0.35s), 3) display:none de garantia
   const _ld = document.getElementById('appLoading');
-  if (_ld) { _ld.classList.add('hidden'); setTimeout(() => { _ld.style.display = 'none'; }, 450); }
+  if (_ld) {
+    _ld.classList.add('done');
+    setTimeout(() => { _ld.classList.add('hidden'); }, 260);
+    setTimeout(() => { _ld.style.display = 'none'; }, 660);
+  }
 
   // ===================== OCORRÊNCIAS (lazy init) =====================
   let ocorReady = false;

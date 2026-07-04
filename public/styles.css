@@ -73,6 +73,8 @@ button { font-family: inherit; cursor: pointer; }
   background: linear-gradient(90deg, #5A00F8, #c026d3);
   transform-origin: left center; animation: ocn-bar 2.2s ease-in-out infinite;
 }
+/* ao terminar de carregar, a barra completa até 100% (de onde estiver) antes do fade */
+.app-loading.done .app-loading-bar { animation: none; transform: scaleX(1); transition: transform .25s ease-out; }
 @keyframes ocn-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .55; transform: scale(.94); } }
 @keyframes ocn-bar { 0% { transform: scaleX(0); } 100% { transform: scaleX(1); } }
 @keyframes spin { to { transform: rotate(360deg); } }

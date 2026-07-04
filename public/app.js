@@ -475,7 +475,7 @@
             datalabels: {
               anchor: 'end', display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, font: { size: 11, weight: 700 }, formatter: (v) => v,
               align: (ctx) => (ctx.dataset.data[ctx.dataIndex] <= 3 ? 'top' : 'bottom'),
-              offset: (ctx) => (ctx.dataset.data[ctx.dataIndex] <= 3 ? 1 : 2), // barra pequena: bem colada no topo, sem tocar a linha
+              offset: (ctx) => (ctx.dataset.data[ctx.dataIndex] <= 3 ? -3 : 2), // barra pequena: uns pixels mais pra baixo (colado no topo, longe da linha)
               color: (ctx) => (ctx.dataset.data[ctx.dataIndex] <= 3 ? '#111827' : '#fff'),
             } },
           // rótulo do budget vai pra BAIXO da bolinha quando o budget está abaixo do realizado

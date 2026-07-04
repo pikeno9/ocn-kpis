@@ -510,6 +510,22 @@
       monthIdxs.map((i) => `<td>${gapCell(H.totalActual[i] != null ? H.totalActual[i] : 0, H.totalBudget[i] != null ? H.totalBudget[i] : 0)}</td>`).join('') +
       '</tr></tbody></table>';
     rolesEl.innerHTML = html;
+
+    // Turnover — 1 saída até agora (dados fixos; mova pra planilha quando houver mais)
+    const turnEl = document.getElementById('rhTurnover');
+    if (turnEl) {
+      const leavers = [
+        { role: 'Customer Support Manager', hired: '19/03/2026', left: '15/04/2026', tenureDays: 27 },
+      ];
+      turnEl.innerHTML =
+        `<div class="kpi-grid" style="margin-bottom:14px">
+          <div class="kpi-card"><div class="kpi-label"><i class="ti ti-user-minus"></i> Total turnover</div><div class="kpi-value">${leavers.length}</div><div class="kpi-sub">people who left</div></div>
+          <div class="kpi-card"><div class="kpi-label"><i class="ti ti-clock"></i> Avg. tenure</div><div class="kpi-value">${Math.round(leavers.reduce((a, l) => a + l.tenureDays, 0) / leavers.length)}</div><div class="kpi-sub">days at the company</div></div>
+        </div>` +
+        `<table class="rh-table"><thead><tr><th>Role</th><th>Hired</th><th>Left</th><th>Tenure</th></tr></thead><tbody>` +
+        leavers.map((l) => `<tr><td>${l.role}</td><td>${l.hired}</td><td>${l.left}</td><td>${l.tenureDays} days</td></tr>`).join('') +
+        '</tbody></table>';
+    }
   }
 
   // ===================== VEHICLES / UTILIZATION (lazy init) =====================
@@ -790,7 +806,6 @@
       });
     }
     funnelChart('chartFunnel1', F.taxaEnvio, '#374151', F.enviados, F.contatos);
-    funnelChart('chartFunnel2', F.taxaAprov, '#DC2626', F.aprovados, F.enviados);
     funnelChart('chartFunnel3', F.convBruta, '#2563EB', F.aprovados, F.contatos);
   }
 
@@ -864,11 +879,16 @@
       px.strokeStyle = '#d1d5db'; px.lineWidth = 2;
       px.beginPath(); px.moveTo(-2, 6); px.lineTo(6, -2); px.moveTo(2, 10); px.lineTo(10, 2); px.stroke();
       const hatch = document.getElementById('chartInDriveBase').getContext('2d').createPattern(pc, 'repeat');
+      // Elegíveis (col D) separados em: já capturados (prints, col F) e ainda não capturados
+      const captured = P.prints.slice();
+      const eligibleNotCaptured = P.elegiveis.map((e, i) => Math.max(0, e - (P.prints[i] || 0)));
       new Chart(document.getElementById('chartInDriveBase'), {
         type: 'bar',
         data: { labels: P.labels, datasets: [
-          { label: 'Eligible for inDrive bonus', data: P.elegiveis, backgroundColor: PURPLE, stack: 's', borderRadius: 3, maxBarThickness: 70,
-            datalabels: { color: '#fff', font: { size: 11, weight: 700 }, textAlign: 'center', formatter: (v, ctx) => v.toLocaleString('en-US') + '\n(' + P.pctElegiveis[ctx.dataIndex] + '%)' } },
+          { label: 'Captured', data: captured, backgroundColor: '#16A34A', stack: 's', borderRadius: 3, maxBarThickness: 70,
+            datalabels: { color: '#fff', font: { size: 11, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => v.toLocaleString('en-US') } },
+          { label: 'Eligible (not captured yet)', data: eligibleNotCaptured, backgroundColor: PURPLE, stack: 's', borderRadius: 3, maxBarThickness: 70,
+            datalabels: { color: '#fff', font: { size: 11, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => v.toLocaleString('en-US') } },
           { label: 'Not eligible', data: P.naoElegiveis, backgroundColor: hatch, borderColor: '#d1d5db', borderWidth: 1, stack: 's', borderRadius: 3, maxBarThickness: 70,
             datalabels: { anchor: 'end', align: 'top', offset: 2, color: NAVY, font: { size: 12, weight: 700 }, formatter: (v, ctx) => P.ativos[ctx.dataIndex].toLocaleString('en-US') } },
         ] },
@@ -878,9 +898,11 @@
             legend: { display: false }, datalabels: { clamp: true },
             tooltip: { callbacks: {
               title: (it) => P.full[it[0].dataIndex],
-              label: (c) => (c.datasetIndex === 0
-                ? 'Eligible: ' + c.parsed.y.toLocaleString('en-US') + ' (' + P.pctElegiveis[c.dataIndex] + '% of active base)'
-                : 'Not eligible: ' + c.parsed.y.toLocaleString('en-US') + ' · Active base: ' + P.ativos[c.dataIndex].toLocaleString('en-US')),
+              label: (c) => {
+                if (c.datasetIndex === 0) return 'Captured: ' + c.parsed.y.toLocaleString('en-US');
+                if (c.datasetIndex === 1) return 'Eligible (not captured): ' + c.parsed.y.toLocaleString('en-US') + ' · total eligible: ' + P.elegiveis[c.dataIndex].toLocaleString('en-US');
+                return 'Not eligible: ' + c.parsed.y.toLocaleString('en-US') + ' · Active base: ' + P.ativos[c.dataIndex].toLocaleString('en-US');
+              },
             } },
           },
           scales: {
@@ -953,13 +975,29 @@
       { key: 'onTime', label: 'Paid on time', color: '#16A34A' },
       { key: 'late1', label: '1 day late', color: '#F59E0B' },
       { key: 'late2', label: '2+ days late', color: '#B45309' },
-      { key: 'returned', label: 'Vehicle returned', color: '#7C3AED' },
-      { key: 'recovered', label: 'Vehicle recovered', color: '#DC2626' },
+      { key: 'returned', label: 'Vehicle returned', color: '#9CA3AF' }, // cinza
+      { key: 'recovered', label: 'Vehicle recovered', color: '#111827' }, // preto
     ];
-    legendEl.innerHTML = CATS.map((c) => `<span class="it"><span class="sw" style="background:${c.color}"></span> ${c.label}</span>`).join('');
+    // semanas que são a ÚLTIMA do mês (destaque cinza atrás: semanas fracas nas plataformas)
+    const MONTH_END_WEEKS = ['04/05', '01/06', '29/06'];
+    legendEl.innerHTML = CATS.map((c) => `<span class="it"><span class="sw" style="background:${c.color}"></span> ${c.label}</span>`).join('') +
+      '<span class="it"><span class="sw" style="background:rgba(120,120,140,0.16)"></span> Last week of month</span>';
     const labels = P.weeks.map((w) => fmtDMY(w.date));
     const totals = P.weeks.map((w) => CATS.reduce((s, c) => s + w.counts[c.key], 0));
-    let mode = 'abs', chart, selWeekIdx = null;
+    let mode = 'pct', chart, selWeekIdx = null; // padrão: Percentage (100% bars)
+    // fundo cinza claro atrás das últimas semanas do mês
+    const monthEndBg = {
+      id: 'monthEndBg',
+      beforeDatasetsDraw(ch) {
+        const xs = ch.scales.x, ca = ch.chartArea, ctx = ch.ctx;
+        if (!xs || xs.getPixelForValue(1) == null) return;
+        const half = Math.abs(xs.getPixelForValue(1) - xs.getPixelForValue(0)) / 2;
+        ctx.save();
+        ctx.fillStyle = 'rgba(120,120,140,0.14)';
+        labels.forEach((lab, i) => { if (MONTH_END_WEEKS.includes(lab)) { const cx = xs.getPixelForValue(i); ctx.fillRect(cx - half, ca.top, half * 2, ca.bottom - ca.top); } });
+        ctx.restore();
+      },
+    };
     function datasetsFor() {
       return CATS.map((c) => {
         const raw = P.weeks.map((w) => w.counts[c.key]);
@@ -992,6 +1030,7 @@
       chart = new Chart(document.getElementById('chartPayments'), {
         type: 'bar',
         data: { labels, datasets: datasetsFor() },
+        plugins: [monthEndBg],
         options: {
           responsive: true, maintainAspectRatio: false, layout: { padding: { top: 22 } },
           onClick: (evt, els) => { if (!els.length) return; selWeekIdx = els[0].index; renderDetail(); },
@@ -1012,7 +1051,9 @@
       });
       renderDetail();
     }
-    document.getElementById('payViewSelect').addEventListener('change', (e) => { mode = e.target.value === 'pct' ? 'pct' : 'abs'; render(); });
+    const paySel = document.getElementById('payViewSelect');
+    if (paySel) paySel.value = 'pct'; // reflete o padrão Percentage no dropdown
+    paySel.addEventListener('change', (e) => { mode = e.target.value === 'pct' ? 'pct' : 'abs'; render(); });
     render();
   }
 

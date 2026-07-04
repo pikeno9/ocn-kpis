@@ -319,14 +319,6 @@
           </div>
         </div>
         <div class="card">
-          <div class="sub2-title"><i class="ti ti-chart-line"></i> Analysis → Approved</div>
-          <div class="sub2-desc">Share of analyzed contacts approved, per week</div>
-          <div class="legend"><span class="it"><span class="sw-line" style="border-color:#9ca3af"></span> Average</span></div>
-          <div class="chart-box" style="height:280px;">
-            <canvas id="chartFunnel2" role="img" aria-label="Weekly conversion rate from analysis to approved"></canvas>
-          </div>
-        </div>
-        <div class="card">
           <div class="sub2-title"><i class="ti ti-chart-line"></i> Gross conversion</div>
           <div class="sub2-desc">Share of unique contacts approved, per week</div>
           <div class="legend"><span class="it"><span class="sw-line" style="border-color:#9ca3af"></span> Average</span></div>
@@ -338,6 +330,18 @@
 
       <!-- ---------- INDRIVE ---------- -->
       <div class="subsection" id="sub-indrive">
+        <div class="card">
+          <div class="sub2-title"><i class="ti ti-chart-bar"></i> Eligible clients in the active base</div>
+          <div class="sub2-desc">Cumulative active base per week — eligible clients highlighted, total on top</div>
+          <div class="legend">
+            <span class="it"><span class="sw" style="background:#16A34A"></span> Captured</span>
+            <span class="it"><span class="sw" style="background:#5A00F8"></span> Eligible for inDrive bonus (not captured yet)</span>
+            <span class="it"><span class="sw" style="background:repeating-linear-gradient(45deg,#d1d5db,#d1d5db 3px,#f3f4f6 3px,#f3f4f6 6px)"></span> Not eligible</span>
+          </div>
+          <div class="chart-box" style="height:340px;">
+            <canvas id="chartInDriveBase" role="img" aria-label="Cumulative captured, eligible and non-eligible clients in the active base per week"></canvas>
+          </div>
+        </div>
         <div class="card">
           <div class="sub2-title"><i class="ti ti-chart-line"></i> Leads eligible for inDrive</div>
           <div class="sub2-desc">Waitlist (approved) vs. leads eligible for the inDrive bonus, per week</div>
@@ -353,18 +357,7 @@
             <canvas id="chartInDriveLeads" role="img" aria-label="Cumulative eligible leads vs total waitlist per week"></canvas>
           </div>
         </div>
-        <div class="card">
-          <div class="sub2-title"><i class="ti ti-chart-bar"></i> Eligible clients in the active base</div>
-          <div class="sub2-desc">Cumulative active base per week — eligible clients highlighted, total on top</div>
-          <div class="legend">
-            <span class="it"><span class="sw" style="background:#5A00F8"></span> Eligible for inDrive bonus</span>
-            <span class="it"><span class="sw" style="background:repeating-linear-gradient(45deg,#d1d5db,#d1d5db 3px,#f3f4f6 3px,#f3f4f6 6px)"></span> Not eligible</span>
-          </div>
-          <div class="chart-box" style="height:340px;">
-            <canvas id="chartInDriveBase" role="img" aria-label="Cumulative eligible vs non-eligible clients in the active base per week"></canvas>
-          </div>
-        </div>
-        <div class="card">
+        <div class="card" style="display:none">
           <div class="legend">
             <div>
               <div class="sub2-title"><i class="ti ti-chart-line"></i> Opportunity captured</div>
@@ -419,10 +412,15 @@
             <canvas id="chartHC" role="img" aria-label="Headcount actual (bars) vs budget (line) by month"></canvas>
           </div>
         </div>
-        <div class="card">
+        <div class="card" style="display:none">
           <div class="sub2-title"><i class="ti ti-list-details"></i> HC per role</div>
           <div class="sub2-desc">Actual headcount, with budget in gray parentheses · green = below budget, red = above budget</div>
           <div id="rhRoles" class="rh-matrix-wrap"></div>
+        </div>
+        <div class="card">
+          <div class="sub2-title"><i class="ti ti-user-minus"></i> Turnover</div>
+          <div class="sub2-desc">Team members who left the company</div>
+          <div id="rhTurnover"></div>
         </div>
       </div>
     </section>

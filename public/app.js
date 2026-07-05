@@ -127,8 +127,16 @@
     const prev = idx > 0 ? _acumBud[idx - 1] : 0;
     return cur - (prev == null ? 0 : prev);
   });
+  // gráfico mensal COMEÇA EM MARÇO (recebido 0, budget = 1º valor do acumulado), como o gráfico de cima.
+  // arrays prefixados; índice 0 = Março; os demais deslocam +1 vs. M (Abr=0).
+  const MLbl = ['Mar', ...M.labels];
+  const MFull = ['March', ...M.full];
+  const MRec = { Polo: [0, ...M.recebido.Polo], Argo: [0, ...M.recebido.Argo], Tera: [0, ...M.recebido.Tera] };
+  const MBud = [(_acumBud[0] != null ? _acumBud[0] : 50), ...monthlyBudget]; // Março = acumulado do 1º mês
+  const MInter = [false, ...M.interativo]; // Março sem detalhe semanal
   let chartMensal, view = 'monthly', cur = null, range = 'ytd';
   const rng = (arr) => (range === 'ytd' ? arr.slice(0, vi + 1) : arr); // YTD = abr até o mês vigente; FY = ano todo
+  const rngM = (arr) => (range === 'ytd' ? arr.slice(0, vi + 2) : arr); // idem, mas c/ Março na frente (índice extra)
   const toast = document.getElementById('toast');
   const backBtn = document.getElementById('backBtn');
   function showToast(m) { toast.textContent = m; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2200); }
@@ -139,15 +147,15 @@
       onClick: (e, els) => {
         if (view !== 'monthly' || !els.length) return;
         const i = els[0].index;
-        if (!M.interativo[i]) { showToast('April has no weekly calendar detail'); return; }
-        goWeekly(i);
+        if (!MInter[i]) { showToast('No weekly calendar detail for this month'); return; }
+        goWeekly(i - 1); // índice de exibição (com Março) → índice original (Abr=0)
       },
-      onHover: (e, els) => { e.native.target.style.cursor = (view === 'monthly' && els.length && M.interativo[els[0].index]) ? 'pointer' : 'default'; },
+      onHover: (e, els) => { e.native.target.style.cursor = (view === 'monthly' && els.length && MInter[els[0].index]) ? 'pointer' : 'default'; },
       plugins: {
         legend: { display: false }, datalabels: { clamp: true },
         tooltip: {
           callbacks: {
-            title: (it) => isMonthly ? (M.full[it[0].dataIndex] + '/26') : (M.full[cur] + ' · ' + W.labels[it[0].dataIndex][0]),
+            title: (it) => isMonthly ? (MFull[it[0].dataIndex] + '/26') : (M.full[cur] + ' · ' + W.labels[it[0].dataIndex][0]),
             label: (c) => {
               if (c.dataset.label === 'Budget') {
                 // no mensal, o budget vem do acumulado (sem breakdown por modelo); no semanal mantém o breakdown
@@ -168,7 +176,7 @@
   }
 
   function buildMonthly() {
-    return { type: 'bar', data: { labels: rng(M.labels), datasets: [barDS('Polo', rng(M.recebido.Polo)), barDS('Argo', rng(M.recebido.Argo)), barDS('Tera', rng(M.recebido.Tera)), lineDS(rng(monthlyBudget), true)] }, options: opts(true) };
+    return { type: 'bar', data: { labels: rngM(MLbl), datasets: [barDS('Polo', rngM(MRec.Polo)), barDS('Argo', rngM(MRec.Argo)), barDS('Tera', rngM(MRec.Tera)), lineDS(rngM(MBud), true)] }, options: opts(true) };
   }
   function buildWeekly(mi) {
     const rp = (W.recebido.Polo[mi] || Z), ra = (W.recebido.Argo[mi] || Z), rt = (W.recebido.Tera[mi] || Z);
@@ -677,7 +685,8 @@
           plugins: { legend: { display: false }, datalabels: { clamp: true }, tooltip: { callbacks: { label: (c) => c.parsed.y + ' vehicle' + (c.parsed.y === 1 ? '' : 's') } } },
           scales: {
             x: { grid: { display: false }, ticks: { color: TXT2 }, title: { display: true, text: 'km/week', color: '#9ca3af', font: { size: 11, style: 'italic' } } },
-            y: { display: false, beginAtZero: true, grid: { display: false } },
+            // teto do eixo ~30% acima da faixa mais alta: dá espaço p/ os rótulos "actual avg"/"budget" no topo sem colar na barra
+            y: { display: false, beginAtZero: true, grid: { display: false }, max: Math.max(...counts) > 0 ? Math.ceil(Math.max(...counts) * 1.3) : undefined },
           },
         },
       });
@@ -1336,7 +1345,13 @@
           plugins: [stackTotalPlugin],
           options: {
             responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24 } },
-            onClick: (evt, els) => { if (!els.length) return; const mk = (OM.monthKeys || [])[els[0].index]; renderOcorDetail(selMonth === mk ? null : mk); },
+            onClick: (evt, els) => {
+              if (!els.length) return;
+              const mk = (OM.monthKeys || [])[els[0].index];
+              const tipoLabel = (tipos[els[0].datasetIndex] || {}).label || null; // categoria clicada
+              // clicar de novo no mesmo mês+tipo limpa o filtro
+              renderOcorDetail((selMonth === mk && selTipo === tipoLabel) ? null : mk, (selMonth === mk && selTipo === tipoLabel) ? null : tipoLabel);
+            },
             onHover: (evt, els) => { evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
             plugins: {
               legend: { display: false }, datalabels: { clamp: true },
@@ -1361,28 +1376,29 @@
       renderOcorDetail(null); // tabela mostra todos os casos por padrão
     }
 
-    // tabela de detalhamento dos casos (cronológico decrescente); monthKey filtra por mês
-    var selMonth = null;
-    function renderOcorDetail(monthKey) {
-      selMonth = monthKey;
+    // tabela de detalhamento dos casos (cronológico decrescente); filtra por mês E por tipo
+    var selMonth = null, selTipo = null;
+    function renderOcorDetail(monthKey, tipoLabel) {
+      selMonth = monthKey; selTipo = tipoLabel || null;
       const el = document.getElementById('ocorDetail');
       if (!el) return;
       const casos = O.casos || [];
-      const rows = monthKey ? casos.filter((k) => k.monthKey === monthKey) : casos;
+      const rows = casos.filter((k) => (!monthKey || k.monthKey === monthKey) && (!selTipo || k.tipo === selTipo));
       const MES_ABR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       const monthLabel = (mk) => { if (!mk) return ''; const m = +mk.slice(5) - 1; return (MES_ABR[m] || mk); };
-      const titleTxt = monthKey ? `${monthLabel(monthKey)} incidents (${rows.length})` : `All incidents (${rows.length})`;
+      const scope = [monthKey ? monthLabel(monthKey) : '', selTipo || ''].filter(Boolean).join(' · ');
+      const titleTxt = scope ? `${scope} (${rows.length})` : `All incidents (${rows.length})`;
       el.innerHTML =
-        `<div class="pay-detail-title">${titleTxt}` + (monthKey ? ` <button type="button" id="ocorDetailAll">show all</button>` : '') + `</div>` +
+        `<div class="pay-detail-title">${titleTxt}` + ((monthKey || selTipo) ? ` <button type="button" id="ocorDetailAll">show all</button>` : '') + `</div>` +
         (rows.length
           ? `<table class="rh-table"><thead><tr><th>Date</th><th>Plate</th><th>Client</th><th>Type</th><th>Claim</th><th>Workshop</th><th>Details</th></tr></thead><tbody>` +
             rows.map((k) => `<tr><td>${k.data}</td><td class="util-plate-col">${k.placa}</td><td>${k.cliente}</td>` +
               `<td><span class="ocor-type"><span class="ocor-dot" style="background:${k.tipoCor}"></span>${k.tipo}</span></td>` +
               `<td>${k.sinistro ? 'Yes' : '—'}</td><td>${k.oficina}</td><td class="redeploy-details">${k.detalhamento}</td></tr>`).join('') +
             '</tbody></table>'
-          : '<div style="color:var(--text-2);font-size:13px">No incidents in this month.</div>');
+          : '<div style="color:var(--text-2);font-size:13px">No incidents match this filter.</div>');
       const allBtn = document.getElementById('ocorDetailAll');
-      if (allBtn) allBtn.addEventListener('click', () => renderOcorDetail(null));
+      if (allBtn) allBtn.addEventListener('click', () => renderOcorDetail(null, null));
     }
 
     // Sinistro por tipo (barra empilhada horizontal) — tons de roxo

@@ -236,6 +236,15 @@ button { font-family: inherit; cursor: pointer; }
 .pay-detail-plate { color: var(--text-2); font-size: 10.5px; }
 /* ---- Redeployment: detalhamento tem texto longo, deixa quebrar linha e alinhar à esquerda ---- */
 .redeploy-details { white-space: normal; text-align: left; max-width: 420px; font-size: 11.5px; color: var(--text-2); }
+.ocor-type { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.ocor-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: 0 0 auto; }
+.redeploy-kpis { display: flex; gap: 10px; margin: 6px 0 12px; flex-wrap: wrap; }
+.redeploy-kpi { background: #F1EBFF; border-radius: 10px; padding: 10px 16px; min-width: 130px; }
+.redeploy-kpi.alt { background: var(--surface-2, #f3f2f7); }
+.redeploy-kpi .rk-v { font-size: 22px; font-weight: 700; color: #5A00F8; line-height: 1.1; }
+.redeploy-kpi.alt .rk-v { color: var(--text); }
+.redeploy-kpi .rk-u { font-size: 12px; font-weight: 600; color: var(--text-2); }
+.redeploy-kpi .rk-l { font-size: 10.5px; color: var(--text-2); margin-top: 2px; }
 .ue-tag { display: inline-block; padding: 1px 7px; border-radius: 999px; font-weight: 600; margin-right: 4px; }
 .ue-tag-orc { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border-2); }
 .ue-tag-real { background: #1d1d1b; color: #fff; }

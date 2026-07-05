@@ -115,6 +115,18 @@
 
   // ---------- estado / chart principal ----------
   const M = OCN.mensal, W = OCN.semanal;
+  // budget MENSAL derivado do budget ACUMULADO (cada mês = acumulado − mês anterior),
+  // pra sempre bater com o gráfico "Received Fleet (acc.)"
+  const _A = OCN.acumulado || {};
+  const _acumBud = _A.esperado || [];
+  const _acumLbl = _A.labels || M.labels;
+  const _off = Math.max(0, _acumLbl.indexOf(M.labels[0])); // posição de 'Apr' no acumulado
+  const monthlyBudget = M.labels.map((_, i) => {
+    const idx = _off + i, cur = _acumBud[idx];
+    if (cur == null) return null;
+    const prev = idx > 0 ? _acumBud[idx - 1] : 0;
+    return cur - (prev == null ? 0 : prev);
+  });
   let chartMensal, view = 'monthly', cur = null, range = 'ytd';
   const rng = (arr) => (range === 'ytd' ? arr.slice(0, vi + 1) : arr); // YTD = abr até o mês vigente; FY = ano todo
   const toast = document.getElementById('toast');
@@ -138,7 +150,9 @@
             title: (it) => isMonthly ? (M.full[it[0].dataIndex] + '/26') : (M.full[cur] + ' · ' + W.labels[it[0].dataIndex][0]),
             label: (c) => {
               if (c.dataset.label === 'Budget') {
-                const m = isMonthly ? M.esperadoModelo[c.dataIndex] : (W.esperadoModelo[cur] ? W.esperadoModelo[cur][c.dataIndex] : null);
+                // no mensal, o budget vem do acumulado (sem breakdown por modelo); no semanal mantém o breakdown
+                if (isMonthly) return 'Budget: ' + (c.parsed.y == null ? '—' : c.parsed.y);
+                const m = W.esperadoModelo[cur] ? W.esperadoModelo[cur][c.dataIndex] : null;
                 return 'Budget: ' + (c.parsed.y == null ? '—' : c.parsed.y) + (m ? ' (' + mdlStr(m) + ')' : '');
               }
               return c.dataset.label + ': ' + c.parsed.y;
@@ -154,7 +168,7 @@
   }
 
   function buildMonthly() {
-    return { type: 'bar', data: { labels: rng(M.labels), datasets: [barDS('Polo', rng(M.recebido.Polo)), barDS('Argo', rng(M.recebido.Argo)), barDS('Tera', rng(M.recebido.Tera)), lineDS(rng(M.esperadoTotal), true)] }, options: opts(true) };
+    return { type: 'bar', data: { labels: rng(M.labels), datasets: [barDS('Polo', rng(M.recebido.Polo)), barDS('Argo', rng(M.recebido.Argo)), barDS('Tera', rng(M.recebido.Tera)), lineDS(rng(monthlyBudget), true)] }, options: opts(true) };
   }
   function buildWeekly(mi) {
     const rp = (W.recebido.Polo[mi] || Z), ra = (W.recebido.Argo[mi] || Z), rt = (W.recebido.Tera[mi] || Z);
@@ -521,16 +535,46 @@
     const turnEl = document.getElementById('rhTurnover');
     if (turnEl) {
       const leavers = [
-        { role: 'Customer Support Manager', hired: '19/03/2026', left: '15/04/2026', tenureDays: 27 },
+        { role: 'Customer Support Manager', hired: '19/03/2026', left: '15/04/2026', tenureDays: 27, monthIdx: 3 }, // saiu em Abril (idx 3)
       ];
+      // turnover mensal % = saídas no mês ÷ headcount daquele mês (0% nos meses sem saída)
+      const upToT = H.currentIdx >= 0 ? H.currentIdx : (H.actual.filter((v) => v != null).length - 1);
+      const monLabels = [], monPct = [], monDep = [];
+      for (let i = 0; i <= upToT; i++) {
+        const dep = leavers.filter((l) => l.monthIdx === i).length;
+        const hc = H.actual[i];
+        monLabels.push(H.labels[i]); monDep.push(dep);
+        monPct.push(hc ? Math.round((dep / hc) * 1000) / 10 : 0);
+      }
+      const aprPct = monPct[3] != null ? monPct[3] : 0;
       turnEl.innerHTML =
         `<div class="kpi-grid" style="margin-bottom:14px">
-          <div class="kpi-card"><div class="kpi-label"><i class="ti ti-user-minus"></i> Total turnover</div><div class="kpi-value">${leavers.length}</div><div class="kpi-sub">people who left</div></div>
+          <div class="kpi-card"><div class="kpi-label"><i class="ti ti-user-minus"></i> Total turnover</div><div class="kpi-value">${leavers.length}</div><div class="kpi-sub">person left YTD</div></div>
+          <div class="kpi-card"><div class="kpi-label"><i class="ti ti-percentage"></i> Turnover in Apr</div><div class="kpi-value">${aprPct}%</div><div class="kpi-sub">1 of ${H.actual[3]} team members</div></div>
           <div class="kpi-card"><div class="kpi-label"><i class="ti ti-clock"></i> Avg. tenure</div><div class="kpi-value">${Math.round(leavers.reduce((a, l) => a + l.tenureDays, 0) / leavers.length)}</div><div class="kpi-sub">days at the company</div></div>
         </div>` +
-        `<table class="rh-table"><thead><tr><th>Role</th><th>Hired</th><th>Left</th><th>Tenure</th></tr></thead><tbody>` +
+        `<div class="sub2-desc" style="margin:2px 0 6px">Monthly turnover rate — departures ÷ headcount that month</div>` +
+        `<div class="chart-box" style="height:210px"><canvas id="chartTurnover" role="img" aria-label="Monthly turnover rate"></canvas></div>` +
+        `<table class="rh-table" style="margin-top:12px"><thead><tr><th>Role</th><th>Hired</th><th>Left</th><th>Tenure</th></tr></thead><tbody>` +
         leavers.map((l) => `<tr><td>${l.role}</td><td>${l.hired}</td><td>${l.left}</td><td>${l.tenureDays} days</td></tr>`).join('') +
         '</tbody></table>';
+      const tCanvas = document.getElementById('chartTurnover');
+      if (tCanvas) new Chart(tCanvas, {
+        type: 'bar',
+        data: { labels: monLabels, datasets: [{
+          label: 'Turnover', data: monPct,
+          backgroundColor: monDep.map((d) => (d > 0 ? '#B91C1C' : '#CBD5E1')), borderRadius: 3, maxBarThickness: 54,
+          datalabels: { anchor: 'end', align: 'top', offset: 2, color: (ctx) => (monDep[ctx.dataIndex] > 0 ? '#B91C1C' : '#9ca3af'), font: { size: 11, weight: 700 }, formatter: (v) => v + '%' },
+        }] },
+        options: {
+          responsive: true, maintainAspectRatio: false, layout: { padding: { top: 20 } },
+          plugins: { legend: { display: false }, datalabels: { clamp: true }, tooltip: { callbacks: { label: (c) => monDep[c.dataIndex] + (monDep[c.dataIndex] === 1 ? ' departure' : ' departures') + ' · ' + c.parsed.y + '%' } } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: TXT2 } },
+            y: { beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, callback: (v) => v + '%' }, title: { display: true, text: 'turnover %', color: '#9ca3af', font: { size: 11 } } },
+          },
+        },
+      });
     }
   }
 
@@ -889,13 +933,15 @@
       // Elegíveis (col D) separados em: já capturados (prints, col F) e ainda não capturados
       const captured = P.prints.slice();
       const eligibleNotCaptured = P.elegiveis.map((e, i) => Math.max(0, e - (P.prints[i] || 0)));
+      // valor absoluto + (% da base ativa) embaixo, para Captured e Eligible (segmentos maiores)
+      const pctOfBase = (v, i) => (P.ativos[i] ? Math.round((v / P.ativos[i]) * 100) : 0);
       new Chart(document.getElementById('chartInDriveBase'), {
         type: 'bar',
         data: { labels: P.labels, datasets: [
           { label: 'Captured', data: captured, backgroundColor: '#16A34A', stack: 's', borderRadius: 3, maxBarThickness: 70,
-            datalabels: { color: '#fff', font: { size: 11, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => v.toLocaleString('en-US') } },
+            datalabels: { color: '#fff', font: { size: 11, weight: 700 }, textAlign: 'center', display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v, ctx) => v.toLocaleString('en-US') + '\n(' + pctOfBase(v, ctx.dataIndex) + '%)' } },
           { label: 'Eligible (not captured yet)', data: eligibleNotCaptured, backgroundColor: PURPLE, stack: 's', borderRadius: 3, maxBarThickness: 70,
-            datalabels: { color: '#fff', font: { size: 11, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => v.toLocaleString('en-US') } },
+            datalabels: { color: '#fff', font: { size: 11, weight: 700 }, textAlign: 'center', display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v, ctx) => v.toLocaleString('en-US') + '\n(' + pctOfBase(v, ctx.dataIndex) + '%)' } },
           { label: 'Not eligible', data: P.naoElegiveis, backgroundColor: hatch, borderColor: '#d1d5db', borderWidth: 1, stack: 's', borderRadius: 3, maxBarThickness: 70,
             datalabels: { anchor: 'end', align: 'top', offset: 2, color: NAVY, font: { size: 12, weight: 700 }, formatter: (v, ctx) => P.ativos[ctx.dataIndex].toLocaleString('en-US') } },
         ] },
@@ -1095,8 +1141,17 @@
       const closeBtn = document.getElementById(closeId);
       if (closeBtn) closeBtn.addEventListener('click', () => { selIdx = null; renderDetail(); });
     }
-    // total de dias do mês (verde+roxo) — vira o totalizador acima da barra;
-    // meses com total 0 não têm barra clicável, ganham uma bolinha preta no zero
+    // média GERAL (todos os casos) num KPI fácil de ver, acima do gráfico
+    if (section.overall) {
+      const ovEl = document.getElementById(detailId.replace('Detail', 'Overall'));
+      if (ovEl) ovEl.innerHTML =
+        `<div class="redeploy-kpis">` +
+        `<div class="redeploy-kpi"><div class="rk-v">${section.overall.total} <span class="rk-u">working days</span></div><div class="rk-l">Avg. time to put a car back on the road</div></div>` +
+        `<div class="redeploy-kpi alt"><div class="rk-v">${section.overall.repair}</div><div class="rk-l">Avg. repair</div></div>` +
+        `<div class="redeploy-kpi alt"><div class="rk-v">${section.overall.reloc}</div><div class="rk-l">Avg. relocation</div></div>` +
+        `</div>`;
+    }
+    // total de dias do mês (reparo+recolocação) — rótulo no fim de cada barra horizontal
     const totalDays = section.labels.map((_, i) => Math.round(((section.avgRecupParaPronto[i] || 0) + (section.avgProntoParaAlocado[i] || 0)) * 10) / 10);
     new Chart(canvas, {
       type: 'bar',
@@ -1104,32 +1159,31 @@
         labels: section.labels,
         datasets: [
           // dois tons de roxo: escuro = tempo de reparo (evento→pronto), claro = tempo de recolocação (pronto→alocado)
-          { label: 'Repair time', data: section.avgRecupParaPronto, backgroundColor: '#3A00A0', stack: 's', borderRadius: 3, maxBarThickness: 60, order: 1,
+          { label: 'Repair time', data: section.avgRecupParaPronto, backgroundColor: '#3A00A0', stack: 's', borderRadius: 3, maxBarThickness: 46,
             datalabels: { color: '#fff', font: { size: 11, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => v } },
-          { label: 'Relocation time', data: section.avgProntoParaAlocado, backgroundColor: '#9366FF', stack: 's', borderRadius: 3, maxBarThickness: 60, order: 1,
+          { label: 'Relocation time', data: section.avgProntoParaAlocado, backgroundColor: '#9366FF', stack: 's', borderRadius: 3, maxBarThickness: 46,
             datalabels: { labels: {
               value: { color: '#fff', font: { size: 11, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, formatter: (v) => v },
-              total: { anchor: 'end', align: 'top', offset: 2, color: NAVY, font: { size: 12, weight: 700 }, display: (ctx) => totalDays[ctx.dataIndex] > 0, formatter: (v, ctx) => totalDays[ctx.dataIndex] },
+              total: { anchor: 'end', align: 'right', offset: 4, color: NAVY, font: { size: 12, weight: 700 }, display: (ctx) => totalDays[ctx.dataIndex] >= 0, formatter: (v, ctx) => totalDays[ctx.dataIndex] },
             } } },
-          { type: 'scatter', label: 'zero', data: totalDays.map((t) => (t === 0 ? 0 : null)), pointRadius: 6, pointHoverRadius: 8, pointBackgroundColor: '#111827', pointBorderColor: '#111827', order: 0,
-            datalabels: { anchor: 'end', align: 'top', offset: 4, color: NAVY, font: { size: 12, weight: 700 }, display: (ctx) => ctx.dataset.data[ctx.dataIndex] != null, formatter: () => 0 } },
         ],
       },
       options: {
-        responsive: true, maintainAspectRatio: false, layout: { padding: { top: 22 } },
-        onClick: (evt, els) => { if (!els.length) return; selIdx = els[0].index; renderDetail(); },
+        indexAxis: 'y', // barras HORIZONTAIS empilhadas
+        responsive: true, maintainAspectRatio: false, layout: { padding: { right: 26 } },
+        onClick: (evt, els, ch) => { const pts = ch.getElementsAtEventForMode(evt, 'index', { intersect: false }, true); if (pts.length) { selIdx = pts[0].index; renderDetail(); } },
         onHover: (evt, els) => { evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
         plugins: {
           legend: { display: false }, datalabels: { clamp: true },
           tooltip: { callbacks: {
             title: (it) => section.labels[it[0].dataIndex][0] + ' · ' + section.total[it[0].dataIndex] + ' ' + itemNoun,
-            label: (c) => (c.dataset.type === 'scatter' ? '0 working days' : c.dataset.label + ': ' + c.parsed.y + ' working days (avg)'),
+            label: (c) => c.dataset.label + ': ' + c.parsed.x + ' working days (avg)',
             afterBody: () => 'Click for the list',
           } },
         },
         scales: {
-          x: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } },
-          y: { stacked: true, beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, precision: 0 }, title: { display: true, text: 'avg. days', color: '#9ca3af', font: { size: 11 } } },
+          x: { stacked: true, beginAtZero: true, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, precision: 0 }, title: { display: true, text: 'avg. working days', color: '#9ca3af', font: { size: 11 } } },
+          y: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } },
         },
       },
     });
@@ -1282,6 +1336,8 @@
           plugins: [stackTotalPlugin],
           options: {
             responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24 } },
+            onClick: (evt, els) => { if (!els.length) return; const mk = (OM.monthKeys || [])[els[0].index]; renderOcorDetail(selMonth === mk ? null : mk); },
+            onHover: (evt, els) => { evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
             plugins: {
               legend: { display: false }, datalabels: { clamp: true },
               tooltip: { callbacks: {
@@ -1302,6 +1358,31 @@
         omTg.querySelectorAll('.range-btn').forEach((x) => x.classList.toggle('active', x === b));
         renderOcorMensal(b.dataset.range === 'monthly' ? 'monthly' : 'acc');
       }));
+      renderOcorDetail(null); // tabela mostra todos os casos por padrão
+    }
+
+    // tabela de detalhamento dos casos (cronológico decrescente); monthKey filtra por mês
+    var selMonth = null;
+    function renderOcorDetail(monthKey) {
+      selMonth = monthKey;
+      const el = document.getElementById('ocorDetail');
+      if (!el) return;
+      const casos = O.casos || [];
+      const rows = monthKey ? casos.filter((k) => k.monthKey === monthKey) : casos;
+      const MES_ABR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const monthLabel = (mk) => { if (!mk) return ''; const m = +mk.slice(5) - 1; return (MES_ABR[m] || mk); };
+      const titleTxt = monthKey ? `${monthLabel(monthKey)} incidents (${rows.length})` : `All incidents (${rows.length})`;
+      el.innerHTML =
+        `<div class="pay-detail-title">${titleTxt}` + (monthKey ? ` <button type="button" id="ocorDetailAll">show all</button>` : '') + `</div>` +
+        (rows.length
+          ? `<table class="rh-table"><thead><tr><th>Date</th><th>Plate</th><th>Client</th><th>Type</th><th>Claim</th><th>Workshop</th><th>Details</th></tr></thead><tbody>` +
+            rows.map((k) => `<tr><td>${k.data}</td><td class="util-plate-col">${k.placa}</td><td>${k.cliente}</td>` +
+              `<td><span class="ocor-type"><span class="ocor-dot" style="background:${k.tipoCor}"></span>${k.tipo}</span></td>` +
+              `<td>${k.sinistro ? 'Yes' : '—'}</td><td>${k.oficina}</td><td class="redeploy-details">${k.detalhamento}</td></tr>`).join('') +
+            '</tbody></table>'
+          : '<div style="color:var(--text-2);font-size:13px">No incidents in this month.</div>');
+      const allBtn = document.getElementById('ocorDetailAll');
+      if (allBtn) allBtn.addEventListener('click', () => renderOcorDetail(null));
     }
 
     // Sinistro por tipo (barra empilhada horizontal) — tons de roxo

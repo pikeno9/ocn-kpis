@@ -388,7 +388,7 @@
       },
     };
     // nº de total loss ao lado do topo da barra (segmento fino demais p/ rótulo dentro), só quando >=1
-    let lossArr = [];
+    let lossArr = [], lossPctArr = [];
     const lossTag = {
       id: 'lossTag',
       afterDatasetsDraw(chart) {
@@ -400,7 +400,9 @@
         for (let i = 0; i < lossArr.length; i++) {
           if ((lossArr[i] || 0) < 1 || !meta.data[i]) continue;
           const bar = meta.data[i];
-          ctx.fillText(String(lossArr[i]), bar.x + bar.width / 2 + 5, bar.y + 3);
+          const x = bar.x + bar.width / 2 + 5;
+          ctx.fillText(String(lossArr[i]), x, bar.y + 3);
+          if (lossPctArr[i] != null) ctx.fillText(pctTag(lossPctArr[i]), x, bar.y + 3 + 12); // percentual abaixo do valor, mesma fonte
         }
         ctx.restore();
       },
@@ -410,6 +412,7 @@
       recalc();
       totalArr = sl(eff.total);
       lossArr = sl(eff.loss);
+      lossPctArr = sl(eff.lossPct);
       if (chartUtil) chartUtil.destroy();
       chartUtil = new Chart(document.getElementById('chartUtil'), {
         type: 'bar',

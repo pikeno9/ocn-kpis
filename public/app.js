@@ -1109,17 +1109,54 @@
         ctx.restore();
       },
     };
+    // rótulos das barras: dentro do segmento se couber; se a fatia for fina, empilha o % à direita da barra
+    const payBarLabels = {
+      id: 'payBarLabels',
+      afterDatasetsDraw(ch) {
+        const ctx = ch.ctx;
+        const fam = (Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif';
+        for (let i = 0; i < ch.data.labels.length; i++) {
+          const side = []; let barRight = null;
+          CATS.forEach((c, di) => {
+            const el = ch.getDatasetMeta(di).data[i];
+            if (!el) return;
+            const val = ch.data.datasets[di].data[i];
+            if (!val || val <= 0) return;
+            const cp = el.getCenterPoint(), h = el.height;
+            barRight = el.x + el.width / 2;
+            const txt = (mode === 'pct' ? Math.round(val) + '%' : String(val));
+            if (h >= 13) { // cabe dentro do segmento
+              ctx.save();
+              ctx.font = '700 10px ' + fam;
+              ctx.fillStyle = c.key === 'pending' ? '#374151' : '#fff';
+              ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+              ctx.fillText(txt, cp.x, cp.y);
+              ctx.restore();
+            } else { // fatia fina — desenha ao lado
+              side.push({ y: cp.y, txt, color: c.key === 'pending' ? '#6B7280' : c.color });
+            }
+          });
+          if (side.length && barRight != null) {
+            side.sort((a, b) => a.y - b.y);
+            ctx.save();
+            ctx.font = '700 9px ' + fam; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+            let lastY = -1e9; const gap = 11;
+            for (const s of side) {
+              let y = s.y; if (y - lastY < gap) y = lastY + gap; lastY = y; // empilha p/ não sobrepor
+              ctx.fillStyle = s.color; ctx.fillText(s.txt, barRight + 4, y);
+            }
+            ctx.restore();
+          }
+        }
+      },
+    };
     function datasetsFor() {
       return CATS.map((c) => {
         const raw = P.weeks.map((w) => w.counts[c.key]);
         const data = mode === 'pct' ? raw.map((v, i) => (totals[i] ? Math.round((v / totals[i]) * 1000) / 10 : 0)) : raw;
         return {
           label: c.label, data, backgroundColor: c.color, stack: 'w', maxBarThickness: 60,
-          datalabels: {
-            color: c.key === 'pending' ? '#6B7280' : '#fff', font: { size: 10, weight: 700 }, // texto escuro no cinza claro do Pending
-            display: (ctx) => ctx.dataset.data[ctx.dataIndex] > (mode === 'pct' ? 4 : 0),
-            formatter: (v) => (mode === 'pct' ? Math.round(v) + '%' : v),
-          },
+          datalabels: { display: false }, // rótulos desenhados pelo plugin payBarLabels (dentro se couber, ao lado se fino)
         };
       });
     }
@@ -1131,7 +1168,11 @@
           const names = (w.names && w.names[c.key]) || [];
           if (!names.length) return '';
           return `<div class="pay-detail-col"><div class="pay-detail-cat" style="color:${c.color}">${c.label} (${names.length})</div>` +
-            names.map((n) => `<div class="pay-detail-name">${n.nome} <span class="pay-detail-plate">${n.placa}</span></div>`).join('') + '</div>';
+            names.map((n) => {
+              const val = c.key === 'pending' ? n.esperado : n.recebido; // pago/atraso: recebido; pendente: valor devido
+              const valStr = (val != null) ? ` <span style="color:var(--text-2);font-variant-numeric:tabular-nums;font-size:12px">R$ ${Number(val).toFixed(2).replace('.', ',')}</span>` : '';
+              return `<div class="pay-detail-name">${n.nome} <span class="pay-detail-plate">${n.placa}</span>${valStr}</div>`;
+            }).join('') + '</div>';
         }).join('') + '</div>';
       const closeBtn = document.getElementById('payDetailClose');
       if (closeBtn) closeBtn.addEventListener('click', () => { selWeekIdx = null; renderDetail(); });
@@ -1141,9 +1182,9 @@
       chart = new Chart(document.getElementById('chartPayments'), {
         type: 'bar',
         data: { labels, datasets: datasetsFor() },
-        plugins: [monthEndBg],
+        plugins: [monthEndBg, payBarLabels],
         options: {
-          responsive: true, maintainAspectRatio: false, layout: { padding: { top: 22 } },
+          responsive: true, maintainAspectRatio: false, layout: { padding: { top: 22, right: 20 } },
           onClick: (evt, els) => { if (!els.length) return; selWeekIdx = els[0].index; renderDetail(); },
           onHover: (evt, els) => { evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
           plugins: {

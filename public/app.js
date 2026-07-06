@@ -65,6 +65,7 @@
       if (tab.dataset.sub === 'indrive') initInDrive();
       if (tab.dataset.sub === 'payments') initPayments();
       if (tab.dataset.sub === 'redeployment') initRedeployment();
+      if (tab.dataset.sub === 'headcount') initHeadcount();
     });
   });
 
@@ -547,7 +548,13 @@
     }
     function treeHTML(n, lvl) {
       let h = '<li>' + nodeHTML(n, lvl);
-      if (n.children && n.children.length) h += '<ul>' + n.children.map((c) => treeHTML(c, lvl + 1)).join('') + '</ul>';
+      if (n.children && n.children.length) {
+        // filhos que são todos folhas (analistas) => lista VERTICAL pendurada (compacta, evita scroll horizontal)
+        const allLeaves = n.children.every((c) => !(c.children && c.children.length));
+        h += allLeaves
+          ? '<div class="org-reports">' + n.children.map((c) => '<div class="org-report">' + nodeHTML(c, lvl + 1) + '</div>').join('') + '</div>'
+          : '<ul>' + n.children.map((c) => treeHTML(c, lvl + 1)).join('') + '</ul>';
+      }
       return h + '</li>';
     }
     function draw() {
@@ -573,10 +580,15 @@
     if (hintEl) hintEl.textContent = isAdmin ? '✎ Click a box to edit name / role' : '';
     fetch('/api/org', { credentials: 'include' }).then((r) => r.json()).then((d) => { overrides = (d && d.overrides) || {}; draw(); }).catch(() => draw());
   }
-  function initRH() {
+  function initRH() { // aba Human Resources abre em "Org. Structure" (sub-aba default)
     if (rhReady) return;
     rhReady = true;
     renderOrgChart();
+  }
+  let hcReady = false;
+  function initHeadcount() {
+    if (hcReady) return;
+    hcReady = true;
     const H = OCN.rh;
     if (!H || !H.months || !H.months.length) {
       const cardEl = document.getElementById('chartHC') && document.getElementById('chartHC').closest('.card');

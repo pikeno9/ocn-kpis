@@ -1691,9 +1691,9 @@
       if (!plateView) for (let p = 0; p <= PMAX; p++) { maintRealRS[p] /= activeCarsAt(p); maintProjRS[p] /= activeCarsAt(p); }
       maintReady = true;
     }
-    // Subscription por dados reais (matriz de pagamentos por placa): receita do mês = Σ semanas pagas
-    // (vencimento no mês) × semanalidade, com juros % sobre as pagas em atraso. Agregado = soma ÷ nº de
-    // placas da frota; visão por placa = só as semanas daquela placa, sem divisão.
+    // Subscription por dados reais (matriz de pagamentos por placa): receita do mês = Σ do VALOR REAL
+    // recebido (s.r, já com juros) das semanas cujo vencimento cai no mês. Fallback p/ semanalidade×(1+juros)
+    // se a API não trouxer o valor. Agregado = soma ÷ nº de placas ativas; visão por placa = sem divisão.
     let subsRS = [], subsReady = false;
     function computeSubs(f) {
       subsRS = []; subsReady = false;
@@ -1709,7 +1709,7 @@
         let mo = Math.ceil(((venc - ini) / 86400000) / (SEMANAS_MES * 7));
         if (mo < 1) mo = 1;
         if (mo > U.periods) return;
-        subsRS[mo] += fee * (1 + (s.a ? juros : 0));
+        subsRS[mo] += (s.r != null ? s.r : fee * (1 + (s.a ? juros : 0))); // valor REAL recebido; fallback = semanalidade×(1+juros)
       }));
       // ÷ carros ATIVOS do mês (perda total sai do denominador a partir do incidente); placa = sem divisão
       if (!plateView) for (let p = 0; p <= PMAX; p++) subsRS[p] = subsRS[p] / activeCarsAt(p);

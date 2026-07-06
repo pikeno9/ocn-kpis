@@ -151,8 +151,8 @@
       ctx.textBaseline = 'top';
       ctx.font = '600 9px ' + fam;
       ctx.fillStyle = '#6b7280';
-      ctx.textAlign = 'right';
-      const lx = chart.chartArea.left - 10;
+      ctx.textAlign = 'left'; // alinhado à esquerda p/ os títulos não serem cortados na borda; podem ultrapassar à direita
+      const lx = 0;
       ctx.fillText('Total Fleet Month', lx, y1 + 1);
       ctx.fillText('Actual vs. Budget', lx, y2 + 1);
       ctx.textAlign = 'center';

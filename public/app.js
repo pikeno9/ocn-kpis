@@ -379,10 +379,11 @@
       label, data: sl(pct), _abs: sl(abs), backgroundColor: color, stack: 'u', borderRadius: 3, maxBarThickness: 88,
       datalabels: hideInner ? { display: false } : {
         display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0,
-        anchor: 'center', textAlign: 'center', color: '#111827', textStrokeColor: '#fff', textStrokeWidth: 3,
+        anchor: 'center', textAlign: 'center',
         labels: {
-          abs: { align: 'center', font: { size: 12, weight: 700 }, formatter: (v, ctx) => absFmt(ctx) },
-          pct: { align: 'bottom', offset: 8, font: { size: 8, weight: 500 }, formatter: (v) => pctTag(v) },
+          // número numa "caixinha" da cor da barra (em vez de texto com borda branca)
+          abs: { align: 'center', backgroundColor: color, borderRadius: 4, padding: { top: 2, bottom: 2, left: 5, right: 5 }, color: txtOnBar(color), font: { size: 11, weight: 700 }, formatter: (v, ctx) => absFmt(ctx) },
+          pct: { align: 'bottom', offset: 10, color: '#6b7280', font: { size: 8, weight: 600 }, formatter: (v) => pctTag(v) },
         },
       },
     });
@@ -408,15 +409,20 @@
       afterDatasetsDraw(chart) {
         const ctx = chart.ctx, meta = chart.getDatasetMeta(2); // dataset "Total loss" (topo da pilha)
         if (!meta || !meta.data.length) return;
+        const fam = (Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif';
         ctx.save();
-        ctx.font = '700 11px ' + ((Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif');
-        ctx.fillStyle = '#374151'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
         for (let i = 0; i < lossArr.length; i++) {
           if ((lossArr[i] || 0) < 1 || !meta.data[i]) continue;
           const bar = meta.data[i];
-          const x = bar.x + bar.width / 2 + 5;
-          ctx.fillText(String(lossArr[i]), x, bar.y + 3);
-          if (lossPctArr[i] != null) ctx.fillText(pctTag(lossPctArr[i]), x, bar.y + 3 + 12); // percentual abaixo do valor, mesma fonte
+          const x = bar.x + bar.width / 2 + 5, y = bar.y + 3, txt = String(lossArr[i]);
+          ctx.font = '700 11px ' + fam;
+          const bw = ctx.measureText(txt).width + 10, bh = 16;
+          ctx.fillStyle = '#374151'; // caixinha da cor da barra (Total loss)
+          if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x, y - bh / 2, bw, bh, 4); ctx.fill(); }
+          else ctx.fillRect(x, y - bh / 2, bw, bh);
+          ctx.fillStyle = '#fff'; ctx.fillText(txt, x + 5, y);
+          if (lossPctArr[i] != null) { ctx.font = '600 8px ' + fam; ctx.fillStyle = '#6b7280'; ctx.fillText(pctTag(lossPctArr[i]), x, y + 13); } // % abaixo, fora da caixinha
         }
         ctx.restore();
       },

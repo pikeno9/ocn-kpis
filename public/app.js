@@ -607,7 +607,7 @@
         type: 'line',
         data: { labels: monLabels, datasets: [{
           label: 'Turnover', data: monPct,
-          borderColor: '#B91C1C', backgroundColor: 'rgba(185,28,28,0.08)', fill: true,
+          borderColor: '#111827', backgroundColor: 'rgba(17,24,39,0.06)', fill: true, // linha preta; preenchimento neutro suave
           borderWidth: 2, tension: 0, spanGaps: true, // tension 0 = segmentos retos (pico agudo, sem suavizar)
           pointRadius: 4, pointHoverRadius: 5,
           pointBackgroundColor: monDep.map((d) => (d > 0 ? '#B91C1C' : '#CBD5E1')),

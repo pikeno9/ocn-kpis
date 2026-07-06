@@ -97,6 +97,12 @@ app.get('/api/refresh', async (_req, res) => {
 });
 app.get('/api/me', (req, res) => res.json({ user: req.user }));
 
+// ---------- Organograma (Headcount): overrides de nome/cargo por nó ----------
+app.get('/api/org', async (req, res) => {
+  try { res.json({ overrides: (await store.getDoc('org')) || {} }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ---------- Unit Economics: valores realizados/projetados ----------
 // Settings globais (% do Security Deposit Refund) — qualquer usuário autenticado pode alterar
 const UE_SETTINGS = ['__refund_pct__'];
@@ -113,6 +119,19 @@ function requireAdmin(req, res, next) {
   if (req.user && req.user.role === 'admin') return next();
   return res.status(403).json({ error: 'apenas administradores podem editar' });
 }
+
+// edição de um nó do organograma (nome/cargo) — só admin
+app.post('/api/org', requireAdmin, async (req, res) => {
+  const b = req.body || {};
+  const id = String(b.id || '').trim();
+  if (!id) return res.status(400).json({ error: 'id obrigatório' });
+  try {
+    const cur = (await store.getDoc('org')) || {};
+    cur[id] = { name: String(b.name == null ? '' : b.name).slice(0, 120), title: String(b.title == null ? '' : b.title).slice(0, 200) };
+    await store.setDoc('org', cur, req.user.login);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get('/api/ue/values', async (req, res) => {
   try { res.json({ values: await store.getFleet(String(req.query.fleet || '')) }); }
   catch (e) { res.status(500).json({ error: e.message }); }

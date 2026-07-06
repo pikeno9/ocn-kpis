@@ -510,9 +510,73 @@
 
   // ===================== RH / HEAD COUNT (lazy init) =====================
   let rhReady = false;
+  // Organograma executivo — estrutura fixa; nomes/cargos editáveis por admins (persistidos em /api/org)
+  function renderOrgChart() {
+    const el = document.getElementById('orgChart');
+    if (!el) return;
+    const meta = OCN._meta || {};
+    const isAdmin = !!(meta.user && meta.user.role === 'admin');
+    const ORG = { id: 'luiz', name: 'Luiz Apostólico', title: 'VP of Business Development', children: [
+      { id: 'lucas', name: 'Lucas Gomes', title: 'Head of Fleet', children: [
+        { id: 'livia', name: 'Lívia Selegatto', title: 'Control Tower, Claims & Repairs and Recovery Manager', children: [
+          { id: 'enrico', name: 'Enrico Barbato', title: 'Fleet Management Analyst' } ] },
+        { id: 'anderson', name: 'Anderson Evangelista', title: 'Fleet Delivery Manager', children: [
+          { id: 'luana', name: 'Luana Coelho', title: 'Onboarding Analyst' } ] },
+      ] },
+      { id: 'gabriel', name: 'Gabriel Ribeiro', title: 'Head of Clients', children: [
+        { id: 'william', name: 'William Padua', title: 'Commercial Manager', children: [
+          { id: 'ielena', name: 'Ielena Jalskulski', title: 'Sales Analyst' },
+          { id: 'gabrielrosa', name: 'Gabriel Rosa', title: 'Sales Analyst' },
+          { id: 'natalice', name: 'Natalice Santos', title: 'Sales Analyst' },
+          { id: 'andre', name: 'André Germano', title: 'Sales Analyst' },
+        ] },
+        { id: 'yuji', name: 'Yuji Hirata', title: 'Customer Support and Collections Manager', children: [
+          { id: 'andresa', name: 'Andresa Arruda', title: 'Customer Support Analyst' } ] },
+      ] },
+      { id: 'henrique', name: 'Henrique Ressel', title: 'Head of Marketing' },
+      { id: 'karen', name: 'Karen Nicoletti', title: 'Office Manager' },
+    ] };
+    let overrides = {};
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+    const nameOf = (n) => (overrides[n.id] && overrides[n.id].name != null) ? overrides[n.id].name : n.name;
+    const titleOf = (n) => (overrides[n.id] && overrides[n.id].title != null) ? overrides[n.id].title : n.title;
+    const findNode = (root, id) => { if (root.id === id) return root; for (const c of (root.children || [])) { const f = findNode(c, id); if (f) return f; } return null; };
+    function nodeHTML(n, lvl) {
+      const pencil = isAdmin ? '<span class="org-pencil ti ti-pencil"></span>' : '';
+      return `<div class="org-node lvl-${lvl}${isAdmin ? ' editable' : ''}" data-id="${n.id}">${pencil}<div class="org-name">${esc(nameOf(n))}</div><div class="org-title">${esc(titleOf(n))}</div></div>`;
+    }
+    function treeHTML(n, lvl) {
+      let h = '<li>' + nodeHTML(n, lvl);
+      if (n.children && n.children.length) h += '<ul>' + n.children.map((c) => treeHTML(c, lvl + 1)).join('') + '</ul>';
+      return h + '</li>';
+    }
+    function draw() {
+      el.innerHTML = '<ul class="org-tree">' + treeHTML(ORG, 1) + '</ul>';
+      if (isAdmin) el.querySelectorAll('.org-node.editable').forEach((node) => node.addEventListener('click', () => openEdit(node)));
+    }
+    function openEdit(node) {
+      if (node.querySelector('input')) return; // já em edição
+      const id = node.dataset.id, n = findNode(ORG, id);
+      node.innerHTML = `<input class="org-in-name" value="${esc(nameOf(n))}" placeholder="Name" /><input class="org-in-title" value="${esc(titleOf(n))}" placeholder="Role" /><div class="org-edit-actions"><button class="save">Save</button><button class="cancel">Cancel</button></div>`;
+      const inName = node.querySelector('.org-in-name'), inTitle = node.querySelector('.org-in-title');
+      inName.focus();
+      node.querySelector('.cancel').addEventListener('click', (e) => { e.stopPropagation(); draw(); });
+      node.querySelector('.save').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const name = inName.value.trim(), title = inTitle.value.trim();
+        overrides[id] = { name, title };
+        try { await fetch('/api/org', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id, name, title }) }); } catch (err) {}
+        draw();
+      });
+    }
+    const hintEl = document.getElementById('orgEditHint');
+    if (hintEl) hintEl.textContent = isAdmin ? '✎ Click a box to edit name / role' : '';
+    fetch('/api/org', { credentials: 'include' }).then((r) => r.json()).then((d) => { overrides = (d && d.overrides) || {}; draw(); }).catch(() => draw());
+  }
   function initRH() {
     if (rhReady) return;
     rhReady = true;
+    renderOrgChart();
     const H = OCN.rh;
     if (!H || !H.months || !H.months.length) {
       const cardEl = document.getElementById('chartHC') && document.getElementById('chartHC').closest('.card');

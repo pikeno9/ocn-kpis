@@ -226,7 +226,9 @@ button { font-family: inherit; cursor: pointer; }
 .lead-ev-date { font-size: 11px; color: var(--text-2); }
 /* ---- Payments: cabeçalho + dropdown + painel de detalhe por semana ---- */
 .pay-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
-.pay-select { font-size: 12.5px; font-weight: 600; padding: 7px 10px; border: 1px solid var(--border-2); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); cursor: pointer; }
+.pay-select { font-family: var(--font-display); font-size: 12.5px; font-weight: 600; padding: 8px 34px 8px 13px; border: 1px solid var(--border-2); border-radius: 10px; background-color: var(--surface); color: var(--text); cursor: pointer; -webkit-appearance: none; -moz-appearance: none; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235A00F8' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 11px center; background-size: 12px; box-shadow: 0 1px 2px rgba(16,24,40,0.05); transition: border-color .15s, box-shadow .15s; }
+.pay-select:hover { border-color: var(--accent); }
+.pay-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(90,0,248,0.15); }
 .pay-detail-title { display: flex; align-items: center; justify-content: space-between; font-weight: 700; font-size: 13px; color: var(--text); margin: 14px 0 10px; padding-top: 12px; border-top: 1px solid var(--border); }
 .pay-detail-title button { border: none; background: none; font-size: 18px; line-height: 1; color: var(--text-2); cursor: pointer; }
 .pay-detail-title button:hover { color: var(--text); }

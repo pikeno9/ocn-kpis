@@ -1089,6 +1089,8 @@
       if (legendEl) legendEl.innerHTML = '<div style="color:var(--text-2);font-size:13px">No payments data (payments API unavailable).</div>';
       return;
     }
+    const weeks = P.weeks.slice(0, -1); // não mostra a última semana (incompleta) em nenhuma visualização
+    if (!weeks.length) { if (legendEl) legendEl.innerHTML = '<div style="color:var(--text-2);font-size:13px">No completed weeks yet.</div>'; return; }
     // categorias na ordem em que empilham (baixo → cima), cor por categoria
     const CATS = [
       { key: 'onTime', label: 'Paid on time', color: '#16A34A' },
@@ -1098,12 +1100,27 @@
       { key: 'recovered', label: 'Vehicle recovered', color: '#111827' }, // preto
       { key: 'pending', label: 'Pending', color: '#D1D5DB' }, // cinza claro no topo (denominador = Esperado)
     ];
+    // visão "Amount in R$": 3 baldes — tudo que não é onTime/late1 é tratado como "2+ days late"
+    const RS_CATS = [
+      { key: 'onTime', label: 'Paid on time', color: '#16A34A' },
+      { key: 'late1', label: '1 day late', color: '#F59E0B' },
+      { key: 'late2plus', label: '2+ days late', color: '#B45309' },
+    ];
+    const catsFor = () => (mode === 'rs' ? RS_CATS : CATS);
+    const sumR = (arr, f) => (arr || []).reduce((s, n) => s + (f(n) || 0), 0);
+    const rsValue = (w, key) => {
+      if (key === 'onTime') return sumR(w.names.onTime, (n) => n.recebido);
+      if (key === 'late1') return sumR(w.names.late1, (n) => n.recebido);
+      // 2+ days late absorve late2 + devolvido + recuperado + pendente (pendente usa o valor devido/esperado)
+      return sumR(w.names.late2, (n) => n.recebido) + sumR(w.names.returned, (n) => n.recebido) + sumR(w.names.recovered, (n) => n.recebido) + sumR(w.names.pending, (n) => n.esperado);
+    };
+    const fmtRS = (v) => (v >= 1000 ? 'R$' + (v / 1000).toFixed(1).replace('.', ',') + 'k' : 'R$' + Math.round(v));
     // semanas que são a ÚLTIMA do mês (destaque cinza atrás: semanas fracas nas plataformas)
     const MONTH_END_WEEKS = ['04/05', '01/06', '29/06'];
     legendEl.innerHTML = CATS.map((c) => `<span class="it"><span class="sw" style="background:${c.color}"></span> ${c.label}</span>`).join('') +
       '<span class="it"><span style="display:inline-block;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid #6b7280;vertical-align:middle;margin-right:6px"></span> Last week of month</span>';
-    const labels = P.weeks.map((w) => fmtDMY(w.date));
-    const totals = P.weeks.map((w) => CATS.reduce((s, c) => s + w.counts[c.key], 0));
+    const labels = weeks.map((w) => fmtDMY(w.date));
+    const totals = weeks.map((w) => CATS.reduce((s, c) => s + w.counts[c.key], 0));
     let mode = 'pct', chart, selWeekIdx = null; // padrão: Percentage (100% bars)
     // pequeno triângulo invertido ACIMA da barra nas últimas semanas do mês (semanas fracas nas plataformas)
     const monthEndBg = {
@@ -1131,14 +1148,14 @@
         const fam = (Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif';
         for (let i = 0; i < ch.data.labels.length; i++) {
           const side = []; let barRight = null;
-          CATS.forEach((c, di) => {
-            const el = ch.getDatasetMeta(di).data[i];
+          catsFor().forEach((c, di) => {
+            const meta = ch.getDatasetMeta(di); const el = meta && meta.data[i];
             if (!el) return;
             const val = ch.data.datasets[di].data[i];
             if (!val || val <= 0) return;
             const cp = el.getCenterPoint(), h = el.height;
             barRight = el.x + el.width / 2;
-            const txt = (mode === 'pct' ? Math.round(val) + '%' : String(val));
+            const txt = (mode === 'pct' ? Math.round(val) + '%' : (mode === 'rs' ? fmtRS(val) : String(val)));
             if (h >= 13) { // cabe dentro do segmento
               ctx.save();
               ctx.font = '700 10px ' + fam;
@@ -1165,9 +1182,10 @@
       },
     };
     function datasetsFor() {
-      return CATS.map((c) => {
-        const raw = P.weeks.map((w) => w.counts[c.key]);
-        const data = mode === 'pct' ? raw.map((v, i) => (totals[i] ? Math.round((v / totals[i]) * 1000) / 10 : 0)) : raw;
+      return catsFor().map((c) => {
+        let data;
+        if (mode === 'rs') data = weeks.map((w) => Math.round(rsValue(w, c.key)));
+        else { const raw = weeks.map((w) => w.counts[c.key]); data = mode === 'pct' ? raw.map((v, i) => (totals[i] ? Math.round((v / totals[i]) * 1000) / 10 : 0)) : raw; }
         return {
           label: c.label, data, backgroundColor: c.color, stack: 'w', maxBarThickness: 60,
           datalabels: { display: false }, // rótulos desenhados pelo plugin payBarLabels (dentro se couber, ao lado se fino)
@@ -1176,7 +1194,7 @@
     }
     function renderDetail() {
       if (selWeekIdx == null) { detailEl.innerHTML = ''; return; }
-      const w = P.weeks[selWeekIdx];
+      const w = weeks[selWeekIdx];
       detailEl.innerHTML = `<div class="pay-detail-title">Week of ${fmtDMY(w.date)} <button type="button" id="payDetailClose">&times;</button></div>` +
         '<div class="pay-detail-grid">' + CATS.map((c) => {
           const names = (w.names && w.names[c.key]) || [];
@@ -1205,13 +1223,13 @@
             legend: { display: false }, datalabels: { clamp: true },
             tooltip: { callbacks: {
               title: (it) => 'Week of ' + labels[it[0].dataIndex],
-              label: (c) => c.dataset.label + ': ' + c.parsed.y + (mode === 'pct' ? '%' : ''),
+              label: (c) => c.dataset.label + ': ' + (mode === 'rs' ? 'R$ ' + Math.round(c.parsed.y).toLocaleString('pt-BR') : c.parsed.y + (mode === 'pct' ? '%' : '')),
               afterBody: () => 'Click for names',
             } },
           },
           scales: {
             x: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } },
-            y: { stacked: true, beginAtZero: true, max: mode === 'pct' ? 100 : undefined, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, precision: 0, callback: (v) => (mode === 'pct' ? v + '%' : v) } },
+            y: { stacked: true, beginAtZero: true, max: mode === 'pct' ? 100 : undefined, grid: { color: 'rgba(120,120,140,0.10)' }, ticks: { color: TXT2, precision: 0, callback: (v) => (mode === 'pct' ? v + '%' : (mode === 'rs' ? 'R$' + Math.round(v / 1000) + 'k' : v)) } },
           },
         },
       });
@@ -1219,7 +1237,7 @@
     }
     const paySel = document.getElementById('payViewSelect');
     if (paySel) paySel.value = 'pct'; // reflete o padrão Percentage no dropdown
-    paySel.addEventListener('change', (e) => { mode = e.target.value === 'pct' ? 'pct' : 'abs'; render(); });
+    paySel.addEventListener('change', (e) => { mode = e.target.value; render(); });
     render();
   }
 

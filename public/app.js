@@ -276,8 +276,8 @@
       // legendas das linhas, à esquerda do eixo
       ctx.font = '600 9px ' + fam;
       ctx.fillStyle = '#6b7280';
-      ctx.textAlign = 'right';
-      const lx = chart.chartArea.left - 10;
+      ctx.textAlign = 'left'; // alinhado à esquerda p/ os títulos não cortarem; podem ultrapassar à direita
+      const lx = 0;
       ctx.fillText('Total Fleet (actual)', lx, y1 + 1);
       ctx.fillText('Actual vs. Budget', lx, y2 + 1);
       // valores por mês (Março .. último mês com dado)
@@ -312,7 +312,7 @@
     plugins: [deltaRow],
     options: {
       // padding esquerdo enxuto (só o necessário pra legenda das data rows caber); inferior, pras duas linhas de valores (y1=bottom+40, y2=+59)
-      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 26, right: 20, bottom: 64, left: 74 } },
+      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 26, right: 20, bottom: 64, left: 0 } },
       plugins: { legend: { display: false }, datalabels: { clamp: true }, tooltip: { callbacks: { label: (c) => (c.parsed.y == null ? null : c.dataset.label + ': ' + c.parsed.y) } } },
       scales: {
         x: { stacked: true, grid: { display: false }, ticks: { color: TXT2 } },

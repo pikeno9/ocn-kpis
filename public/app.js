@@ -1265,7 +1265,7 @@
       options: {
         indexAxis: 'y', // barras HORIZONTAIS empilhadas
         responsive: true, maintainAspectRatio: false, layout: { padding: { right: 26 } },
-        onClick: (evt, els, ch) => { const pts = ch.getElementsAtEventForMode(evt, 'index', { intersect: false }, true); if (pts.length) { selIdx = pts[0].index; renderDetail(); } },
+        onClick: (evt, els, ch) => { const pts = ch.getElementsAtEventForMode(evt, 'index', { intersect: false, axis: 'y' }, true); if (pts.length) { selIdx = pts[0].index; renderDetail(); } }, // axis:'y' — barra horizontal: índice pelo eixo Y (senão pega o mês errado)
         onHover: (evt, els) => { evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
         plugins: {
           legend: { display: false }, datalabels: { clamp: true },

@@ -1559,7 +1559,7 @@
       'Vehicle Purchase': [{ k: '__vehicle__', label: 'Purchase/buyback amount (R$) — enters at M13' }],
     };
     // rótulo de exibição ≠ chave interna (que segue a planilha)
-    const DISPLAY_LABEL = { 'Deposit Refund': 'Security Deposit Refund' };
+    const DISPLAY_LABEL = { 'Deposit Refund': 'Security Deposit Refund', 'Car Preparation (wash + delivery)': 'Car Preparation' };
     const par = (k) => +params[k] || 0;
     const SEMANAS_MES = 52 / 12; // 4,3333
     const REVISAO_KM = 10000;    // revisão a cada 10.000 km

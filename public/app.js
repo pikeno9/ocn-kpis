@@ -613,9 +613,9 @@
           borderColor: '#111827', backgroundColor: 'rgba(17,24,39,0.06)', fill: true, // linha preta; preenchimento neutro suave
           borderWidth: 2, tension: 0, spanGaps: true, // tension 0 = segmentos retos (pico agudo, sem suavizar)
           pointRadius: 4, pointHoverRadius: 5,
-          pointBackgroundColor: monDep.map((d) => (d > 0 ? '#111827' : '#CBD5E1')),
-          pointBorderColor: monDep.map((d) => (d > 0 ? '#111827' : '#CBD5E1')),
-          datalabels: { anchor: 'end', align: 'top', offset: 4, color: (ctx) => (monDep[ctx.dataIndex] > 0 ? '#111827' : '#9ca3af'), font: { size: 11, weight: 700 }, formatter: (v) => v + '%' },
+          pointBackgroundColor: '#111827',
+          pointBorderColor: '#111827',
+          datalabels: { anchor: 'end', align: 'top', offset: 4, color: '#111827', font: { size: 11, weight: 700 }, formatter: (v) => v + '%' },
         }] },
         options: {
           responsive: true, maintainAspectRatio: false, layout: { padding: { top: 20 } },

@@ -1694,25 +1694,29 @@
     // Subscription por dados reais (matriz de pagamentos por placa): receita do mês = Σ do VALOR REAL
     // recebido (s.r, já com juros) das semanas cujo vencimento cai no mês. Fallback p/ semanalidade×(1+juros)
     // se a API não trouxer o valor. Agregado = soma ÷ nº de placas ativas; visão por placa = sem divisão.
-    let subsRS = [], subsReady = false;
+    let subsRS = [], subsJurosRS = [], subsReady = false;
     function computeSubs(f) {
-      subsRS = []; subsReady = false;
+      subsRS = []; subsJurosRS = []; subsReady = false;
       const fee = par('__sub_semanal__');
       const pag = U.pagamentos && U.pagamentos.placas;
       const ini = f.inicio ? new Date(f.inicio + 'T12:00:00') : null;
       if (!(fee > 0) || !pag || !ini) return;
       const juros = par('__sub_juros__') / 100;
       const plates = plateView ? [plateView] : (f.placas || []);
-      for (let p = 0; p <= PMAX; p++) subsRS[p] = 0;
+      for (let p = 0; p <= PMAX; p++) { subsRS[p] = 0; subsJurosRS[p] = 0; }
       plates.forEach((pl) => (pag[pl] || []).forEach((s) => {
         const venc = new Date(s.v + 'T12:00:00');
         let mo = Math.ceil(((venc - ini) / 86400000) / (SEMANAS_MES * 7));
         if (mo < 1) mo = 1;
         if (mo > U.periods) return;
-        subsRS[mo] += (s.r != null ? s.r : fee * (1 + (s.a ? juros : 0))); // valor REAL recebido; fallback = semanalidade×(1+juros)
+        // separa principal (esperado) do juro de atraso (recebido − esperado); fallback = semanalidade×(1+juros)
+        let principal, jr;
+        if (s.r != null) { const esp = (s.e != null ? s.e : s.r); principal = Math.min(s.r, esp); jr = Math.max(0, s.r - esp); }
+        else { principal = fee; jr = fee * (s.a ? juros : 0); }
+        subsRS[mo] += principal; subsJurosRS[mo] += jr;
       }));
       // ÷ carros ATIVOS do mês (perda total sai do denominador a partir do incidente); placa = sem divisão
-      if (!plateView) for (let p = 0; p <= PMAX; p++) subsRS[p] = subsRS[p] / activeCarsAt(p);
+      if (!plateView) for (let p = 0; p <= PMAX; p++) { subsRS[p] /= activeCarsAt(p); subsJurosRS[p] /= activeCarsAt(p); }
       subsReady = true;
     }
 
@@ -1721,12 +1725,19 @@
     // Recorrências mensais param no M12; o M13 só recebe os lançamentos pontuais pós-contrato.
     function effNative(line, period) {
       if (line === 'Subscription' && par('__sub_semanal__') > 0) {
+        // só o PRINCIPAL (esperado); o juro de atraso vai na linha "Late-payment interest"
         if (period === 0 || period === PMAX) return { rs: 0, perActive: true };
         if (periodStatus(period) === 'real') return subsReady ? { rs: subsRS[period] || 0, perActive: true } : null;
         // projeção: segundas-feiras (dia de pagamento) do mês × semanalidade × (1 − inadimplência do slider);
         // placa com perda total não paga mais (plateCut); na frota o valor é por carro ATIVO (perActive)
         if (!curIni) return null;
         return { rs: mondaysInMonth(curIni, period) * par('__sub_semanal__') * (1 - inadimplencia / 100) * plateCut(period), perActive: true };
+      }
+      if (line === 'Late-payment interest' && par('__sub_semanal__') > 0) {
+        // rendimento de juros dos pagamentos em atraso (recebido − esperado). Só realizado — não se projeta.
+        if (period === 0 || period === PMAX) return { rs: 0, perActive: true };
+        if (periodStatus(period) === 'real') return subsReady ? { rs: subsJurosRS[period] || 0, perActive: true } : null;
+        return { rs: 0, perActive: true };
       }
       if (line === 'Subrental fee' && par('__subrental_mensal__') > 0) {
         // valor por carro ATIVO (a placa perdida sai do numerador e do denominador a partir do incidente)
@@ -1794,7 +1805,7 @@
     function applyCtx(c) {
       model = c.f.model; params = c.params; entered = c.entered; curIni = c.ini; ctxCars = c.f.cars || 0;
       elapsed = c.elapsed; realizedFull = c.realizedFull; lossMonthByPlate = c.lossMonthByPlate; activeFracArr = c.activeFracArr;
-      subsRS = c.subsRS || []; subsReady = !!c.subsReady;
+      subsRS = c.subsRS || []; subsJurosRS = c.subsJurosRS || []; subsReady = !!c.subsReady;
       maintRealRS = c.maintRealRS || []; maintProjRS = c.maintProjRS || []; maintReady = !!c.maintReady;
     }
     // combinação "All fleets": média por veículo ponderada — linhas "por carro ativo" pesam pelos carros ativos
@@ -2134,6 +2145,10 @@
       const orc = U.orcado[f.model];
       const tbl = document.getElementById('ueTable');
       if (!orc) { tbl.innerHTML = '<tbody><tr><td>No budget for ' + f.modelLabel + '</td></tr></tbody>'; return; }
+      // injeta a linha de juros de atraso logo após Subscription (entra no Total Inflow; principal fica na Subscription)
+      const subIdx = orc.lines.findIndex((l) => l.label === 'Subscription');
+      const lines = subIdx < 0 ? orc.lines
+        : [...orc.lines.slice(0, subIdx + 1), { label: 'Late-payment interest', group: 'inflow', values: [] }, ...orc.lines.slice(subIdx + 1)];
       // Subscription/Maintenance dependem da frota E da visão (placa/agregado); all-mode pré-computa por frota
       if (allMode && fleetCtx) {
         if (plateView) {
@@ -2142,7 +2157,7 @@
         } else {
           fleetCtx.forEach((c) => {
             applyCtx(c); computeSubs(c.f); computeMaint(c.f);
-            c.subsRS = subsRS; c.subsReady = subsReady;
+            c.subsRS = subsRS; c.subsJurosRS = subsJurosRS; c.subsReady = subsReady;
             c.maintRealRS = maintRealRS; c.maintProjRS = maintProjRS; c.maintReady = maintReady;
           });
         }
@@ -2150,13 +2165,13 @@
         computeSubs(f);
         computeMaint(f);
       }
-      const T = computeTotals(orc.lines);
+      const T = computeTotals(lines);
       const gmap = { totalInflow: T.totalInflow, totalOutflow: T.totalOutflow, net: T.net, acc: T.acc };
       const editable = isAdmin && manualMode && !allMode; // no all-mode não há frota única p/ salvar edições
       let html = '<thead><tr><th class="ue-rowlabel">Line</th><th>M0</th>';
       for (let p = 1; p <= PMAX; p++) html += `<th>M${p}</th>`;
       html += '<th class="ue-totalcol">Total</th></tr></thead><tbody>';
-      orc.lines.forEach((l) => {
+      lines.forEach((l) => {
         const leaf = isLeaf(l.group);
         const isParam = editable && LINE_PARAMS[l.label];
         const shown = DISPLAY_LABEL[l.label] || l.label;

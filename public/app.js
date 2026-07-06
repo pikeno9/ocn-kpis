@@ -1080,8 +1080,9 @@
       { key: 'onTime', label: 'Paid on time', color: '#16A34A' },
       { key: 'late1', label: '1 day late', color: '#F59E0B' },
       { key: 'late2', label: '2+ days late', color: '#B45309' },
-      { key: 'returned', label: 'Vehicle returned', color: '#9CA3AF' }, // cinza
+      { key: 'returned', label: 'Vehicle returned', color: '#9CA3AF' }, // cinza médio
       { key: 'recovered', label: 'Vehicle recovered', color: '#111827' }, // preto
+      { key: 'pending', label: 'Pending', color: '#D1D5DB' }, // cinza claro no topo (denominador = Esperado)
     ];
     // semanas que são a ÚLTIMA do mês (destaque cinza atrás: semanas fracas nas plataformas)
     const MONTH_END_WEEKS = ['04/05', '01/06', '29/06'];
@@ -1115,7 +1116,7 @@
         return {
           label: c.label, data, backgroundColor: c.color, stack: 'w', maxBarThickness: 60,
           datalabels: {
-            color: '#fff', font: { size: 10, weight: 700 },
+            color: c.key === 'pending' ? '#6B7280' : '#fff', font: { size: 10, weight: 700 }, // texto escuro no cinza claro do Pending
             display: (ctx) => ctx.dataset.data[ctx.dataIndex] > (mode === 'pct' ? 4 : 0),
             formatter: (v) => (mode === 'pct' ? Math.round(v) + '%' : v),
           },

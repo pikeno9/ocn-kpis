@@ -134,6 +134,43 @@
   const MRec = { Polo: [0, ...M.recebido.Polo], Argo: [0, ...M.recebido.Argo], Tera: [0, ...M.recebido.Tera] };
   const MBud = [(_acumBud[0] != null ? _acumBud[0] : 50), ...monthlyBudget]; // Março = acumulado do 1º mês
   const MInter = [false, ...M.interativo]; // Março sem detalhe semanal
+  // duas linhas abaixo do eixo X do gráfico mensal (mesmo padrão do acumulado):
+  // "Total Fleet Month" = recebido do mês (soma dos modelos); "Actual vs. Budget" = recebido ÷ budget do mês.
+  const monthlyRow = {
+    id: 'monthlyRow',
+    afterDraw(chart) {
+      const lbl = rngM(MLbl);
+      const rp = rngM(MRec.Polo), ra = rngM(MRec.Argo), rt = rngM(MRec.Tera), bd = rngM(MBud);
+      const totals = lbl.map((_, i) => (rp[i] || 0) + (ra[i] || 0) + (rt[i] || 0));
+      const lastIdx = lbl.reduce((acc, _, i) => ((rp[i] != null || ra[i] != null || rt[i] != null) ? i : acc), -1);
+      const ctx = chart.ctx, xScale = chart.scales.x;
+      const fam = (Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif';
+      const y1 = chart.chartArea.bottom + 40;
+      const y2 = y1 + 19;
+      ctx.save();
+      ctx.textBaseline = 'top';
+      ctx.font = '600 9px ' + fam;
+      ctx.fillStyle = '#6b7280';
+      ctx.textAlign = 'right';
+      const lx = chart.chartArea.left - 10;
+      ctx.fillText('Total Fleet Month', lx, y1 + 1);
+      ctx.fillText('Actual vs. Budget', lx, y2 + 1);
+      ctx.textAlign = 'center';
+      for (let i = 0; i <= lastIdx; i++) {
+        const x = xScale.getPixelForValue(i);
+        ctx.font = '700 11px ' + fam;
+        ctx.fillStyle = '#111827';
+        ctx.fillText(String(totals[i]), x, y1);
+        const bud = bd[i];
+        if (bud) {
+          const pct = Math.round((totals[i] / bud) * 100);
+          ctx.fillStyle = pct >= 100 ? '#16A34A' : '#B91C1C';
+          ctx.fillText(pct + '%', x, y2);
+        }
+      }
+      ctx.restore();
+    },
+  };
   let chartMensal, view = 'monthly', cur = null, range = 'ytd';
   const rng = (arr) => (range === 'ytd' ? arr.slice(0, vi + 1) : arr); // YTD = abr até o mês vigente; FY = ano todo
   const rngM = (arr) => (range === 'ytd' ? arr.slice(0, vi + 2) : arr); // idem, mas c/ Março na frente (índice extra)
@@ -143,7 +180,7 @@
 
   function opts(isMonthly) {
     return {
-      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 22 } },
+      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 22, bottom: isMonthly ? 52 : 0 } },
       onClick: (e, els) => {
         if (view !== 'monthly' || !els.length) return;
         const i = els[0].index;
@@ -176,7 +213,7 @@
   }
 
   function buildMonthly() {
-    return { type: 'bar', data: { labels: rngM(MLbl), datasets: [barDS('Polo', rngM(MRec.Polo)), barDS('Argo', rngM(MRec.Argo)), barDS('Tera', rngM(MRec.Tera)), lineDS(rngM(MBud), true)] }, options: opts(true) };
+    return { type: 'bar', data: { labels: rngM(MLbl), datasets: [barDS('Polo', rngM(MRec.Polo)), barDS('Argo', rngM(MRec.Argo)), barDS('Tera', rngM(MRec.Tera)), lineDS(rngM(MBud), true)] }, options: opts(true), plugins: [monthlyRow] };
   }
   function buildWeekly(mi) {
     const rp = (W.recebido.Polo[mi] || Z), ra = (W.recebido.Argo[mi] || Z), rt = (W.recebido.Tera[mi] || Z);
@@ -558,7 +595,6 @@
       turnEl.innerHTML =
         `<div class="kpi-grid" style="margin-bottom:14px">
           <div class="kpi-card"><div class="kpi-label"><i class="ti ti-user-minus"></i> Total turnover</div><div class="kpi-value">${leavers.length}</div><div class="kpi-sub">person left YTD</div></div>
-          <div class="kpi-card"><div class="kpi-label"><i class="ti ti-percentage"></i> Turnover in Apr</div><div class="kpi-value">${aprPct}%</div><div class="kpi-sub">1 of ${H.actual[3]} team members</div></div>
           <div class="kpi-card"><div class="kpi-label"><i class="ti ti-clock"></i> Avg. tenure</div><div class="kpi-value">${Math.round(leavers.reduce((a, l) => a + l.tenureDays, 0) / leavers.length)}</div><div class="kpi-sub">days at the company</div></div>
         </div>` +
         `<div class="sub2-desc" style="margin:2px 0 6px">Monthly turnover rate — departures ÷ headcount that month</div>` +
@@ -568,11 +604,15 @@
         '</tbody></table>';
       const tCanvas = document.getElementById('chartTurnover');
       if (tCanvas) new Chart(tCanvas, {
-        type: 'bar',
+        type: 'line',
         data: { labels: monLabels, datasets: [{
           label: 'Turnover', data: monPct,
-          backgroundColor: monDep.map((d) => (d > 0 ? '#B91C1C' : '#CBD5E1')), borderRadius: 3, maxBarThickness: 54,
-          datalabels: { anchor: 'end', align: 'top', offset: 2, color: (ctx) => (monDep[ctx.dataIndex] > 0 ? '#B91C1C' : '#9ca3af'), font: { size: 11, weight: 700 }, formatter: (v) => v + '%' },
+          borderColor: '#B91C1C', backgroundColor: 'rgba(185,28,28,0.08)', fill: true,
+          borderWidth: 2, tension: 0.3, spanGaps: true,
+          pointRadius: 4, pointHoverRadius: 5,
+          pointBackgroundColor: monDep.map((d) => (d > 0 ? '#B91C1C' : '#CBD5E1')),
+          pointBorderColor: monDep.map((d) => (d > 0 ? '#B91C1C' : '#CBD5E1')),
+          datalabels: { anchor: 'end', align: 'top', offset: 4, color: (ctx) => (monDep[ctx.dataIndex] > 0 ? '#B91C1C' : '#9ca3af'), font: { size: 11, weight: 700 }, formatter: (v) => v + '%' },
         }] },
         options: {
           responsive: true, maintainAspectRatio: false, layout: { padding: { top: 20 } },
@@ -1242,7 +1282,7 @@
     const taxaPct = (O.contratos.taxaCarroMesPct != null ? O.contratos.taxaCarroMesPct : Math.round(parseFloat(String(O.contratos.taxaCarroMes).replace(',', '.')) * 100)) + '%';
     document.getElementById('ocorKpis').innerHTML = `
       <div class="kpi-card"><div class="kpi-label"><i class="ti ti-alert-triangle"></i> Total incidents</div><div class="kpi-value">${O.total}</div><div class="kpi-sub">${O.foramOficina} went to the workshop</div></div>
-      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-shield-half"></i> With claim</div><div class="kpi-value">${O.comSinistro}</div><div class="kpi-sub">${O.comSinistroPct}% of incidents</div></div>
+      <div class="kpi-card"><div class="kpi-label"><i class="ti ti-shield-half"></i> With insurance claim</div><div class="kpi-value">${O.comSinistro}</div><div class="kpi-sub">${O.comSinistroPct}% of incidents</div></div>
       <div class="kpi-card"><div class="kpi-label"><i class="ti ti-clock-hour-4"></i> Rate</div><div class="kpi-value">${taxaPct}</div><div class="kpi-sub">incidents / car-month</div></div>`;
 
     // Probability & contracts
@@ -1391,10 +1431,10 @@
       el.innerHTML =
         `<div class="pay-detail-title">${titleTxt}` + ((monthKey || selTipo) ? ` <button type="button" id="ocorDetailAll">show all</button>` : '') + `</div>` +
         (rows.length
-          ? `<table class="rh-table"><thead><tr><th>Date</th><th>Plate</th><th>Client</th><th>Type</th><th>Claim</th><th>Workshop</th><th>Details</th></tr></thead><tbody>` +
+          ? `<table class="rh-table"><thead><tr><th>Date</th><th>Plate</th><th>Client</th><th>Type</th><th>Claim ID</th><th>Workshop</th><th>Details</th></tr></thead><tbody>` +
             rows.map((k) => `<tr><td>${k.data}</td><td class="util-plate-col">${k.placa}</td><td>${k.cliente}</td>` +
               `<td><span class="ocor-type"><span class="ocor-dot" style="background:${k.tipoCor}"></span>${k.tipo}</span></td>` +
-              `<td>${k.sinistro ? 'Yes' : '—'}</td><td>${k.oficina}</td><td class="redeploy-details">${k.detalhamento}</td></tr>`).join('') +
+              `<td>${k.sinistroId || '—'}</td><td>${k.oficina}</td><td class="redeploy-details">${k.detalhamento}</td></tr>`).join('') +
             '</tbody></table>'
           : '<div style="color:var(--text-2);font-size:13px">No incidents match this filter.</div>');
       const allBtn = document.getElementById('ocorDetailAll');
@@ -1403,12 +1443,12 @@
 
     // Sinistro por tipo (barra empilhada horizontal) — tons de roxo
     const S = O.sinistroPorTipo;
-    document.getElementById('legendSinistro').innerHTML = `<span class="dl-it"><span class="dl-sw" style="background:#5A00F8"></span>With claim</span><span class="dl-it"><span class="dl-sw" style="background:#E0D8F7"></span>Without claim</span>`;
+    document.getElementById('legendSinistro').innerHTML = `<span class="dl-it"><span class="dl-sw" style="background:#5A00F8"></span>With insurance claim</span><span class="dl-it"><span class="dl-sw" style="background:#E0D8F7"></span>Without insurance claim</span>`;
     new Chart(document.getElementById('chartSinistro'), {
       type: 'bar',
       data: { labels: S.labels, datasets: [
-        { label: 'With claim', data: S.com, backgroundColor: '#5A00F8', stack: 's', borderRadius: 3, datalabels: { display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, color: '#fff', font: { size: 11, weight: 600 }, formatter: (v) => v } },
-        { label: 'Without claim', data: S.sem, backgroundColor: '#E0D8F7', stack: 's', borderRadius: 3, datalabels: { display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, color: '#5A2BB0', font: { size: 11, weight: 600 }, formatter: (v) => v } },
+        { label: 'With insurance claim', data: S.com, backgroundColor: '#5A00F8', stack: 's', borderRadius: 3, datalabels: { display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, color: '#fff', font: { size: 11, weight: 600 }, formatter: (v) => v } },
+        { label: 'Without insurance claim', data: S.sem, backgroundColor: '#E0D8F7', stack: 's', borderRadius: 3, datalabels: { display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0, color: '#5A2BB0', font: { size: 11, weight: 600 }, formatter: (v) => v } },
       ] },
       options: {
         indexAxis: 'y', responsive: true, maintainAspectRatio: false,

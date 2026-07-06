@@ -161,9 +161,9 @@ const statusItems = [
 
 // ---- Ocorrências ----
 const ocorrenciaTipos = [
-  { label: 'Mechanical issue', barLabel: 'Mechanical', cor: '#5A00F8', match: ['problema mecânico', 'problema mecanico', 'mecânico', 'mecanico'] },
+  { label: 'Mechanical Failures', barLabel: 'Mechanical', cor: '#5A00F8', match: ['problema mecânico', 'problema mecanico', 'mecânico', 'mecanico'] },
   { label: 'Collision', barLabel: 'Collision', cor: '#8B5CF6', match: ['colisão', 'colisao', 'batida'] },
-  { label: 'Theft', barLabel: 'Theft', cor: '#A78BFA', match: ['roubo'] },
+  { label: 'Window Damage', barLabel: 'Window', cor: '#A78BFA', match: ['roubo'] },
   { label: 'Total loss', barLabel: 'Total loss', cor: '#C9B8F0', match: ['perda total'] },
 ];
 const churnTipos = [

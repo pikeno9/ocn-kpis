@@ -82,6 +82,11 @@
       fleetSubEl.textContent = SF.total + ' registered vehicles';
     }
   }
+  const fleetBadgeEl = document.getElementById('fleetTotalBadge');
+  if (fleetBadgeEl && SF.total != null) fleetBadgeEl.innerHTML =
+    '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#111827;vertical-align:middle;margin:0 8px 3px 10px"></span>' +
+    '<span style="color:#5A00F8;font-weight:800">' + SF.total + '</span>' +
+    '<span style="color:#5A00F8;font-weight:600;font-size:13px;margin-left:4px">vehicles</span>';
   const stripe = 'repeating-linear-gradient(45deg, rgba(40,39,40,0.13) 0, rgba(40,39,40,0.13) 5px, rgba(40,39,40,0.04) 5px, rgba(40,39,40,0.04) 10px)';
   document.getElementById('fleetGrid').innerHTML = SF.items.map((it) => {
     const bg = it.listrado ? stripe : it.cor + '14';
@@ -327,6 +332,15 @@
   const FS = OCN.fleetStatus;
   if (FS && FS.labels && document.getElementById('chartUtil')) {
     const sl = (arr) => arr.slice(0, vi + 1); // abr..mês atual (sem meses futuros vazios)
+    // eixo X: data do último dia do mês (meses fechados) e o dia de hoje no mês vigente
+    const _today = new Date(), _curM = _today.getMonth() + 1, _curY = _today.getFullYear();
+    const p2d = (n) => String(n).padStart(2, '0');
+    const dateLbls = FS.labels.map((_, j) => {
+      const mm = j + 4; // Abr=4
+      if (mm === _curM) return p2d(_today.getDate()) + '/' + p2d(mm); // mês vigente = hoje
+      const last = new Date(_curY, mm, 0).getDate();                 // dia 0 do mês seguinte = último dia deste mês
+      return p2d(last) + '/' + p2d(mm);
+    });
     const pctFmt = (v) => (v == null ? '' : String(Math.round(v * 10) / 10).replace('.', ',') + '%'); // tooltip (com decimal)
     const pctTag = (v) => (v == null ? '' : '(' + Math.round(v) + '%)'); // rótulo na barra: entre parênteses, sem decimais
     const absFmt = (ctx) => { const a = ctx.dataset._abs ? ctx.dataset._abs[ctx.dataIndex] : null; return a == null ? '' : a; };
@@ -416,7 +430,7 @@
       if (chartUtil) chartUtil.destroy();
       chartUtil = new Chart(document.getElementById('chartUtil'), {
         type: 'bar',
-        data: { labels: sl(FS.labels), datasets: [
+        data: { labels: sl(dateLbls), datasets: [
           activeDS('Active Vehicles', eff.activePct, eff.active, '#5A00F8'),
           thinDS('Inactive Vehicles', eff.inactivePct, eff.inactive, '#CBD5E1', false),
           thinDS('Total loss', eff.lossPct, eff.loss, '#374151', true),
@@ -1247,10 +1261,19 @@
     }
     // total de dias do mês (reparo+recolocação) — rótulo no fim de cada barra horizontal
     const totalDays = section.labels.map((_, i) => Math.round(((section.avgRecupParaPronto[i] || 0) + (section.avgProntoParaAlocado[i] || 0)) * 10) / 10);
+    // eixo Y: data do último dia do mês (fechados) e o dia de hoje no mês vigente; mantém "n=X" na 2ª linha
+    const _td = new Date(), _cMk = _td.getFullYear() + '-' + String(_td.getMonth() + 1).padStart(2, '0');
+    const _dLbl = (mk) => {
+      const y = +mk.slice(0, 4), m = +mk.slice(5), p = (n) => String(n).padStart(2, '0');
+      return mk === _cMk ? p(_td.getDate()) + '/' + p(m) : p(new Date(y, m, 0).getDate()) + '/' + p(m);
+    };
+    const chartLabels = (section.monthKeys || []).length
+      ? section.labels.map((lab, i) => [_dLbl(section.monthKeys[i]), lab[1]])
+      : section.labels;
     new Chart(canvas, {
       type: 'bar',
       data: {
-        labels: section.labels,
+        labels: chartLabels,
         datasets: [
           // dois tons de roxo: escuro = tempo de reparo (evento→pronto), claro = tempo de recolocação (pronto→alocado)
           { label: 'Repair time', data: section.avgRecupParaPronto, backgroundColor: '#3A00A0', stack: 's', borderRadius: 3, maxBarThickness: 46,
@@ -1398,7 +1421,39 @@
       // total da pilha por mês (para o totalizador acima da barra)
       const totalsMonthly = OM.labels.map((_, i) => tipos.reduce((s, t) => s + (t.values[i] || 0), 0));
       const totalsAcc = accum(totalsMonthly);
+      // dados das 3 linhas abaixo do gráfico: carros ativos/mês, taxa de incidents (%), e nº com sinistro (insurance claim)
+      const FSd = OCN.fleetStatus;
+      const activeArr = (OM.monthKeys || []).map((mk) => { const j = (+mk.slice(5)) - 4; return (FSd && FSd.active && j >= 0 && j < FSd.active.length) ? FSd.active[j] : null; });
+      const _sinByMk = {};
+      (O.casos || []).forEach((c) => { if (c.monthKey) _sinByMk[c.monthKey] = (_sinByMk[c.monthKey] || 0) + (c.sinistro ? 1 : 0); });
+      const sinistroMonthly = (OM.monthKeys || []).map((mk) => _sinByMk[mk] || 0);
+      const sinistroAcc = accum(sinistroMonthly);
+      let curSinistroArr = sinistroMonthly;
       let stackTotals = totalsAcc;
+      // linhas abaixo do eixo X (mesmo padrão dos gráficos de Fleet)
+      const ocorRows = {
+        id: 'ocorRows',
+        afterDraw(chart) {
+          const ctx = chart.ctx, xScale = chart.scales.x;
+          const fam = (Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif';
+          const y1 = chart.chartArea.bottom + 32, y2 = y1 + 18, y3 = y2 + 18;
+          ctx.save(); ctx.textBaseline = 'top';
+          ctx.font = '600 9px ' + fam; ctx.fillStyle = '#6b7280'; ctx.textAlign = 'left';
+          ctx.fillText('Active fleet', 0, y1 + 1);
+          ctx.fillText('Incident rate', 0, y2 + 1);
+          ctx.fillText('With insurance claim', 0, y3 + 1);
+          ctx.textAlign = 'center';
+          for (let i = 0; i < (OM.labels || []).length; i++) {
+            const x = xScale.getPixelForValue(i), act = activeArr[i];
+            ctx.font = '700 11px ' + fam;
+            ctx.fillStyle = '#111827'; ctx.fillText(act != null ? String(act) : '—', x, y1);
+            if (act) { const pct = Math.round((stackTotals[i] / act) * 1000) / 10; ctx.fillStyle = '#5A00F8'; ctx.fillText(String(pct).replace('.', ',') + '%', x, y2); }
+            else { ctx.fillStyle = '#111827'; ctx.fillText('—', x, y2); }
+            ctx.fillStyle = '#B91C1C'; ctx.fillText(String(curSinistroArr[i] || 0), x, y3);
+          }
+          ctx.restore();
+        },
+      };
       const stackTotalPlugin = {
         id: 'ocorStackTotal',
         afterDatasetsDraw(chart) {
@@ -1418,6 +1473,7 @@
       let ocorMensalChart = null;
       function renderOcorMensal(mode) {
         stackTotals = mode === 'monthly' ? totalsMonthly : totalsAcc;
+        curSinistroArr = mode === 'monthly' ? sinistroMonthly : sinistroAcc;
         const datasets = tipos.map((t) => ({
           label: t.label, data: mode === 'monthly' ? t.values : accum(t.values),
           backgroundColor: t.cor, stack: 'occ', borderRadius: 2, maxBarThickness: 70,
@@ -1427,9 +1483,9 @@
         ocorMensalChart = new Chart(document.getElementById('chartOcorMensal'), {
           type: 'bar',
           data: { labels: OM.labels, datasets },
-          plugins: [stackTotalPlugin],
+          plugins: [stackTotalPlugin, ocorRows],
           options: {
-            responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24 } },
+            responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24, bottom: 74 } },
             onClick: (evt, els) => {
               if (!els.length) return;
               const mk = (OM.monthKeys || [])[els[0].index];

@@ -11,6 +11,7 @@ const frota = require('./lib/frota');
 const revisoes = require('./lib/revisoes');
 const utilization = require('./lib/utilization');
 const payments = require('./lib/payments');
+const ocorrSite = require('./lib/ocorrenciasSite');
 const store = require('./lib/store');
 const C = require('./config/static');
 const auth = require('./config/auth');
@@ -30,6 +31,13 @@ let cache = { data: null, updatedAt: null, ok: false, error: null };
 async function refresh() {
   try {
     const [sheets, ueSheets] = await Promise.all([fetchAllTabs(C.TABS), fetchUeTabs(C.UE_TABS)]);
+    // mescla ocorrências NOVAS do site (painel de cobranças) na base da planilha; falha não derruba o refresh
+    try {
+      const siteOcorr = await ocorrSite.fetchSite();
+      const antes = sheets.ocorrencias.length;
+      sheets.ocorrencias = ocorrSite.mergeIntoSheet(sheets.ocorrencias, siteOcorr);
+      console.log(`[ocorrencias-site] ${siteOcorr.length} no site, +${sheets.ocorrencias.length - antes} novas mescladas`);
+    } catch (e) { console.error('[ocorrencias-site] falhou (usando só a planilha):', e.message); }
     const data = compute.build(sheets, refDate());
     data.ue = ue.build(ueSheets, sheets.importData, sheets.clientes, refDate());
     try { data.ue.pagamentos = await cobrancas.fetchPagamentos(); }

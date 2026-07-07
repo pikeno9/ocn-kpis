@@ -1226,8 +1226,7 @@
     const fmtRS = (v) => (v >= 1000 ? 'R$' + (v / 1000).toFixed(1).replace('.', ',') + 'k' : 'R$' + Math.round(v));
     // semanas que são a ÚLTIMA do mês (destaque cinza atrás: semanas fracas nas plataformas)
     const MONTH_END_WEEKS = ['04/05', '01/06', '29/06'];
-    legendEl.innerHTML = CATS.map((c) => `<span class="it"><span class="sw" style="background:${c.color}"></span> ${c.label}</span>`).join('') +
-      '<span class="it"><span style="display:inline-block;width:13px;height:10px;border:1px dashed #cbd5e1;border-radius:2px;vertical-align:middle;margin-right:6px"></span> Last week of month</span>';
+    legendEl.innerHTML = CATS.filter((c) => c.key !== 'pending').map((c) => `<span class="it"><span class="sw" style="background:${c.color}"></span> ${c.label}</span>`).join('');
     const labels = weeks.map((w) => fmtDMY(w.date));
     const totals = weeks.map((w) => CATS.reduce((s, c) => s + w.counts[c.key], 0));
     let mode = 'pct', chart, selWeekIdx = null; // padrão: Percentage (100% bars)
@@ -1342,7 +1341,7 @@
       chart = new Chart(document.getElementById('chartPayments'), {
         type: 'bar',
         data: { labels, datasets: datasetsFor() },
-        plugins: [monthEndBg, payBarLabels, payTotals],
+        plugins: [payBarLabels, payTotals],
         options: {
           responsive: true, maintainAspectRatio: false, layout: { padding: { top: 30, right: 20 } },
           onClick: (evt, els) => { if (!els.length) return; selWeekIdx = els[0].index; renderDetail(); },

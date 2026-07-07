@@ -35,6 +35,34 @@
     try { await fetch('/api/logout', { method: 'POST' }); } catch (e) {}
     window.location.href = '/login';
   });
+  // ---------- Freeze: pausa/retoma as atualizações automáticas (visível a todos; só admin aperta) ----------
+  const btnFreeze = document.getElementById('btnFreeze');
+  const btnFreezeLabel = document.getElementById('btnFreezeLabel');
+  if (btnFreeze) {
+    const isAdminHdr = !!(meta.user && meta.user.role === 'admin');
+    let frozen = !!meta.frozen;
+    const paintFreeze = () => {
+      btnFreeze.style.display = 'inline-flex';
+      btnFreeze.classList.toggle('frozen', frozen);
+      if (btnFreezeLabel) btnFreezeLabel.textContent = frozen ? 'Frozen' : 'Freeze';
+      btnFreeze.disabled = !isAdminHdr;
+      btnFreeze.title = frozen
+        ? ('Automatic updates paused' + (isAdminHdr ? ' — click to resume' : ' (admin only)'))
+        : ('Pause automatic data updates' + (isAdminHdr ? '' : ' (admin only)'));
+    };
+    paintFreeze();
+    if (isAdminHdr) btnFreeze.addEventListener('click', async () => {
+      const next = !frozen;
+      btnFreeze.disabled = true;
+      try {
+        const r = await fetch('/api/freeze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ frozen: next }) });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        frozen = next;
+        if (!frozen) { window.location.reload(); return; } // descongelou → recarrega p/ mostrar os dados já atualizados
+      } catch (e) { /* mantém estado */ }
+      paintFreeze();
+    });
+  }
   const COR = { Polo: OCN.modelos.Polo.cor, Argo: OCN.modelos.Argo.cor, Tera: OCN.modelos.Tera.cor };
   const TXT2 = '#6b7280';
 
@@ -1273,7 +1301,8 @@
         for (let i = 0; i < ch.data.labels.length; i++) {
           const bar = meta0.data[i]; if (!bar) continue;
           const sum = ch.data.datasets.reduce((s, ds) => s + (ds.data[i] || 0), 0);
-          const txt = mode === 'pct' ? '100%' : (mode === 'rs' ? fmtRS(sum) : String(Math.round(sum)));
+          // pct: mostra o nº total de pagamentos esperados (mesmo da visão absoluta), não "100%"
+          const txt = mode === 'pct' ? String(totals[i]) : (mode === 'rs' ? fmtRS(sum) : String(Math.round(sum)));
           const y = mode === 'pct' ? (ca.top - 16) : (yScale.getPixelForValue(sum) - 6);
           ctx.fillText(txt, bar.x, y);
         }

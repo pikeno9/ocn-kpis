@@ -48,6 +48,16 @@ button { font-family: inherit; cursor: pointer; }
   cursor: pointer; background: #ffffff1f; border: 1px solid #ffffff40; font-family: inherit;
 }
 .app-user__logout:hover { background: #ffffff33; }
+.app-freeze-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  color: #fff; padding: 7px 14px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  cursor: pointer; background: #ffffff1f; border: 1px solid #ffffff40; font-family: inherit;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.app-freeze-btn:hover:not(:disabled) { background: #ffffff33; }
+.app-freeze-btn:disabled { cursor: default; }
+.app-freeze-btn.frozen { background: #7dd3fc; border-color: #7dd3fc; color: #0c2b3a; }
+.app-freeze-btn.frozen:hover:not(:disabled) { background: #a5e3ff; }
 .header-meta { font-size: 11px; color: #ffffffb3; white-space: nowrap; }
 @media (max-width: 640px) {
   .app-header { padding: 12px 16px; }

@@ -28,7 +28,9 @@ app.use(express.json());
 
 // ---------- cache de dados ----------
 let cache = { data: null, updatedAt: null, ok: false, error: null };
+let frozen = false; // congela as atualizações automáticas (cron/boot/manual) — toggle via /api/freeze (admin)
 async function refresh() {
+  if (frozen) { console.log('[refresh] pulado — dados congelados (freeze ligado)'); return cache.ok; }
   try {
     const [sheets, ueSheets] = await Promise.all([fetchAllTabs(C.TABS), fetchUeTabs(C.UE_TABS)]);
     // mescla ocorrências NOVAS do site (painel de cobranças) na base da planilha; falha não derruba o refresh
@@ -88,7 +90,7 @@ app.use(requireAuth);
 
 // ======================= ROTAS PROTEGIDAS =======================
 app.get('/api/data', (req, res) => {
-  if (cache.data) return res.json({ ...cache.data, _meta: { updatedAt: cache.updatedAt, live: cache.ok, user: req.user } });
+  if (cache.data) return res.json({ ...cache.data, _meta: { updatedAt: cache.updatedAt, live: cache.ok, user: req.user, frozen } });
   res.status(503).json({ error: cache.error || 'dados ainda não disponíveis' });
 });
 app.get('/api/refresh', async (_req, res) => {
@@ -96,6 +98,19 @@ app.get('/api/refresh', async (_req, res) => {
   res.status(ok ? 200 : 502).json({ ok, updatedAt: cache.updatedAt, error: cache.error });
 });
 app.get('/api/me', (req, res) => res.json({ user: req.user }));
+
+// ---------- Freeze: congela/descongela as atualizações automáticas (estado global) ----------
+app.get('/api/freeze', (req, res) => res.json({ frozen }));
+// só admin altera; ao descongelar, dispara um refresh imediato
+// (requireAdmin é definido mais abaixo, mas hoisted não se aplica a const; então checa inline)
+app.post('/api/freeze', async (req, res) => {
+  if (!req.user || req.user.role !== 'admin') return res.status(403).json({ error: 'apenas administradores podem congelar/descongelar' });
+  frozen = !!(req.body && req.body.frozen);
+  try { await store.setDoc('freeze', { frozen }, req.user.login); } catch (e) { /* persistência best-effort */ }
+  console.log(`[freeze] ${frozen ? 'LIGADO' : 'desligado'} por ${req.user.login}`);
+  if (!frozen) { try { await refresh(); } catch (e) {} } // ao descongelar, atualiza já
+  res.json({ ok: true, frozen, updatedAt: cache.updatedAt });
+});
 
 // ---------- Organograma (Headcount): overrides de nome/cargo por nó ----------
 app.get('/api/org', async (req, res) => {
@@ -184,7 +199,8 @@ app.get('*', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.h
 app.listen(PORT, async () => {
   console.log(`OCN KPIs rodando na porta ${PORT}`);
   try { await store.init(); } catch (e) { console.error('[store] init falhou:', e.message); }
-  await refresh();
+  await refresh(); // refresh de boot roda sempre (frozen ainda false) — garante dados no cache
+  try { const f = await store.getDoc('freeze'); frozen = !!(f && f.frozen); if (frozen) console.log('[freeze] estado carregado: LIGADO'); } catch (e) {}
   cron.schedule(CRON_SCHEDULE, refresh, { timezone: 'America/Sao_Paulo' });
   console.log(`[cron] agendado: "${CRON_SCHEDULE}" (America/Sao_Paulo)`);
 });

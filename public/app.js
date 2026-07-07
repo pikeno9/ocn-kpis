@@ -83,13 +83,12 @@
       fleetSubEl.textContent = SF.total + ' registered vehicles';
     }
   }
-  const fleetBadgeEl = document.getElementById('fleetTotalBadge');
-  if (fleetBadgeEl && SF.total != null) fleetBadgeEl.innerHTML =
-    '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#111827;vertical-align:middle;margin:0 8px 3px 10px"></span>' +
-    '<span style="color:#5A00F8;font-weight:800">' + SF.total + '</span>' +
-    '<span style="color:#5A00F8;font-weight:600;font-size:13px;margin-left:4px">vehicles</span>';
   const stripe = 'repeating-linear-gradient(45deg, rgba(40,39,40,0.13) 0, rgba(40,39,40,0.13) 5px, rgba(40,39,40,0.04) 5px, rgba(40,39,40,0.04) 10px)';
-  document.getElementById('fleetGrid').innerHTML = SF.items.map((it) => {
+  // tile totalizador (caixa diferenciada), à esquerda das demais
+  const totalTile = (SF.total != null)
+    ? `<div class="fleet-tile fleet-tile-total"><div class="fleet-tile-num">${SF.total}</div><div class="fleet-tile-label">Total fleet</div></div>`
+    : '';
+  document.getElementById('fleetGrid').innerHTML = totalTile + SF.items.map((it) => {
     const bg = it.listrado ? stripe : it.cor + '14';
     const numCor = it.listrado ? '#282728' : it.cor;
     return `
@@ -1200,25 +1199,24 @@
     // semanas que são a ÚLTIMA do mês (destaque cinza atrás: semanas fracas nas plataformas)
     const MONTH_END_WEEKS = ['04/05', '01/06', '29/06'];
     legendEl.innerHTML = CATS.map((c) => `<span class="it"><span class="sw" style="background:${c.color}"></span> ${c.label}</span>`).join('') +
-      '<span class="it"><span style="display:inline-block;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid #6b7280;vertical-align:middle;margin-right:6px"></span> Last week of month</span>';
+      '<span class="it"><span style="display:inline-block;width:13px;height:10px;border:1px dashed #cbd5e1;border-radius:2px;vertical-align:middle;margin-right:6px"></span> Last week of month</span>';
     const labels = weeks.map((w) => fmtDMY(w.date));
     const totals = weeks.map((w) => CATS.reduce((s, c) => s + w.counts[c.key], 0));
     let mode = 'pct', chart, selWeekIdx = null; // padrão: Percentage (100% bars)
-    // pequeno triângulo invertido ACIMA da barra nas últimas semanas do mês (semanas fracas nas plataformas)
+    // retângulo tracejado bem sutil ao redor da barra nas últimas semanas do mês (semanas fracas nas plataformas)
     const monthEndBg = {
       id: 'monthEndMark',
-      afterDatasetsDraw(ch) {
-        const xs = ch.scales.x, ca = ch.chartArea, ctx = ch.ctx;
-        if (!xs || xs.getPixelForValue(0) == null) return;
+      beforeDatasetsDraw(ch) {
+        const ca = ch.chartArea, ctx = ch.ctx, meta = ch.getDatasetMeta(0);
+        if (!meta || !meta.data.length) return;
         ctx.save();
-        ctx.fillStyle = '#6b7280';
+        ctx.strokeStyle = '#cbd5e1'; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
         labels.forEach((lab, i) => {
-          if (!MONTH_END_WEEKS.includes(lab)) return;
-          const cx = xs.getPixelForValue(i), y = ca.top - 4; // logo acima da área do gráfico
-          ctx.beginPath();
-          ctx.moveTo(cx - 6, y - 8); ctx.lineTo(cx + 6, y - 8); ctx.lineTo(cx, y); // triângulo invertido ▽
-          ctx.closePath(); ctx.fill();
+          if (!MONTH_END_WEEKS.includes(lab) || !meta.data[i]) return;
+          const bar = meta.data[i], w = (bar.width || 40) + 12;
+          ctx.strokeRect(bar.x - w / 2, ca.top, w, ca.bottom - ca.top);
         });
+        ctx.setLineDash([]);
         ctx.restore();
       },
     };

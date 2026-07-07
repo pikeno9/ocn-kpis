@@ -197,6 +197,44 @@ app.post('/api/ue/value/delete', requireAdmin, async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ---------- Migração de dados manuais entre ambientes (main <-> experimentos) ----------
+// Exporta TODOS os dados manuais (Unit Economics + overrides + organograma) como JSON.
+// Não inclui o estado de freeze (é específico do ambiente e o snapshot é enorme).
+app.get('/api/store/export', requireAdmin, async (req, res) => {
+  try {
+    const dump = await store.dumpAll();
+    if (dump && dump.docs) { delete dump.docs.freeze; delete dump.docs.freeze_snapshot; }
+    res.setHeader('Content-Disposition', 'attachment; filename="ocn-kpis-dados-manuais.json"');
+    res.json({ exportedAt: new Date().toISOString(), ...dump });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// Importa (upsert) os dados manuais exportados de outro ambiente. Sobrescreve os valores existentes.
+app.post('/api/store/import', requireAdmin, async (req, res) => {
+  const b = req.body || {};
+  const rows = Array.isArray(b.ue_values) ? b.ue_values : [];
+  const docs = b.docs && typeof b.docs === 'object' ? b.docs : {};
+  try {
+    let nv = 0, nd = 0;
+    for (const it of rows) {
+      const fleet = String(it.fleetId || it.fleet || '').trim();
+      const line = String(it.line || '').trim();
+      const period = parseInt(it.period, 10);
+      const value = Number(it.value);
+      const kind = it.kind === 'proj' ? 'proj' : 'real';
+      if (!fleet || !line || !(period >= 0 && period <= 120) || !isFinite(value)) continue;
+      await store.set({ fleetId: fleet, line, period, value, kind, user: req.user.login });
+      nv++;
+    }
+    for (const [k, v] of Object.entries(docs)) {
+      if (k === 'freeze' || k === 'freeze_snapshot') continue; // não mexe no freeze do ambiente de destino
+      await store.setDoc(k, v, req.user.login);
+      nd++;
+    }
+    console.log(`[store/import] ${nv} valores + ${nd} docs importados por ${req.user.login}`);
+    res.json({ ok: true, values: nv, docs: nd });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('*', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 

@@ -1540,7 +1540,11 @@
       const totalsAcc = accum(totalsMonthly);
       // dados das 3 linhas abaixo do gráfico: carros ativos/mês, taxa de incidents (%), e nº com sinistro (insurance claim)
       const FSd = OCN.fleetStatus;
-      const activeArr = (OM.monthKeys || []).map((mk) => { const j = (+mk.slice(5)) - 4; return (FSd && FSd.active && j >= 0 && j < FSd.active.length) ? FSd.active[j] : null; });
+      // carros ativos/mês: valor automático (fleetStatus) com opção de override manual do admin (base do % de incidents)
+      const activeBase = (OM.monthKeys || []).map((mk) => { const j = (+mk.slice(5)) - 4; return (FSd && FSd.active && j >= 0 && j < FSd.active.length) ? FSd.active[j] : null; });
+      const activeOvr = {}; // period (nº do mês) -> valor manual
+      const activeArr = activeBase.slice();
+      const applyActiveOvr = () => { for (let i = 0; i < activeArr.length; i++) { const mn = +OM.monthKeys[i].slice(5); activeArr[i] = (activeOvr[mn] != null) ? activeOvr[mn] : activeBase[i]; } };
       const _sinByMk = {};
       (O.casos || []).forEach((c) => { if (c.monthKey) _sinByMk[c.monthKey] = (_sinByMk[c.monthKey] || 0) + (c.sinistro ? 1 : 0); });
       const sinistroMonthly = (OM.monthKeys || []).map((mk) => _sinByMk[mk] || 0);
@@ -1631,6 +1635,36 @@
         omTg.querySelectorAll('.range-btn').forEach((x) => x.classList.toggle('active', x === b));
         renderOcorMensal(b.dataset.range === 'monthly' ? 'monthly' : 'acc');
       }));
+      // --- editor manual da "Active fleet" (base do % de incidents) — admin ---
+      const ocEditBtn = document.getElementById('ocorActiveEditBtn'), ocEditEl = document.getElementById('ocorActiveEdit');
+      if (ocEditBtn && ocEditEl && OCN._meta && OCN._meta.user && OCN._meta.user.role === 'admin') {
+        ocEditBtn.style.display = 'inline-flex';
+        let ocOpen = false;
+        const ocInp = 'width:80px;padding:4px 6px;border:1px solid #d1d5db;border-radius:6px;font-size:13px';
+        const ocSave = async () => {
+          const msg = document.getElementById('ocEditMsg'); msg.textContent = 'Saving…';
+          const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); });
+          const jobs = [];
+          for (let i = 0; i < (OM.labels || []).length; i++) {
+            const mn = +OM.monthKeys[i].slice(5), inp = document.getElementById('ocA' + i); if (!inp) continue;
+            const v = inp.value === '' ? null : Number(inp.value), cur = activeOvr[mn] != null ? activeOvr[mn] : null;
+            if (v == null || v === activeBase[i]) { if (cur != null) jobs.push(post('/api/ue/value/delete', { fleet: '__ocor_active__', line: 'active', period: mn }).then(() => { delete activeOvr[mn]; })); }
+            else if (v !== cur && isFinite(v) && v >= 0) { jobs.push(post('/api/ue/value', { fleet: '__ocor_active__', line: 'active', period: mn, value: v }).then(() => { activeOvr[mn] = v; })); }
+          }
+          try { await Promise.all(jobs); applyActiveOvr(); if (ocorMensalChart) ocorMensalChart.draw(); renderOcEditor(); const m2 = document.getElementById('ocEditMsg'); if (m2) m2.textContent = 'Saved.'; }
+          catch (e) { msg.textContent = 'Error saving (' + e.message + ').'; }
+        };
+        function renderOcEditor() {
+          if (!ocOpen) { ocEditEl.innerHTML = ''; return; }
+          const rows = (OM.labels || []).map((lab, i) => { const mn = +OM.monthKeys[i].slice(5); return `<tr><td>${lab}</td><td><input type="number" min="0" step="1" id="ocA${i}" value="${activeArr[i] != null ? activeArr[i] : ''}" style="${ocInp}"></td><td style="color:var(--text-2)">${activeOvr[mn] != null ? 'manual' : ''}</td></tr>`; }).join('');
+          ocEditEl.innerHTML = `<table class="rh-table" style="max-width:320px;margin-top:10px"><thead><tr><th>Month</th><th>Active fleet</th><th></th></tr></thead><tbody>${rows}</tbody></table><div style="margin-top:10px;display:flex;gap:8px;align-items:center"><button class="backbtn" id="ocSave" style="display:inline-flex"><i class="ti ti-check"></i> Save</button><button class="backbtn" id="ocCancel" style="display:inline-flex">Cancel</button><span id="ocEditMsg" style="font-size:12px;color:var(--text-2)"></span></div><div style="font-size:11.5px;color:var(--text-2);margin-top:6px">The incident rate (% below the chart) is recalculated from this value. Empty / equal to automatic returns to the computed value.</div>`;
+          document.getElementById('ocCancel').addEventListener('click', () => { ocOpen = false; renderOcEditor(); });
+          document.getElementById('ocSave').addEventListener('click', ocSave);
+        }
+        ocEditBtn.addEventListener('click', () => { ocOpen = !ocOpen; renderOcEditor(); });
+      }
+      // carrega overrides salvos e aplica
+      fetch('/api/ue/values?fleet=__ocor_active__', { credentials: 'include' }).then((r) => r.json()).then((d) => { (d.values || []).forEach((o) => { if (o.line === 'active' && o.value != null) activeOvr[o.period] = o.value; }); applyActiveOvr(); if (ocorMensalChart) ocorMensalChart.draw(); }).catch(() => {});
       renderOcorDetail(null); // tabela mostra todos os casos por padrão
     }
 

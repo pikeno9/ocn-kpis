@@ -551,7 +551,7 @@
         // filhos que são todos folhas (analistas) => lista VERTICAL pendurada (compacta, evita scroll horizontal)
         const allLeaves = n.children.every((c) => !(c.children && c.children.length));
         h += allLeaves
-          ? '<div class="org-reports">' + n.children.map((c) => '<div class="org-report">' + nodeHTML(c, lvl + 1) + '</div>').join('') + '</div>'
+          ? '<div class="org-reports ' + (n.children.length > 1 ? 'multi' : 'single') + '">' + n.children.map((c) => '<div class="org-report">' + nodeHTML(c, lvl + 1) + '</div>').join('') + '</div>'
           : '<ul>' + n.children.map((c) => treeHTML(c, lvl + 1)).join('') + '</ul>';
       }
       return h + '</li>';

@@ -153,9 +153,9 @@ const notaMensal =
 const statusItems = [
   { label: 'Rented', cor: '#5A00F8', match: ['alugado', 'atribuído', 'atribuido'] }, // roxo — "Atribuído" conta como alugado
   { label: 'Available', cor: '#2FA84F', match: ['disponível', 'disponivel'] },
+  { label: 'In preparation', cor: '#D4A017', match: ['em preparação', 'em preparacao', 'preparação', 'preparacao'] },
   { label: 'Workshop', cor: '#C2410C', match: ['oficina'] },
   { label: 'Total loss', cor: '#282728', match: ['perda total'] },
-  { label: 'Sold', cor: '#6B7280', listrado: true, match: ['vendido', 'vendida', 'vendidos'] },
 ];
 
 // ---- Ocorrências ----

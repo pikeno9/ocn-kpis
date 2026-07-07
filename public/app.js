@@ -1210,11 +1210,12 @@
         const ca = ch.chartArea, ctx = ch.ctx, meta = ch.getDatasetMeta(0);
         if (!meta || !meta.data.length) return;
         ctx.save();
-        ctx.strokeStyle = '#cbd5e1'; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
+        ctx.strokeStyle = '#9ca3af'; ctx.lineWidth = 1; ctx.setLineDash([4, 3]); // tom mais escuro
+        const top = ca.top - 2, bottom = ca.bottom + 24; // desce até abaixo das datas do eixo X
         labels.forEach((lab, i) => {
           if (!MONTH_END_WEEKS.includes(lab) || !meta.data[i]) return;
-          const bar = meta.data[i], w = (bar.width || 40) + 12;
-          ctx.strokeRect(bar.x - w / 2, ca.top, w, ca.bottom - ca.top);
+          const bar = meta.data[i], w = (bar.width || 40) + 40; // largo o bastante p/ não cortar os rótulos laterais das barras
+          ctx.strokeRect(bar.x - w / 2, top, w, bottom - top);
         });
         ctx.setLineDash([]);
         ctx.restore();

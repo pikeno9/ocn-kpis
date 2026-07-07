@@ -156,7 +156,6 @@ const statusItems = [
   { label: 'In preparation', cor: '#D4A017', match: ['em preparação', 'em preparacao', 'preparação', 'preparacao'] },
   { label: 'Workshop', cor: '#C2410C', match: ['oficina'] },               // laranja (mais escuro que "In preparation")
   { label: 'Total loss', cor: '#282728', match: ['perda total'] },
-  { label: 'Sold', cor: '#6B7280', listrado: true, match: ['vendido', 'vendida', 'vendidos'] },
 ];
 
 // ---- Ocorrências ----

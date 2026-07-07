@@ -29,8 +29,8 @@ app.use(express.json());
 // ---------- cache de dados ----------
 let cache = { data: null, updatedAt: null, ok: false, error: null };
 let frozen = false; // congela as atualizações automáticas (cron/boot/manual) — toggle via /api/freeze (admin)
-async function refresh() {
-  if (frozen) { console.log('[refresh] pulado — dados congelados (freeze ligado)'); return cache.ok; }
+async function refresh(force) {
+  if (frozen && !force) { console.log('[refresh] pulado — dados congelados (freeze ligado)'); return cache.ok; }
   try {
     const [sheets, ueSheets] = await Promise.all([fetchAllTabs(C.TABS), fetchUeTabs(C.UE_TABS)]);
     // mescla ocorrências NOVAS do site (painel de cobranças) na base da planilha; falha não derruba o refresh
@@ -106,7 +106,11 @@ app.get('/api/freeze', (req, res) => res.json({ frozen }));
 app.post('/api/freeze', async (req, res) => {
   if (!req.user || req.user.role !== 'admin') return res.status(403).json({ error: 'apenas administradores podem congelar/descongelar' });
   frozen = !!(req.body && req.body.frozen);
-  try { await store.setDoc('freeze', { frozen }, req.user.login); } catch (e) { /* persistência best-effort */ }
+  try {
+    await store.setDoc('freeze', { frozen }, req.user.login);
+    // ao congelar, salva o SNAPSHOT INTEIRO — assim o congelamento sobrevive a restart/deploy
+    if (frozen) await store.setDoc('freeze_snapshot', { data: cache.data, updatedAt: cache.updatedAt }, req.user.login);
+  } catch (e) { console.error('[freeze] persistência falhou:', e.message); }
   console.log(`[freeze] ${frozen ? 'LIGADO' : 'desligado'} por ${req.user.login}`);
   if (!frozen) { try { await refresh(); } catch (e) {} } // ao descongelar, atualiza já
   res.json({ ok: true, frozen, updatedAt: cache.updatedAt });
@@ -199,8 +203,16 @@ app.get('*', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.h
 app.listen(PORT, async () => {
   console.log(`OCN KPIs rodando na porta ${PORT}`);
   try { await store.init(); } catch (e) { console.error('[store] init falhou:', e.message); }
-  await refresh(); // refresh de boot roda sempre (frozen ainda false) — garante dados no cache
-  try { const f = await store.getDoc('freeze'); frozen = !!(f && f.frozen); if (frozen) console.log('[freeze] estado carregado: LIGADO'); } catch (e) {}
+  try { const f = await store.getDoc('freeze'); frozen = !!(f && f.frozen); } catch (e) {}
+  if (frozen) {
+    // congelado: restaura o snapshot salvo (não busca dados frescos), sobrevivendo ao restart
+    let snap = null;
+    try { snap = await store.getDoc('freeze_snapshot'); } catch (e) {}
+    if (snap && snap.data) { cache = { data: snap.data, updatedAt: snap.updatedAt || null, ok: true, error: null }; console.log('[freeze] LIGADO — snapshot restaurado do store (sem buscar dados novos)'); }
+    else { await refresh(true); console.log('[freeze] LIGADO mas sem snapshot salvo — fez refresh de boot (fallback)'); }
+  } else {
+    await refresh(); // não congelado: refresh normal de boot
+  }
   cron.schedule(CRON_SCHEDULE, refresh, { timezone: 'America/Sao_Paulo' });
   console.log(`[cron] agendado: "${CRON_SCHEDULE}" (America/Sao_Paulo)`);
 });

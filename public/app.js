@@ -370,7 +370,7 @@
         color: (ctx) => txtOnBar(ctx.dataset.backgroundColor), anchor: 'center', textAlign: 'center',
         labels: {
           abs: { align: 'top', offset: 1, font: { size: 12, weight: 700 }, formatter: (v, ctx) => absFmt(ctx) },
-          pct: { align: 'bottom', offset: 1, font: { size: 9, weight: 500 }, formatter: (v) => pctTag(v) },
+          pct: { align: 'bottom', offset: 1, color: '#fff', font: { size: 9, weight: 600 }, formatter: (v) => pctTag(v) }, // % dentro da barra: branco
         },
       },
     });
@@ -384,7 +384,7 @@
         labels: {
           // número numa "caixinha" da cor da barra (em vez de texto com borda branca)
           abs: { align: 'center', backgroundColor: color, borderRadius: 4, padding: { top: 2, bottom: 2, left: 5, right: 5 }, color: txtOnBar(color), font: { size: 11, weight: 700 }, formatter: (v, ctx) => absFmt(ctx) },
-          pct: { align: 'bottom', offset: 10, color: '#6b7280', font: { size: 8, weight: 600 }, formatter: (v) => pctTag(v) },
+          pct: { align: 'bottom', offset: 10, color: '#fff', font: { size: 8, weight: 700 }, formatter: (v) => pctTag(v) }, // % dentro da barra: branco
         },
       },
     });
@@ -1263,6 +1263,24 @@
         }
       },
     };
+    // totalizador no topo de cada barra: 100% (pct) · soma de pagamentos (abs) · soma em R$ (rs)
+    const payTotals = {
+      id: 'payTotals',
+      afterDatasetsDraw(ch) {
+        const ctx = ch.ctx, yScale = ch.scales.y, meta0 = ch.getDatasetMeta(0), ca = ch.chartArea;
+        const fam = (Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif';
+        ctx.save();
+        ctx.font = '700 12px ' + fam; ctx.fillStyle = '#111827'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+        for (let i = 0; i < ch.data.labels.length; i++) {
+          const bar = meta0.data[i]; if (!bar) continue;
+          const sum = ch.data.datasets.reduce((s, ds) => s + (ds.data[i] || 0), 0);
+          const txt = mode === 'pct' ? '100%' : (mode === 'rs' ? fmtRS(sum) : String(Math.round(sum)));
+          const y = mode === 'pct' ? (ca.top - 16) : (yScale.getPixelForValue(sum) - 6);
+          ctx.fillText(txt, bar.x, y);
+        }
+        ctx.restore();
+      },
+    };
     function datasetsFor() {
       return catsFor().map((c) => {
         let data;
@@ -1296,9 +1314,9 @@
       chart = new Chart(document.getElementById('chartPayments'), {
         type: 'bar',
         data: { labels, datasets: datasetsFor() },
-        plugins: [monthEndBg, payBarLabels],
+        plugins: [monthEndBg, payBarLabels, payTotals],
         options: {
-          responsive: true, maintainAspectRatio: false, layout: { padding: { top: 22, right: 20 } },
+          responsive: true, maintainAspectRatio: false, layout: { padding: { top: 30, right: 20 } },
           onClick: (evt, els) => { if (!els.length) return; selWeekIdx = els[0].index; renderDetail(); },
           onHover: (evt, els) => { evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
           plugins: {

@@ -92,7 +92,7 @@ app.use(requireAuth);
 // ======================= ROTAS PROTEGIDAS =======================
 // Seções restritas a não-admin (visualizador): sub-aba -> chaves de dados removidas do payload.
 // Bloqueio REAL: o visualizador não recebe esses dados (nem via dev tools / chamada direta à API).
-const RESTRICTED_NON_ADMIN = { unit: ['ue'], indrive: ['inDrive'], headcount: ['rh'] };
+const RESTRICTED_NON_ADMIN = { unit: ['ue'], headcount: ['rh'] };
 app.get('/api/data', (req, res) => {
   if (!cache.data) return res.status(503).json({ error: cache.error || 'dados ainda não disponíveis' });
   const isAdmin = !!(req.user && req.user.role === 'admin');

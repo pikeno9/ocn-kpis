@@ -53,6 +53,11 @@
     paintFreeze();
     if (isAdminHdr) btnFreeze.addEventListener('click', async () => {
       const next = !frozen;
+      // confirmação antes de agir (freeze pausa; unfreeze volta a atualizar)
+      const confirmMsg = next
+        ? 'Freeze automatic updates?\n\nThe dashboard will stop refreshing and keep showing the current data until someone unfreezes it.'
+        : 'Resume automatic updates?\n\nThe dashboard will start refreshing again and the frozen snapshot will be replaced by live data.';
+      if (!window.confirm(confirmMsg)) return; // cancelou → não faz nada
       btnFreeze.disabled = true;
       try {
         const r = await fetch('/api/freeze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ frozen: next }) });

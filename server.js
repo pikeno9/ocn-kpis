@@ -30,7 +30,8 @@ app.use(express.json());
 let cache = { data: null, updatedAt: null, ok: false, error: null };
 let frozen = false; // congela as atualizações automáticas (cron/boot/manual) — toggle via /api/freeze (admin)
 async function refresh(force) {
-  if (frozen && !force) { console.log('[refresh] pulado — dados congelados (freeze ligado)'); return cache.ok; }
+  // só força com `true` explícito; qualquer outro argumento (ex.: o Date que o node-cron passa) NÃO fura o freeze
+  if (frozen && force !== true) { console.log('[refresh] pulado — dados congelados (freeze ligado)'); return cache.ok; }
   try {
     const [sheets, ueSheets] = await Promise.all([fetchAllTabs(C.TABS), fetchUeTabs(C.UE_TABS)]);
     // mescla ocorrências NOVAS do site (painel de cobranças) na base da planilha; falha não derruba o refresh
@@ -251,6 +252,7 @@ app.listen(PORT, async () => {
   } else {
     await refresh(); // não congelado: refresh normal de boot
   }
-  cron.schedule(CRON_SCHEDULE, refresh, { timezone: 'America/Sao_Paulo' });
+  // wrapper sem args: o node-cron passa um Date pro callback; chamar refresh() direto evita que esse Date vire `force`
+  cron.schedule(CRON_SCHEDULE, () => refresh(), { timezone: 'America/Sao_Paulo' });
   console.log(`[cron] agendado: "${CRON_SCHEDULE}" (America/Sao_Paulo)`);
 });

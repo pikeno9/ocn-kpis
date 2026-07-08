@@ -1415,11 +1415,12 @@
     }
     // total de dias do mês (reparo+recolocação) — rótulo no fim de cada barra horizontal
     const totalDays = section.labels.map((_, i) => Math.round(((section.avgRecupParaPronto[i] || 0) + (section.avgProntoParaAlocado[i] || 0)) * 10) / 10);
-    // eixo Y: data do último dia do mês (fechados) e o dia de hoje no mês vigente; mantém "n=X" na 2ª linha
-    const _td = new Date(), _cMk = _td.getFullYear() + '-' + String(_td.getMonth() + 1).padStart(2, '0');
+    // eixo Y: data do último dia do mês (fechados) e a data "as of" no mês vigente; mantém "n=X" na 2ª linha
+    // (usa a data do snapshot, não new Date() — congelado mostra a data do freeze, não "hoje")
+    const _cMk = asOfYear + '-' + String(asOfMonth).padStart(2, '0');
     const _dLbl = (mk) => {
       const y = +mk.slice(0, 4), m = +mk.slice(5), p = (n) => String(n).padStart(2, '0');
-      return mk === _cMk ? p(_td.getDate()) + '/' + p(m) : p(new Date(y, m, 0).getDate()) + '/' + p(m);
+      return mk === _cMk ? p(asOfDay) + '/' + p(m) : p(new Date(y, m, 0).getDate()) + '/' + p(m);
     };
     const chartLabels = (section.monthKeys || []).length
       ? section.labels.map((lab, i) => [_dLbl(section.monthKeys[i]), lab[1]])

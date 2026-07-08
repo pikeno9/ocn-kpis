@@ -26,6 +26,14 @@
   if (hl && OCN.atualizadoEm) hl.textContent = OCN.atualizadoEm;
   // usuário logado + botão Sair
   const meta = OCN._meta || {};
+  // esconde sub-abas restritas ao papel — o servidor manda meta.hiddenSubs (admin recebe []).
+  // Como nenhuma restrita é a sub-aba padrão, a navegação não quebra; e o servidor já
+  // removeu os dados dessas seções do payload (bloqueio real, não só visual).
+  (meta.hiddenSubs || []).forEach((sub) => {
+    document.querySelectorAll('.sub-tab[data-sub="' + sub + '"]').forEach((b) => { b.style.display = 'none'; });
+    const pane = document.getElementById('sub-' + sub);
+    if (pane) pane.style.display = 'none';
+  });
   if (meta.user) {
     const un = document.getElementById('userName'); if (un) un.textContent = meta.user.name || meta.user.login;
     const ur = document.getElementById('userRole'); if (ur) ur.textContent = (meta.user.role || '').toUpperCase();

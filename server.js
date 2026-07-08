@@ -90,9 +90,22 @@ function requireAuth(req, res, next) {
 app.use(requireAuth);
 
 // ======================= ROTAS PROTEGIDAS =======================
+// Seções restritas a não-admin (visualizador): sub-aba -> chaves de dados removidas do payload.
+// Bloqueio REAL: o visualizador não recebe esses dados (nem via dev tools / chamada direta à API).
+const RESTRICTED_NON_ADMIN = { unit: ['ue'], indrive: ['inDrive'], headcount: ['rh'] };
 app.get('/api/data', (req, res) => {
-  if (cache.data) return res.json({ ...cache.data, _meta: { updatedAt: cache.updatedAt, live: cache.ok, user: req.user, frozen } });
-  res.status(503).json({ error: cache.error || 'dados ainda não disponíveis' });
+  if (!cache.data) return res.status(503).json({ error: cache.error || 'dados ainda não disponíveis' });
+  const isAdmin = !!(req.user && req.user.role === 'admin');
+  let payload = cache.data;
+  const hiddenSubs = [];
+  if (!isAdmin) {
+    payload = { ...cache.data }; // clone raso: apagar chaves top-level não mexe no cache
+    for (const [sub, keys] of Object.entries(RESTRICTED_NON_ADMIN)) {
+      keys.forEach((k) => { delete payload[k]; });
+      hiddenSubs.push(sub);
+    }
+  }
+  res.json({ ...payload, _meta: { updatedAt: cache.updatedAt, live: cache.ok, user: req.user, frozen, hiddenSubs } });
 });
 app.get('/api/refresh', async (_req, res) => {
   const ok = await refresh();

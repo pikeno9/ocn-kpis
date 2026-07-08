@@ -126,9 +126,18 @@
     </div>`;
   }).join('');
 
+  // ---------- data "as of" dos dados (fonte única de "hoje" no cliente) ----------
+  // Se congelado, é o momento do freeze; senão, a última atualização real. Fallback: hoje.
+  // Gráficos que liam new Date() passam a usar isto, para refletirem o snapshot e não o "hoje" do navegador.
+  const asOfDate = metaUpdatedAt ? new Date(metaUpdatedAt) : new Date();
+  const _asOfSP = (opt) => asOfDate.toLocaleString('en-GB', { timeZone: 'America/Sao_Paulo', ...opt });
+  const asOfDay = parseInt(_asOfSP({ day: '2-digit' }), 10);
+  const asOfMonth = parseInt(_asOfSP({ month: '2-digit' }), 10);
+  const asOfYear = parseInt(_asOfSP({ year: 'numeric' }), 10);
+
   // ---------- mês vigente (base do recorte YTD do gráfico) ----------
   const Mref = OCN.mensal;
-  const vi = Math.max(0, Math.min(Mref.labels.length - 1, (new Date().getMonth() + 1) - 4)); // Abr=0 ... Dez=8
+  const vi = Math.max(0, Math.min(Mref.labels.length - 1, asOfMonth - 4)); // Abr=0 ... Dez=8
 
   // ---------- helpers ----------
   function mdlStr(o) { return o ? Object.entries(o).map(([m, v]) => v + ' ' + m).join(' · ') : ''; }
@@ -360,13 +369,13 @@
   const FS = OCN.fleetStatus;
   if (FS && FS.labels && document.getElementById('chartUtil')) {
     const sl = (arr) => arr.slice(0, vi + 1); // abr..mês atual (sem meses futuros vazios)
-    // eixo X: data do último dia do mês (meses fechados) e o dia de hoje no mês vigente
-    const _today = new Date(), _curM = _today.getMonth() + 1, _curY = _today.getFullYear();
+    // eixo X: data do último dia do mês (meses fechados) e a data "as of" no mês vigente
+    // (usa a data do snapshot, não new Date() — assim congelado mostra a data do freeze, não "hoje")
     const p2d = (n) => String(n).padStart(2, '0');
     const dateLbls = FS.labels.map((_, j) => {
       const mm = j + 4; // Abr=4
-      if (mm === _curM) return p2d(_today.getDate()) + '/' + p2d(mm); // mês vigente = hoje
-      const last = new Date(_curY, mm, 0).getDate();                 // dia 0 do mês seguinte = último dia deste mês
+      if (mm === asOfMonth) return p2d(asOfDay) + '/' + p2d(mm); // mês vigente = data "as of"
+      const last = new Date(asOfYear, mm, 0).getDate();          // dia 0 do mês seguinte = último dia deste mês
       return p2d(last) + '/' + p2d(mm);
     });
     const pctFmt = (v) => (v == null ? '' : String(Math.round(v * 10) / 10).replace('.', ',') + '%'); // tooltip (com decimal)

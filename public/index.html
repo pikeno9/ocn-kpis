@@ -38,9 +38,26 @@
         <div class="email" id="userName">—</div>
         <div class="role" id="userRole"></div>
       </div>
+      <button class="app-user__logout" id="btnChangePw" title="Change your password"><i class="ti ti-key"></i></button>
       <button class="app-user__logout" id="btnLogout">Log out</button>
     </div>
   </header>
+
+  <!-- Modal: trocar a própria senha -->
+  <div class="modal-overlay" id="pwModal">
+    <div class="modal">
+      <h3>Change password</h3>
+      <p>Update the password for your account.</p>
+      <input type="password" id="pwCurrent" placeholder="Current password" autocomplete="current-password" />
+      <input type="password" id="pwNew" placeholder="New password (min. 8 characters)" autocomplete="new-password" />
+      <input type="password" id="pwConfirm" placeholder="Confirm new password" autocomplete="new-password" />
+      <div id="pwMsg" style="display:none;font-size:13px;margin-bottom:12px"></div>
+      <div class="row">
+        <button id="pwCancel" type="button">Cancel</button>
+        <button class="primary" id="pwSave" type="button">Save</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ===================== MAIN TABS ===================== -->
   <nav class="main-tabs">

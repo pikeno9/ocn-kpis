@@ -113,6 +113,24 @@ app.get('/api/refresh', async (_req, res) => {
 });
 app.get('/api/me', (req, res) => res.json({ user: req.user }));
 
+// ---------- Trocar a própria senha (qualquer usuário autenticado) ----------
+// Confere a senha atual e grava a nova (hash) no store como override, sobre o AUTH_USERS do env.
+app.post('/api/change-password', async (req, res) => {
+  const cur = String((req.body && req.body.currentPassword) || '');
+  const nw = String((req.body && req.body.newPassword) || '');
+  if (nw.length < 8) return res.status(400).json({ error: 'A nova senha deve ter pelo menos 8 caracteres.' });
+  if (!auth.verifyCredentials(req.user.login, cur)) return res.status(400).json({ error: 'Senha atual incorreta.' });
+  try {
+    const hash = auth.hashPassword(nw);
+    const doc = (await store.getDoc('auth_pw')) || {};
+    doc[String(req.user.login).toLowerCase()] = hash;
+    await store.setDoc('auth_pw', doc, req.user.login);
+    auth.setPasswordOverride(req.user.login, hash);
+    console.log(`[change-password] senha atualizada para ${req.user.login}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ---------- Freeze: congela/descongela as atualizações automáticas (estado global) ----------
 app.get('/api/freeze', (req, res) => res.json({ frozen }));
 // só admin altera; ao descongelar, dispara um refresh imediato
@@ -255,6 +273,7 @@ app.get('*', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.h
 app.listen(PORT, async () => {
   console.log(`OCN KPIs rodando na porta ${PORT}`);
   try { await store.init(); } catch (e) { console.error('[store] init falhou:', e.message); }
+  try { const pw = await store.getDoc('auth_pw'); auth.setPasswordOverrides(pw || {}); } catch (e) {}
   try { const f = await store.getDoc('freeze'); frozen = !!(f && f.frozen); } catch (e) {}
   if (frozen) {
     // congelado: restaura o snapshot salvo (não busca dados frescos), sobrevivendo ao restart

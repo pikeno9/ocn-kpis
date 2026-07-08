@@ -76,6 +76,32 @@
       paintFreeze();
     });
   }
+  // ---------- Trocar senha (qualquer usuário autenticado) ----------
+  const btnChangePw = document.getElementById('btnChangePw');
+  const pwModal = document.getElementById('pwModal');
+  if (btnChangePw && pwModal) {
+    const $ = (id) => document.getElementById(id);
+    const pwCur = $('pwCurrent'), pwNew = $('pwNew'), pwConf = $('pwConfirm'), pwMsg = $('pwMsg'), pwSave = $('pwSave'), pwCancel = $('pwCancel');
+    const pwShow = (kind, txt) => { pwMsg.style.display = 'block'; pwMsg.style.color = kind === 'ok' ? '#176a3a' : '#a11414'; pwMsg.textContent = txt; };
+    const openPw = () => { pwCur.value = pwNew.value = pwConf.value = ''; pwMsg.style.display = 'none'; pwModal.classList.add('show'); pwCur.focus(); };
+    const closePw = () => pwModal.classList.remove('show');
+    btnChangePw.addEventListener('click', openPw);
+    pwCancel.addEventListener('click', closePw);
+    pwModal.addEventListener('click', (e) => { if (e.target === pwModal) closePw(); }); // clique no fundo fecha
+    pwSave.addEventListener('click', async () => {
+      if (pwNew.value.length < 8) return pwShow('err', 'The new password must be at least 8 characters.');
+      if (pwNew.value !== pwConf.value) return pwShow('err', 'The new passwords do not match.');
+      pwSave.disabled = true; pwShow('ok', 'Saving…');
+      try {
+        const r = await fetch('/api/change-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ currentPassword: pwCur.value, newPassword: pwNew.value }) });
+        const res = await r.json().catch(() => ({}));
+        if (!r.ok || !res.ok) { pwShow('err', res.error || ('HTTP ' + r.status)); pwSave.disabled = false; return; }
+        pwShow('ok', 'Password updated.');
+        setTimeout(closePw, 1200);
+      } catch (e) { pwShow('err', e.message); }
+      pwSave.disabled = false;
+    });
+  }
   const COR = { Polo: OCN.modelos.Polo.cor, Argo: OCN.modelos.Argo.cor, Tera: OCN.modelos.Tera.cor };
   const TXT2 = '#6b7280';
 

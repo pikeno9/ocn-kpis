@@ -441,6 +441,8 @@ button { font-family: inherit; cursor: pointer; }
 .org-node.lvl-2 { border-top: 3px solid var(--accent); }
 .org-node.lvl-3 { border-top: 3px solid #9366FF; }
 .org-node.lvl-4 { border-top: 3px solid #CBD5E1; }
+/* gerentes (lvl-3: Lívia, Anderson, William, Yuji) com mesma altura, independente do nº de linhas do cargo */
+.org-node.lvl-3 { min-height: 78px; display: flex; flex-direction: column; justify-content: center; }
 .org-node.editable { cursor: pointer; }
 .org-node.editable:hover { border-color: var(--accent); box-shadow: 0 3px 12px rgba(90,0,248,0.16); }
 .org-node .org-pencil { position: absolute; top: 5px; right: 7px; font-size: 10px; color: var(--text-2); opacity: 0; transition: opacity .12s; }

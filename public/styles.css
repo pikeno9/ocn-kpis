@@ -263,12 +263,15 @@ button { font-family: inherit; cursor: pointer; }
 .ue-tag-proj { background: #6D28D9; color: #fff; }
 /* célula com realizado/projetado sobre o orçado */
 .ue-cell { vertical-align: top; }
-/* Unit Economics Theoric: célula editável, dot de cor do modelo, botão "add model", flash ao salvar */
-.uet-in { width: 100%; border: 0; background: transparent; text-align: right; font-family: inherit; font-size: 10.5px; padding: 2px 1px; box-sizing: border-box; color: var(--text); }
-.uet-in:focus { outline: 1px solid var(--accent); border-radius: 3px; background: #fff; }
+/* Unit Economics Theoric: dot de cor do modelo, botão "add model", sliders de controle */
 .ue-fleet-btn .uet-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
 .ue-fleet-btn.uet-add { border-style: dashed; color: var(--text-2); font-weight: 600; }
-.ue-cell.uet-saved { background: #e7f6ec; transition: background .3s; }
+#uetControls { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+.uet-ctrl { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--text-2); }
+.uet-ctrl label { font-weight: 600; }
+.uet-ctrl label b { color: var(--accent); }
+.uet-ctrl input[type=range] { width: 150px; accent-color: var(--accent); }
+.uet-ctrl input[type=range]:disabled { opacity: .45; cursor: not-allowed; }
 .ue-editable { cursor: pointer; }
 .ue-editable:hover { background: var(--purple-soft); }
 .ue-main { display: block; font-weight: 700; line-height: 1.25; }

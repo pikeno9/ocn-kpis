@@ -265,7 +265,7 @@ button { font-family: inherit; cursor: pointer; }
 .ue-cell { vertical-align: top; }
 /* Unit Economics Theoric: dot/foto do modelo, botão "add model", sliders, linhas mais altas, célula editável */
 .ue-fleet-btn .uet-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
-.ue-fleet-btn .uet-photo { height: 26px; width: auto; max-width: 50px; margin-right: 8px; vertical-align: middle; object-fit: contain; }
+.ue-fleet-btn .uet-photo { height: 26px; width: auto; max-width: 50px; margin-right: 8px; vertical-align: middle; object-fit: contain; filter: drop-shadow(0 1px 1px rgba(16,24,40,0.3)); }
 .ue-fleet-btn.uet-add { border-style: dashed; color: var(--text-2); font-weight: 600; }
 #uetTable th, #uetTable td { padding-top: 9px; padding-bottom: 9px; }
 #uetTable .uet-in { width: 100%; border: 0; background: #fff; text-align: right; font-family: inherit; font-size: 10.5px; padding: 1px 2px; box-sizing: border-box; color: var(--text); outline: 1px solid var(--accent); border-radius: 3px; }

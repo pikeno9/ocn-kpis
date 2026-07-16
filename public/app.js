@@ -1807,7 +1807,7 @@
   // ===================== UNIT ECONOMICS THEORIC (lazy init) =====================
   // Igual à UE real na aparência (reusa .ue-table/.ue-fleet-btn), mas dividido por MODELO
   // de carro (não por frota/placa) e com valores lançados MANUALMENTE. Só admin edita.
-  let uetReady = false, uetModels = [], uetSel = null, uetVals = {}, uetManual = false;
+  let uetReady = false, uetModels = [], uetSel = null, uetVals = {}, uetManual = false, uetCurrency = 'BRL';
   const UET_PERIODS = 14; // M0..M13
   const UET_RECUR = 12;    // recorrências mensais (M1..M12)
   const UET_WPM = 52 / 12; // semanas por mês (~4,333)
@@ -1858,6 +1858,8 @@
     const isLeaf = (g) => g === 'inflow' || g === 'outflow';
     const PMAX = UET_PERIODS - 1; // 13 = M13 (lançamentos pontuais pós-contrato)
     const par = (k) => { const v = uetVals[k + '@@0']; return v == null ? 0 : Number(v); }; // param/slider escalar
+    const cotacao = () => { const c = par('__cotacao__'); return c > 0 ? c : 5.5; }; // câmbio R$/US$ (default 5,5)
+    const conv = (v) => (v == null ? null : (uetCurrency === 'USD' ? v / cotacao() : v)); // R$ -> moeda de exibição
     const parseInput = (raw) => { raw = String(raw).trim(); if (raw === '') return null; raw = raw.replace(/[R$\s]/gi, '').replace(/\./g, '').replace(',', '.'); const n = Number(raw); return isFinite(n) ? n : null; };
 
     // Maintenance: slider km/semana agenda as revisões (a cada km) e joga o preço de cada revisão (varia por nº) no mês
@@ -1951,18 +1953,27 @@
       if (!ctrlEl) return;
       if (!isAdmin) { ctrlEl.innerHTML = ''; return; }
       const en = uetManual;
+      const cot = cotacao();
       const sl = (id, label, key, min, max, step, sfx) => `<div class="uet-ctrl"><label>${label}: <b id="${id}_v">${par(key)}${sfx}</b></label><input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${par(key)}"${en ? '' : ' disabled'}></div>`;
       ctrlEl.innerHTML =
         `<label class="ue-switch"><input type="checkbox" id="uetManual"${uetManual ? ' checked' : ''}/><span>Manual mode</span></label>` +
+        `<div class="ue-cur-toggle"><button class="ue-cur-btn${uetCurrency === 'BRL' ? ' active' : ''}" data-c="BRL">R$</button><button class="ue-cur-btn${uetCurrency === 'USD' ? ' active' : ''}" data-c="USD">US$</button></div>` +
         sl('uetInad', 'Default rate', '__inadimplencia__', 0, 100, 1, '%') +
         sl('uetLate', 'Late payment', '__late_pct__', 0, 100, 1, '%') +
-        sl('uetKm', 'Avg. km/week', '__km_semana__', 0, 3000, 25, ' km');
+        sl('uetKm', 'Avg. km/week', '__km_semana__', 0, 3000, 25, ' km') +
+        `<div class="uet-ctrl"><label>FX R$/US$: <b id="uetCot_v">${cot.toFixed(2).replace('.', ',')}</b></label><input type="range" id="uetCot" min="3" max="8" step="0.05" value="${cot}"${en ? '' : ' disabled'}></div>`;
       document.getElementById('uetManual').addEventListener('change', (e) => { uetManual = e.target.checked; renderControls(); renderTable(); });
+      ctrlEl.querySelectorAll('.ue-cur-btn').forEach((b) => b.addEventListener('click', () => { uetCurrency = b.dataset.c; renderControls(); renderTable(); }));
       [['uetInad', '__inadimplencia__', '%'], ['uetLate', '__late_pct__', '%'], ['uetKm', '__km_semana__', ' km']].forEach(([id, key, sfx]) => {
         const inp = document.getElementById(id); if (!inp) return;
         inp.addEventListener('input', () => { const el = document.getElementById(id + '_v'); if (el) el.textContent = inp.value + sfx; });
         inp.addEventListener('change', async () => { await saveParam(key, inp.value); renderTable(); });
       });
+      const cotInp = document.getElementById('uetCot');
+      if (cotInp) {
+        cotInp.addEventListener('input', () => { const el = document.getElementById('uetCot_v'); if (el) el.textContent = Number(cotInp.value).toFixed(2).replace('.', ','); });
+        cotInp.addEventListener('change', async () => { await saveParam('__cotacao__', cotInp.value); renderTable(); });
+      }
     }
     // caixinha (modal) dos parâmetros de uma linha — igual ao UE real (lápis → campos daquela linha)
     function openParamModal(line) {
@@ -1995,14 +2006,14 @@
         html += `<tr class="ue-row ue-${l.group} ${leaf ? 'ue-leaf' : 'ue-calc'}"><td class="ue-rowlabel">${label}</td>`;
         let rowTot = 0;
         for (let p = 0; p < UET_PERIODS; p++) {
-          if (leaf) { const v = A.cells[l.label + '@@' + p]; if (v != null) rowTot += v; html += `<td class="ue-cell${uetManual && isAdmin ? ' ue-editable' : ''}" data-line="${escH(l.label)}" data-period="${p}">${v == null ? '' : ueFmt(v)}</td>`; }
-          else html += `<td class="ue-cell ue-computed">${ueFmt(gmap[l.group][p])}</td>`;
+          if (leaf) { const v = A.cells[l.label + '@@' + p]; if (v != null) rowTot += v; html += `<td class="ue-cell${uetManual && isAdmin ? ' ue-editable' : ''}" data-line="${escH(l.label)}" data-period="${p}">${v == null ? '' : ueFmt(conv(v))}</td>`; }
+          else html += `<td class="ue-cell ue-computed">${ueFmt(conv(gmap[l.group][p]))}</td>`;
         }
         let tot;
         if (leaf) tot = rowTot;
         else if (l.group === 'acc') tot = gmap.acc[UET_PERIODS - 1];
         else tot = gmap[l.group].reduce((s, x) => s + (x || 0), 0);
-        html += `<td class="ue-cell ue-totalcol">${ueFmt(tot)}</td></tr>`;
+        html += `<td class="ue-cell ue-totalcol">${ueFmt(conv(tot))}</td></tr>`;
       });
       html += '</tbody>';
       tableEl.innerHTML = html;

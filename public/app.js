@@ -1808,18 +1808,51 @@
   // Igual à UE real na aparência (reusa .ue-table/.ue-fleet-btn), mas dividido por MODELO
   // de carro (não por frota/placa) e com valores lançados MANUALMENTE. Só admin edita.
   let uetReady = false, uetModels = [], uetSel = null, uetVals = {};
-  const UET_LINES = ['Subscription', 'Maintenance', 'Insurance', 'GPS', 'Security Deposit', 'Deposit Refund', 'Car Preparation'];
   const UET_PERIODS = 14; // M0..M13
+  // MESMA estrutura de linhas do UE real: leaf (inflow/outflow) + calc (totalizadores)
+  const UET_LINES = [
+    { label: 'Subscription', group: 'inflow' },
+    { label: 'Late-payment interest', group: 'inflow' },
+    { label: 'Initial Fee / Vehicle Sell', group: 'inflow' },
+    { label: 'Security Deposit Refund', group: 'inflow' },
+    { label: 'Total Inflow', group: 'totalInflow' },
+    { label: 'Subrental fee', group: 'outflow' },
+    { label: 'Insurance', group: 'outflow' },
+    { label: 'Car Preparation', group: 'outflow' },
+    { label: 'Maintenance', group: 'outflow' },
+    { label: 'GPS', group: 'outflow' },
+    { label: 'Sticker', group: 'outflow' },
+    { label: 'Security Deposit', group: 'outflow' },
+    { label: 'Vehicle Purchase', group: 'outflow' },
+    { label: 'Total Outflow', group: 'totalOutflow' },
+    { label: 'Net monthly cashflow', group: 'net' },
+    { label: 'Acc Cashflow', group: 'acc' },
+  ];
   function initUnitTheoric() {
     if (uetReady) return;
     uetReady = true;
     const escH = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+    // formatação idêntica ao UE real: milhar com ponto, negativos entre parênteses, 0 vira "-"
+    const fmtNum = (v) => Math.abs(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+    const ueFmt = (v) => (v === null || v === undefined) ? '' : (v === 0 ? '-' : (v < 0 ? '(' + fmtNum(v) + ')' : fmtNum(v)));
     const isAdmin = !!(OCN._meta && OCN._meta.user && OCN._meta.user.role === 'admin');
     const fleetsEl = document.getElementById('uetFleets');
     const tableEl = document.getElementById('uetTable');
     if (!fleetsEl || !tableEl) return;
     const fkey = (id) => '__theoric_' + id + '__';
-    const modelName = () => (uetModels.find((m) => m.id === uetSel) || {}).name || '';
+    const isLeaf = (g) => g === 'inflow' || g === 'outflow';
+    const rawv = (label, p) => { const v = uetVals[label + '@@' + p]; return v == null ? null : v; }; // magnitude (positiva)
+
+    // totalizadores computados a partir dos valores manuais (outflow entra negativo)
+    function totals() {
+      const ti = [], to = [], net = [], acc = []; let a = 0;
+      for (let p = 0; p < UET_PERIODS; p++) {
+        let inf = 0, ouf = 0;
+        UET_LINES.forEach((l) => { const v = rawv(l.label, p); if (v == null) return; if (l.group === 'inflow') inf += v; else if (l.group === 'outflow') ouf += v; });
+        ti[p] = inf; to[p] = -ouf; net[p] = inf - ouf; a += net[p]; acc[p] = a;
+      }
+      return { totalInflow: ti, totalOutflow: to, net, acc };
+    }
 
     function renderFleets() {
       let h = uetModels.map((m) => `<button class="ue-fleet-btn${m.id === uetSel ? ' active' : ''}" data-id="${escH(m.id)}"><span class="uet-dot" style="background:${escH(m.color || '#5A00F8')}"></span><span class="n">${escH(m.name)}</span></button>`).join('');
@@ -1846,39 +1879,58 @@
       renderTable();
     }
     function renderTable() {
-      let head = '<thead><tr><th class="ue-rowlabel">' + escH(modelName()) + '</th>';
-      for (let p = 0; p < UET_PERIODS; p++) head += '<th>M' + p + '</th>';
-      head += '</tr></thead><tbody>';
-      let body = '';
-      UET_LINES.forEach((line) => {
-        body += '<tr><td class="ue-rowlabel">' + escH(line) + '</td>';
+      const T = totals();
+      const gmap = { totalInflow: T.totalInflow, totalOutflow: T.totalOutflow, net: T.net, acc: T.acc };
+      let html = '<thead><tr><th class="ue-rowlabel">Line</th>';
+      for (let p = 0; p < UET_PERIODS; p++) html += '<th>M' + p + '</th>';
+      html += '<th class="ue-totalcol">Total</th></tr></thead><tbody>';
+      UET_LINES.forEach((l) => {
+        const leaf = isLeaf(l.group);
+        html += `<tr class="ue-row ue-${l.group} ${leaf ? 'ue-leaf' : 'ue-calc'}"><td class="ue-rowlabel">${escH(l.label)}</td>`;
+        let rowTot = 0;
         for (let p = 0; p < UET_PERIODS; p++) {
-          const v = uetVals[line + '@@' + p];
-          const val = (v == null ? '' : v);
-          body += '<td class="ue-cell">' + (isAdmin
-            ? `<input class="uet-in" type="text" inputmode="decimal" data-line="${escH(line)}" data-p="${p}" value="${val}">`
-            : (val === '' ? '' : String(val))) + '</td>';
+          if (leaf) {
+            const v = rawv(l.label, p);
+            const signed = v == null ? null : (l.group === 'outflow' ? -v : v);
+            if (signed != null) rowTot += signed;
+            html += `<td class="ue-cell${isAdmin ? ' ue-editable' : ''}" data-line="${escH(l.label)}" data-period="${p}">${v == null ? '' : ueFmt(signed)}</td>`;
+          } else {
+            html += `<td class="ue-cell ue-computed">${ueFmt(gmap[l.group][p])}</td>`;
+          }
         }
-        body += '</tr>';
+        let tot;
+        if (leaf) tot = rowTot;
+        else if (l.group === 'acc') tot = gmap.acc[UET_PERIODS - 1];
+        else tot = gmap[l.group].reduce((s, x) => s + (x || 0), 0);
+        html += `<td class="ue-cell ue-totalcol">${ueFmt(tot)}</td></tr>`;
       });
-      tableEl.innerHTML = head + body + '</tbody>';
-      if (isAdmin) tableEl.querySelectorAll('.uet-in').forEach((inp) => inp.addEventListener('change', () => saveCell(inp)));
+      html += '</tbody>';
+      tableEl.innerHTML = html;
+      if (isAdmin) tableEl.querySelectorAll('.ue-editable').forEach((td) => td.addEventListener('click', () => editCell(td)));
     }
-    async function saveCell(inp) {
-      const line = inp.dataset.line, p = parseInt(inp.dataset.p, 10), k = line + '@@' + p;
-      const raw = inp.value.trim();
+    function editCell(td) {
+      if (td.querySelector('input')) return;
+      const line = td.dataset.line, p = parseInt(td.dataset.period, 10), cur = rawv(line, p);
+      td.innerHTML = `<input class="uet-in" type="text" inputmode="decimal" value="${cur == null ? '' : cur}">`;
+      const inp = td.querySelector('input'); inp.focus(); inp.select();
+      let done = false;
+      const finish = async (save) => { if (done) return; done = true; if (save) await saveCell(line, p, inp.value); renderTable(); };
+      inp.addEventListener('blur', () => finish(true));
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } else if (e.key === 'Escape') { finish(false); } });
+    }
+    async function saveCell(line, p, raw) {
+      raw = String(raw).trim();
+      const k = line + '@@' + p;
       try {
         if (raw === '') {
           await fetch('/api/ue/value/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: fkey(uetSel), line, period: p }) });
           delete uetVals[k];
         } else {
-          const num = Number(raw.replace(',', '.'));
-          if (!isFinite(num)) { inp.value = (uetVals[k] == null ? '' : uetVals[k]); return; }
+          const num = Number(raw.replace(/\./g, '').replace(',', '.')); // pt-BR: ponto milhar, vírgula decimal
+          if (!isFinite(num)) return;
           await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: fkey(uetSel), line, period: p, value: num, kind: 'proj' }) });
-          uetVals[k] = num; inp.value = num;
+          uetVals[k] = num;
         }
-        const td = inp.closest('td');
-        if (td) { td.classList.add('uet-saved'); setTimeout(() => td.classList.remove('uet-saved'), 600); }
       } catch (e) {}
     }
     (async () => {

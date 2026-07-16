@@ -639,17 +639,20 @@
     function openEdit(node) {
       if (node.querySelector('input')) return; // já em edição
       const id = node.dataset.id, n = findNode(ORG, id);
-      node.innerHTML = `<input class="org-in-name" value="${esc(nameOf(n))}" placeholder="Name" /><input class="org-in-title" value="${esc(titleOf(n))}" placeholder="Role" /><div class="org-edit-actions"><button class="save">Save</button><button class="cancel">Cancel</button></div>`;
+      // cargo é <textarea> (multi-linha): Shift+Enter quebra linha; Enter salva
+      node.innerHTML = `<input class="org-in-name" value="${esc(nameOf(n))}" placeholder="Name" /><textarea class="org-in-title" rows="2" placeholder="Role">${esc(titleOf(n))}</textarea><div class="org-edit-actions"><button class="save">Save</button><button class="cancel">Cancel</button></div>`;
       const inName = node.querySelector('.org-in-name'), inTitle = node.querySelector('.org-in-title');
       inName.focus();
-      node.querySelector('.cancel').addEventListener('click', (e) => { e.stopPropagation(); draw(); });
-      node.querySelector('.save').addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const name = inName.value.trim(), title = inTitle.value.trim();
+      const doSave = async () => {
+        const name = inName.value.trim(), title = inTitle.value.replace(/\r/g, '').trim();
         overrides[id] = { name, title };
         try { await fetch('/api/org', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id, name, title }) }); } catch (err) {}
         draw();
-      });
+      };
+      node.querySelector('.cancel').addEventListener('click', (e) => { e.stopPropagation(); draw(); });
+      node.querySelector('.save').addEventListener('click', (e) => { e.stopPropagation(); doSave(); });
+      inName.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doSave(); } });
+      inTitle.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSave(); } }); // Enter salva; Shift+Enter quebra linha
     }
     const hintEl = document.getElementById('orgEditHint');
     if (hintEl) hintEl.textContent = isAdmin ? '✎ Click a box to edit name / role' : '';

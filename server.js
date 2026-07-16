@@ -92,7 +92,8 @@ app.use(requireAuth);
 // ======================= ROTAS PROTEGIDAS =======================
 // Seções restritas a não-admin (visualizador): sub-aba -> chaves de dados removidas do payload.
 // Bloqueio REAL: o visualizador não recebe esses dados (nem via dev tools / chamada direta à API).
-const RESTRICTED_NON_ADMIN = { unit: ['ue'], headcount: ['rh'] };
+// unittheoric não tem chave em /api/data (dados vêm de /api/ue/values); [] só esconde a sub-aba (hiddenSubs)
+const RESTRICTED_NON_ADMIN = { unit: ['ue'], headcount: ['rh'], unittheoric: [] };
 app.get('/api/data', (req, res) => {
   if (!cache.data) return res.status(503).json({ error: cache.error || 'dados ainda não disponíveis' });
   const isAdmin = !!(req.user && req.user.role === 'admin');
@@ -184,7 +185,12 @@ app.post('/api/org', requireAdmin, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get('/api/ue/values', async (req, res) => {
-  try { res.json({ values: await store.getFleet(String(req.query.fleet || '')) }); }
+  const fleet = String(req.query.fleet || '');
+  // dados do Unit Economics Theoric são restritos a admin (igual ao UE real, escondido do visualizador)
+  if (fleet.startsWith('__theoric_') && !(req.user && req.user.role === 'admin')) {
+    return res.status(403).json({ error: 'apenas administradores' });
+  }
+  try { res.json({ values: await store.getFleet(fleet) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/ue/value', requireAdmin, async (req, res) => {
@@ -227,6 +233,33 @@ app.post('/api/ue/value/delete', requireAdmin, async (req, res) => {
   if (!fleet || !line || !(period >= 0)) return res.status(400).json({ error: 'dados inválidos' });
   try { await store.del({ fleetId: fleet, line, period }); res.json({ ok: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ---------- Unit Economics Theoric: lista de modelos de carro (editável por admin) ----------
+const THEORIC_SEED = [
+  { id: 'Polo', name: 'Polo Track', color: '#3B0A91' },
+  { id: 'Argo', name: 'Argo Drive', color: '#7C3AED' },
+  { id: 'Tera', name: 'Tera', color: '#DDD6FE' },
+];
+const THEORIC_PALETTE = ['#5A00F8', '#0EA5E9', '#F97316', '#16A34A', '#DB2777', '#CA8A04', '#0D9488', '#9333EA'];
+app.get('/api/theoric/models', requireAdmin, async (req, res) => {
+  try { const stored = await store.getDoc('theoric_models'); res.json({ models: (Array.isArray(stored) && stored.length) ? stored : THEORIC_SEED }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/theoric/models', requireAdmin, async (req, res) => {
+  const name = String((req.body && req.body.name) || '').trim().slice(0, 60);
+  if (!name) return res.status(400).json({ error: 'nome do modelo é obrigatório' });
+  try {
+    const stored = await store.getDoc('theoric_models');
+    const list = (Array.isArray(stored) && stored.length) ? stored.slice() : THEORIC_SEED.slice();
+    let base = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'model';
+    let id = base, i = 2; while (list.some((m) => m.id === id)) { id = base + '_' + i; i++; }
+    const color = THEORIC_PALETTE[list.length % THEORIC_PALETTE.length];
+    const added = { id, name, color };
+    list.push(added);
+    await store.setDoc('theoric_models', list, req.user.login);
+    res.json({ ok: true, models: list, added });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ---------- Migração de dados manuais entre ambientes (main <-> experimentos) ----------

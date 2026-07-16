@@ -127,6 +127,7 @@
       document.getElementById('sub-' + tab.dataset.sub).classList.add('active');
       if (tab.dataset.sub === 'ocorrencias') initOcorrencias();
       if (tab.dataset.sub === 'unit') initUnit();
+      if (tab.dataset.sub === 'unittheoric') initUnitTheoric();
       if (tab.dataset.sub === 'utilization') initUtilization();
       if (tab.dataset.sub === 'funnel') initFunnel();
       if (tab.dataset.sub === 'indrive') initInDrive();
@@ -1801,6 +1802,92 @@
         plugins: { legend: { display: false }, datalabels: { color: (ctx) => txtOn(ctx.dataset.backgroundColor[ctx.dataIndex]), font: { size: 13, weight: 600 }, formatter: (v) => Math.round((v / churnTotal) * 100) + '%' }, tooltip: { callbacks: { label: (x) => `${x.label}: ${Math.round((x.parsed / churnTotal) * 100)}% (${x.parsed})` } } },
       },
     });
+  }
+
+  // ===================== UNIT ECONOMICS THEORIC (lazy init) =====================
+  // Igual à UE real na aparência (reusa .ue-table/.ue-fleet-btn), mas dividido por MODELO
+  // de carro (não por frota/placa) e com valores lançados MANUALMENTE. Só admin edita.
+  let uetReady = false, uetModels = [], uetSel = null, uetVals = {};
+  const UET_LINES = ['Subscription', 'Maintenance', 'Insurance', 'GPS', 'Security Deposit', 'Deposit Refund', 'Car Preparation'];
+  const UET_PERIODS = 14; // M0..M13
+  function initUnitTheoric() {
+    if (uetReady) return;
+    uetReady = true;
+    const escH = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+    const isAdmin = !!(OCN._meta && OCN._meta.user && OCN._meta.user.role === 'admin');
+    const fleetsEl = document.getElementById('uetFleets');
+    const tableEl = document.getElementById('uetTable');
+    if (!fleetsEl || !tableEl) return;
+    const fkey = (id) => '__theoric_' + id + '__';
+    const modelName = () => (uetModels.find((m) => m.id === uetSel) || {}).name || '';
+
+    function renderFleets() {
+      let h = uetModels.map((m) => `<button class="ue-fleet-btn${m.id === uetSel ? ' active' : ''}" data-id="${escH(m.id)}"><span class="uet-dot" style="background:${escH(m.color || '#5A00F8')}"></span><span class="n">${escH(m.name)}</span></button>`).join('');
+      if (isAdmin) h += '<button class="ue-fleet-btn uet-add" id="uetAdd">+ Add model</button>';
+      fleetsEl.innerHTML = h;
+      fleetsEl.querySelectorAll('.ue-fleet-btn[data-id]').forEach((b) => b.addEventListener('click', async () => { uetSel = b.dataset.id; renderFleets(); await loadValues(uetSel); }));
+      const addBtn = document.getElementById('uetAdd');
+      if (addBtn) addBtn.addEventListener('click', addModel);
+    }
+    async function addModel() {
+      const name = (window.prompt('New model name:') || '').trim();
+      if (!name) return;
+      try {
+        const r = await fetch('/api/theoric/models', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ name }) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.ok) { alert(d.error || ('HTTP ' + r.status)); return; }
+        uetModels = d.models; uetSel = d.added.id; renderFleets(); await loadValues(uetSel);
+      } catch (e) { alert('Error: ' + e.message); }
+    }
+    async function loadValues(id) {
+      uetVals = {};
+      try { const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(fkey(id)), { credentials: 'include' }); const d = await r.json(); (d.values || []).forEach((v) => { uetVals[v.line + '@@' + v.period] = v.value; }); }
+      catch (e) {}
+      renderTable();
+    }
+    function renderTable() {
+      let head = '<thead><tr><th class="ue-rowlabel">' + escH(modelName()) + '</th>';
+      for (let p = 0; p < UET_PERIODS; p++) head += '<th>M' + p + '</th>';
+      head += '</tr></thead><tbody>';
+      let body = '';
+      UET_LINES.forEach((line) => {
+        body += '<tr><td class="ue-rowlabel">' + escH(line) + '</td>';
+        for (let p = 0; p < UET_PERIODS; p++) {
+          const v = uetVals[line + '@@' + p];
+          const val = (v == null ? '' : v);
+          body += '<td class="ue-cell">' + (isAdmin
+            ? `<input class="uet-in" type="text" inputmode="decimal" data-line="${escH(line)}" data-p="${p}" value="${val}">`
+            : (val === '' ? '' : String(val))) + '</td>';
+        }
+        body += '</tr>';
+      });
+      tableEl.innerHTML = head + body + '</tbody>';
+      if (isAdmin) tableEl.querySelectorAll('.uet-in').forEach((inp) => inp.addEventListener('change', () => saveCell(inp)));
+    }
+    async function saveCell(inp) {
+      const line = inp.dataset.line, p = parseInt(inp.dataset.p, 10), k = line + '@@' + p;
+      const raw = inp.value.trim();
+      try {
+        if (raw === '') {
+          await fetch('/api/ue/value/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: fkey(uetSel), line, period: p }) });
+          delete uetVals[k];
+        } else {
+          const num = Number(raw.replace(',', '.'));
+          if (!isFinite(num)) { inp.value = (uetVals[k] == null ? '' : uetVals[k]); return; }
+          await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: fkey(uetSel), line, period: p, value: num, kind: 'proj' }) });
+          uetVals[k] = num; inp.value = num;
+        }
+        const td = inp.closest('td');
+        if (td) { td.classList.add('uet-saved'); setTimeout(() => td.classList.remove('uet-saved'), 600); }
+      } catch (e) {}
+    }
+    (async () => {
+      try { const r = await fetch('/api/theoric/models', { credentials: 'include' }); const d = await r.json(); uetModels = d.models || []; }
+      catch (e) { uetModels = []; }
+      if (!uetSel && uetModels.length) uetSel = uetModels[0].id;
+      renderFleets();
+      if (uetSel) await loadValues(uetSel);
+    })();
   }
 
   // ===================== UNIT ECONOMICS (lazy init) =====================

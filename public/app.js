@@ -1846,9 +1846,9 @@
     if (uetReady) return;
     uetReady = true;
     const escH = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
-    // formatação idêntica ao UE real: milhar com ponto, negativos entre parênteses, 0 vira "-"
-    const fmtNum = (v) => Math.abs(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
-    const ueFmt = (v) => (v === null || v === undefined) ? '' : (v === 0 ? '-' : (v < 0 ? '(' + fmtNum(v) + ')' : fmtNum(v)));
+    // formatação: milhar com ponto, SEM casas decimais, negativos entre parênteses, 0 vira "-"
+    const fmtNum = (v) => Math.abs(v).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+    const ueFmt = (v) => (v === null || v === undefined) ? '' : (Math.round(v) === 0 ? '-' : (v < 0 ? '(' + fmtNum(v) + ')' : fmtNum(v)));
     const isAdmin = !!(OCN._meta && OCN._meta.user && OCN._meta.user.role === 'admin');
     const fleetsEl = document.getElementById('uetFleets');
     const ctrlEl = document.getElementById('uetControls');
@@ -1893,7 +1893,14 @@
       const maint = maintByMonth(); const cells = {}; const ti = [], to = [], net = [], acc = []; let a = 0;
       for (let p = 0; p < UET_PERIODS; p++) {
         let inf = 0, ouf = 0;
-        UET_LINES.forEach((l) => { if (!isLeaf(l.group)) return; const v = cellValue(l.label, p, maint); cells[l.label + '@@' + p] = v; if (v == null) return; if (l.group === 'inflow') inf += v; else ouf += v; });
+        UET_LINES.forEach((l) => {
+          if (!isLeaf(l.group)) return;
+          const ov = uetVals[l.label + '@@' + p]; // override manual da célula (magnitude) vence a projeção
+          const v = (ov != null) ? ((l.group === 'outflow') ? -Math.abs(Number(ov)) : Math.abs(Number(ov))) : cellValue(l.label, p, maint);
+          cells[l.label + '@@' + p] = v;
+          if (v == null) return;
+          if (l.group === 'inflow') inf += v; else ouf += v;
+        });
         ti[p] = inf; to[p] = ouf; net[p] = inf + ouf; a += net[p]; acc[p] = a;
       }
       return { cells, totalInflow: ti, totalOutflow: to, net, acc };
@@ -1912,7 +1919,11 @@
     }
 
     function renderFleets() {
-      let h = uetModels.map((m) => `<button class="ue-fleet-btn${m.id === uetSel ? ' active' : ''}" data-id="${escH(m.id)}"><span class="uet-dot" style="background:${escH(m.color || '#5A00F8')}"></span><span class="n">${escH(m.name)}</span></button>`).join('');
+      let h = uetModels.map((m) => {
+        const cfg = (OCN.modelos && OCN.modelos[m.id]) || null;
+        const visual = cfg && cfg.foto ? `<img class="uet-photo" src="${escH(cfg.foto)}" alt="">` : `<span class="uet-dot" style="background:${escH(m.color || '#5A00F8')}"></span>`;
+        return `<button class="ue-fleet-btn${m.id === uetSel ? ' active' : ''}" data-id="${escH(m.id)}">${visual}<span class="n">${escH(m.name)}</span></button>`;
+      }).join('');
       if (isAdmin) h += '<button class="ue-fleet-btn uet-add" id="uetAdd">+ Add model</button>';
       fleetsEl.innerHTML = h;
       fleetsEl.querySelectorAll('.ue-fleet-btn[data-id]').forEach((b) => b.addEventListener('click', async () => { uetSel = b.dataset.id; renderFleets(); await loadValues(uetSel); }));
@@ -1984,7 +1995,7 @@
         html += `<tr class="ue-row ue-${l.group} ${leaf ? 'ue-leaf' : 'ue-calc'}"><td class="ue-rowlabel">${label}</td>`;
         let rowTot = 0;
         for (let p = 0; p < UET_PERIODS; p++) {
-          if (leaf) { const v = A.cells[l.label + '@@' + p]; if (v != null) rowTot += v; html += `<td class="ue-cell">${v == null ? '' : ueFmt(v)}</td>`; }
+          if (leaf) { const v = A.cells[l.label + '@@' + p]; if (v != null) rowTot += v; html += `<td class="ue-cell${uetManual && isAdmin ? ' ue-editable' : ''}" data-line="${escH(l.label)}" data-period="${p}">${v == null ? '' : ueFmt(v)}</td>`; }
           else html += `<td class="ue-cell ue-computed">${ueFmt(gmap[l.group][p])}</td>`;
         }
         let tot;
@@ -1995,7 +2006,49 @@
       });
       html += '</tbody>';
       tableEl.innerHTML = html;
-      if (uetManual && isAdmin) tableEl.querySelectorAll('.ue-param-label').forEach((el) => el.addEventListener('click', () => openParamModal(el.dataset.pline)));
+      if (uetManual && isAdmin) {
+        tableEl.querySelectorAll('.ue-param-label').forEach((el) => el.addEventListener('click', () => openParamModal(el.dataset.pline)));
+        tableEl.querySelectorAll('td.ue-editable').forEach((td) => td.addEventListener('click', () => editCell(td)));
+      }
+    }
+    // override manual de uma célula específica (modo manual): sobrescreve a projeção; vazio volta ao projetado
+    function editCell(td) {
+      if (td.querySelector('input')) return;
+      const line = td.dataset.line, p = parseInt(td.dataset.period, 10);
+      const ov = uetVals[line + '@@' + p];
+      const comp = cellValue(line, p, maintByMonth());
+      const cur = ov != null ? ov : (comp != null ? Math.abs(comp) : '');
+      td.innerHTML = `<input class="uet-in" type="text" inputmode="decimal" value="${cur}">`;
+      const inp = td.querySelector('input'); inp.focus(); inp.select();
+      let done = false;
+      const finish = async (save) => {
+        if (done) return; done = true;
+        if (save) {
+          const raw = inp.value.trim();
+          if (raw === '') { if (ov != null) await saveCellOverride(line, p, ''); }
+          else {
+            const num = parseInput(raw);
+            const compMag = comp != null ? Math.abs(comp) : null;
+            // não cria override redundante se o valor digitado é igual ao projetado e não havia override
+            if (num != null && !(ov == null && compMag != null && Math.abs(num - compMag) < 0.005)) await saveCellOverride(line, p, num);
+          }
+        }
+        renderTable();
+      };
+      inp.addEventListener('blur', () => finish(true));
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } else if (e.key === 'Escape') { finish(false); } });
+    }
+    async function saveCellOverride(line, p, val) {
+      const k = line + '@@' + p;
+      try {
+        if (val === '' || val == null) {
+          await fetch('/api/ue/value/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: fkey(uetSel), line, period: p }) });
+          delete uetVals[k];
+        } else {
+          await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: fkey(uetSel), line, period: p, value: Number(val), kind: 'proj' }) });
+          uetVals[k] = Number(val);
+        }
+      } catch (e) {}
     }
     (async () => {
       try { const r = await fetch('/api/theoric/models', { credentials: 'include' }); const d = await r.json(); uetModels = d.models || []; }

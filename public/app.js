@@ -1933,6 +1933,10 @@
     // - Frota ativa decai pelo decomissionamento mensal (default 0,725%/mês).
     // - Mês de entrega = M1 do UE (recorrências), e os one-offs do M0 caem junto nele.
     const FIN_MONDAYS = (() => { const a = []; for (let mo = 0; mo < 12; mo++) { let n = 0; const d = new Date(2026, mo, 1); while (d.getMonth() === mo) { if (d.getDay() === 1) n++; d.setDate(d.getDate() + 1); } a.push(n); } return a; })(); // 2026: [4,4,5,4,4,5,4,5,4,4,5,4]
+    // segundas-feiras de um mês no dia >= `fromDay` (semanas pagas a partir do recebimento)
+    const mondaysOnOrAfter = (mo, fromDay) => { let n = 0; const d = new Date(2026, mo, 1); while (d.getMonth() === mo) { if (d.getDay() === 1 && d.getDate() >= fromDay) n++; d.setDate(d.getDate() + 1); } return n; };
+    const cohMonth = (c) => (c.date ? (parseInt(c.date.slice(5, 7), 10) - 1) : (c.month || 0));
+    const cohDay = (c) => (c.date ? parseInt(c.date.slice(8, 10), 10) : 1);
     function computePnl() {
       const fx = finPar('__fin_fx__') || 5.5;
       const taxFed = finPar('__fin_tax_fed__') / 100, taxCred = finPar('__fin_tax_credit__') / 100;
@@ -1945,16 +1949,17 @@
       const delivered = zeros(), active = zeros(), secDep = zeros();
       for (let m = 0; m < FIN_MONTHS; m++) {
         finCohorts.forEach((c) => {
-          if (c.month > m) return;
+          const cm = cohMonth(c);
+          if (cm > m) return;
           delivered[m] += c.qty;
-          const age = m - c.month;                 // 0 = mês de recebimento
+          const age = m - cm;                       // 0 = mês de recebimento
           const activeN = c.qty * Math.pow(1 - decomm, age);
           active[m] += activeN;
           const p = age + 1;                        // idade no UE (mês de entrega = M1)
           if (p > UET_PERIODS - 1) return;          // além do M13: contrato encerrado
           const vals = finModelVals[c.model] || {}, maint = maints[c.model] || {};
           const mondays = FIN_MONDAYS[m];
-          const weeks = age === 0 ? Math.max(0, FIN_MONDAYS[c.month] - ((c.week || 1) - 1)) : mondays;
+          const weeks = age === 0 ? mondaysOnOrAfter(cm, cohDay(c)) : mondays; // semanas pagas a partir da data
           const billable = mondays ? weeks / mondays : 0;
           const add = (L, bag) => {
             const lo = lineOf(L); if (!lo) return;
@@ -2000,7 +2005,7 @@
       const hcTot = zeros(); for (let m = 0; m < FIN_MONTHS; m++) hcTot[m] = base[m] + meal[m] + health[m] + ptax[m] + th13[m] + bonus[m];
       // CAC (referenciado, como no Excel): comissão = USD/carro × carros ENTREGUES no mês;
       // Ads = soma dos canais; Influenciadores = nº de perfis do mês × preço por perfil.
-      const newDelivered = zeros(); finCohorts.forEach((c) => { if (c.month >= 0 && c.month < FIN_MONTHS) newDelivered[c.month] += c.qty; });
+      const newDelivered = zeros(); finCohorts.forEach((c) => { const cm = cohMonth(c); if (cm >= 0 && cm < FIN_MONTHS) newDelivered[cm] += c.qty; });
       const commission = zeros(), adsTot = zeros(), infTot = zeros();
       for (let m = 0; m < FIN_MONTHS; m++) {
         commission[m] = -(finCac.perUnit || 0) * newDelivered[m];
@@ -2091,44 +2096,66 @@
       } catch (e) {}
       renderFleetPlan(); renderCac(); renderPnl(); // CAC re-renderiza: a comissão referencia as entregas
     }
+    // ---------- Fleet Plan: CALENDÁRIO do ano (clica no dia p/ adicionar/remover carros) ----------
+    // Uma coorte = um lote (data + modelo + qtd). O nº da frota (F1..) segue a ordem cronológica.
+    let finSelDay = null; // dia ISO selecionado no editor
+    const FIN_MN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     function renderFleetPlan() {
       const el = document.getElementById('fleetPlanWrap'); if (!el) return;
-      const opts = (sel) => finModels.map((m) => `<option value="${escH(m.id)}"${m.id === sel ? ' selected' : ''}>${escH(m.name)}</option>`).join('');
-      const mopts = (sel) => Array.from({ length: FIN_MONTHS }, (_, i) => `<option value="${i}"${i === sel ? ' selected' : ''}>${FIN_ML(i)}</option>`).join('');
-      const wopts = (sel) => [1, 2, 3, 4, 5].map((w) => `<option value="${w}"${w === (sel || 1) ? ' selected' : ''}>W${w}</option>`).join('');
-      let h = '<table class="rh-table fin-table"><thead><tr><th>Cohort</th><th>Model</th><th>Delivery month</th><th>Week</th><th>Paid weeks (1st mo)</th><th>Vehicles</th><th></th></tr></thead><tbody>';
-      finCohorts.forEach((c, i) => {
-        const w1 = Math.max(0, FIN_MONDAYS[c.month] - ((c.week || 1) - 1));
-        h += `<tr><td>F${i + 1}</td>` +
-          `<td><select class="fin-in" data-i="${i}" data-f="model"${isAdmin ? '' : ' disabled'}>${opts(c.model)}</select></td>` +
-          `<td><select class="fin-in" data-i="${i}" data-f="month"${isAdmin ? '' : ' disabled'}>${mopts(c.month)}</select></td>` +
-          `<td><select class="fin-in" data-i="${i}" data-f="week"${isAdmin ? '' : ' disabled'}>${wopts(c.week)}</select></td>` +
-          `<td style="color:var(--text-2)">${w1} of ${FIN_MONDAYS[c.month]}</td>` +
-          `<td><input class="fin-in" type="number" min="0" step="1" data-i="${i}" data-f="qty" value="${c.qty}"${isAdmin ? '' : ' disabled'}></td>` +
-          `<td>${isAdmin ? `<button class="fin-del" data-i="${i}" title="Remove">✕</button>` : ''}</td></tr>`;
+      const byDay = {}; // ISO -> { model: qty }
+      finCohorts.forEach((c) => { const d = c.date || '2026-01-01'; (byDay[d] = byDay[d] || {})[c.model] = ((byDay[d][c.model]) || 0) + c.qty; });
+      const dayTot = (d) => Object.values(byDay[d] || {}).reduce((s, x) => s + x, 0);
+      const modelColor = (id) => ((finModels.find((x) => x.id === id) || {}).color) || '#5A00F8';
+      const WD = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+      let cal = '<div class="fin-cal">';
+      for (let mo = 0; mo < 12; mo++) {
+        const first = new Date(2026, mo, 1).getDay();
+        const days = new Date(2026, mo + 1, 0).getDate();
+        let monthTot = 0, cells = '';
+        for (let i = 0; i < first; i++) cells += '<div class="fc-day fc-empty"></div>';
+        for (let dd = 1; dd <= days; dd++) {
+          const iso = '2026-' + String(mo + 1).padStart(2, '0') + '-' + String(dd).padStart(2, '0');
+          const tot = dayTot(iso); monthTot += tot;
+          const dots = (byDay[iso] ? Object.keys(byDay[iso]) : []).map((id) => `<span class="fc-dot" style="background:${modelColor(id)}"></span>`).join('');
+          cells += `<div class="fc-day${tot ? ' fc-has' : ''}${iso === finSelDay ? ' fc-sel' : ''}" data-iso="${iso}"><span class="fc-n">${dd}</span>${tot ? `<span class="fc-qty">${tot}</span>` : ''}<span class="fc-dots">${dots}</span></div>`;
+        }
+        cal += `<div class="fc-month"><div class="fc-mh">${FIN_MN[mo]}${monthTot ? ` · <b>${monthTot}</b>` : ''}</div><div class="fc-wd">${WD.map((w) => `<span>${w}</span>`).join('')}</div><div class="fc-grid">${cells}</div></div>`;
+      }
+      cal += '</div>';
+      let editor = '';
+      if (finSelDay && isAdmin) {
+        editor = `<div class="fin-dayedit"><div class="sub2-title">${finSelDay} — vehicles received</div><div class="fin-dayrow">`;
+        finModels.forEach((m) => {
+          const q = (byDay[finSelDay] && byDay[finSelDay][m.id]) || 0;
+          editor += `<label class="fin-dm"><span class="uet-dot" style="background:${m.color || '#5A00F8'}"></span>${escH(m.name)}<input class="fin-dq" type="number" min="0" step="1" data-model="${escH(m.id)}" value="${q || ''}" placeholder="0"></label>`;
+        });
+        editor += '</div><div class="fin-note">How many of each model arrive on this day (0 removes). A cohort = a batch on a day; F-numbers follow arrival order.</div></div>';
+      } else if (isAdmin) {
+        editor = '<div class="fin-note">Click a day on the calendar to add or remove vehicles.</div>';
+      }
+      const sorted = finCohorts.slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+      let list = '<div class="sub2-title" style="margin-top:18px">Cohorts (chronological)</div><div class="ue-table-wrap"><table class="ue-table"><thead><tr><th class="ue-rowlabel">Cohort</th><th>Date</th><th>Model</th><th>Paid weeks (1st mo)</th><th class="ue-totalcol">Vehicles</th></tr></thead><tbody>';
+      sorted.forEach((c, i) => {
+        const cm = cohMonth(c), pw = mondaysOnOrAfter(cm, cohDay(c));
+        const mn = (finModels.find((x) => x.id === c.model) || {}).name || c.model;
+        list += `<tr class="ue-row ue-leaf"><td class="ue-rowlabel">F${i + 1}</td><td>${c.date || '-'}</td><td>${escH(mn)}</td><td style="color:var(--text-2)">${pw} of ${FIN_MONDAYS[cm]}</td><td class="ue-cell ue-totalcol">${c.qty}</td></tr>`;
       });
-      const totQty = finCohorts.reduce((s, c) => s + (c.qty || 0), 0);
-      h += `<tr><td colspan="5" style="font-weight:700">Total</td><td style="font-weight:700">${totQty}</td><td></td></tr>`;
-      h += '</tbody></table>';
-      h += '<div class="fin-note">Week = week of the month the fleet is received. Revenue and Subrental in that month are prorated by the remaining paid weeks (Mondays), like the Excel.</div>';
-      if (!finCohorts.length) h += '<div class="fin-note">No cohorts yet — add the expected vehicle batches.</div>';
-      if (isAdmin) h += '<button class="ue-fleet-btn uet-add" id="finAddCohort" style="margin-top:12px">+ Add cohort</button>' + excelBtn('cohortExcel');
-      el.innerHTML = h;
+      const totQ = finCohorts.reduce((s, c) => s + c.qty, 0);
+      list += `<tr><td colspan="4" style="font-weight:700">Total</td><td class="ue-cell ue-totalcol" style="font-weight:700">${totQ}</td></tr></tbody></table></div>`;
+      if (!finCohorts.length) list = '<div class="fin-note">No cohorts yet — click a day to add vehicles.</div>';
+      el.innerHTML = cal + editor + (isAdmin ? excelBtn('cohortExcel') : '') + list;
       if (!isAdmin) return;
-      const bx = document.getElementById('cohortExcel');
-      if (bx) bx.addEventListener('click', () => loadExcel('cohorts', (d) => { finCohorts = d.cohorts; renderFleetPlan(); renderCac(); renderPnl(); }));
-      el.querySelectorAll('.fin-in').forEach((inp) => inp.addEventListener('change', () => {
-        const c = finCohorts[+inp.dataset.i]; if (!c) return;
-        const f = inp.dataset.f;
-        c[f] = (f === 'qty') ? Math.max(0, Number(inp.value) || 0) : ((f === 'month' || f === 'week') ? parseInt(inp.value, 10) : inp.value);
+      el.querySelectorAll('.fc-day[data-iso]').forEach((d) => d.addEventListener('click', () => { finSelDay = (finSelDay === d.dataset.iso ? null : d.dataset.iso); renderFleetPlan(); }));
+      el.querySelectorAll('.fin-dq').forEach((inp) => inp.addEventListener('change', () => {
+        const model = inp.dataset.model, qty = Math.max(0, Math.round(Number(inp.value) || 0));
+        const idx = finCohorts.findIndex((c) => c.date === finSelDay && c.model === model);
+        if (qty === 0) { if (idx >= 0) finCohorts.splice(idx, 1); }
+        else if (idx >= 0) finCohorts[idx].qty = qty;
+        else finCohorts.push({ id: 'c' + Date.now() + '_' + model, model, date: finSelDay, qty });
         saveCohorts();
       }));
-      el.querySelectorAll('.fin-del').forEach((b) => b.addEventListener('click', () => { finCohorts.splice(+b.dataset.i, 1); saveCohorts(); }));
-      const add = document.getElementById('finAddCohort');
-      if (add) add.addEventListener('click', () => {
-        finCohorts.push({ id: 'c' + Date.now(), model: (finModels[0] || {}).id || '', month: 0, week: 1, qty: 0 });
-        saveCohorts();
-      });
+      const bx = el.querySelector('#cohortExcel');
+      if (bx) bx.addEventListener('click', () => loadExcel('cohorts', (d) => { finCohorts = d.cohorts; finSelDay = null; renderFleetPlan(); renderCac(); renderPnl(); }));
     }
 
     // ---------- Assumptions ----------
@@ -2290,7 +2317,7 @@
       el.innerHTML = '';
       // comissão: valor por carro × entregas do mês (referenciado ao Fleet Plan, como no Excel)
       const newDelivered = new Array(FIN_MONTHS).fill(0);
-      finCohorts.forEach((c) => { if (c.month >= 0 && c.month < FIN_MONTHS) newDelivered[c.month] += c.qty; });
+      finCohorts.forEach((c) => { const cm = cohMonth(c); if (cm >= 0 && cm < FIN_MONTHS) newDelivered[cm] += c.qty; });
       const per = finCac.perUnit || 0;
       const head = document.createElement('div');
       let h = `<div class="sub2-title">Sales Commission</div>` +

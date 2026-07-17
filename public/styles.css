@@ -278,19 +278,21 @@ button { font-family: inherit; cursor: pointer; }
 .fin-del:hover { border-color: #a11414; color: #a11414; }
 .fin-note { font-size: 12px; color: var(--text-2); margin-top: 10px; line-height: 1.5; }
 /* Fleet Plan — calendário do ano */
-.fin-cal { display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 14px; margin-bottom: 8px; }
-.fc-month { border: 1px solid var(--border-2); border-radius: 8px; padding: 8px; background: var(--surface); }
-.fc-mh { font-size: 12px; font-weight: 700; color: var(--text); margin-bottom: 5px; }
+.fin-cal { display: grid; grid-template-columns: repeat(auto-fill, minmax(212px, 1fr)); gap: 16px; margin-bottom: 8px; }
+.fc-month { border: 1px solid var(--border-2); border-radius: 10px; padding: 11px; background: var(--surface); }
+.fc-mh { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
 .fc-mh b { color: var(--accent); }
-.fc-wd { display: grid; grid-template-columns: repeat(7, 1fr); font-size: 9px; color: var(--text-2); text-align: center; margin-bottom: 3px; }
-.fc-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
-.fc-day { position: relative; aspect-ratio: 1 / 1; border-radius: 4px; font-size: 10px; display: flex; align-items: flex-start; padding: 2px 3px; cursor: pointer; color: var(--text-2); box-sizing: border-box; }
+.fc-wd { display: grid; grid-template-columns: repeat(7, 1fr); font-size: 10px; color: var(--text-2); text-align: center; margin-bottom: 4px; }
+.fc-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.fc-day { position: relative; min-height: 32px; border-radius: 5px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 3px 1px; cursor: pointer; color: var(--text-2); box-sizing: border-box; line-height: 1; }
 .fc-day.fc-empty { visibility: hidden; cursor: default; }
 .fc-day:hover:not(.fc-empty) { background: var(--purple-soft); }
-.fc-day.fc-has { background: #ede7fb; color: var(--text); font-weight: 600; }
+.fc-day.fc-has { background: #ede7fb; }
 .fc-day.fc-sel { outline: 2px solid var(--accent); outline-offset: -1px; }
-.fc-qty { position: absolute; right: 2px; top: 1px; font-size: 8.5px; font-weight: 700; color: var(--accent); }
-.fc-dots { position: absolute; bottom: 2px; left: 3px; display: flex; gap: 1px; }
+.fc-n { font-size: 10px; color: var(--text-2); }
+.fc-day.fc-has .fc-n { font-size: 9px; }
+.fc-qty { font-size: 12.5px; font-weight: 800; color: var(--accent); }
+.fc-dots { display: flex; gap: 2px; }
 .fc-dot { width: 4px; height: 4px; border-radius: 50%; display: inline-block; }
 .fin-dayedit { border: 1px solid var(--border-2); border-radius: 8px; padding: 14px; margin: 6px 0 14px; background: var(--surface); }
 .fin-dayrow { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 8px; }

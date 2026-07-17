@@ -2134,16 +2134,15 @@
         editor = '<div class="fin-note">Click a day on the calendar to add or remove vehicles.</div>';
       }
       const sorted = finCohorts.slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-      let list = '<div class="sub2-title" style="margin-top:18px">Cohorts (chronological)</div><div class="ue-table-wrap"><table class="ue-table"><thead><tr><th class="ue-rowlabel">Cohort</th><th>Date</th><th>Model</th><th>Paid weeks (1st mo)</th><th class="ue-totalcol">Vehicles</th></tr></thead><tbody>';
+      let list = '<div class="sub2-title" style="margin-top:18px">Cohorts (chronological)</div><div class="ue-table-wrap"><table class="ue-table"><thead><tr><th class="ue-rowlabel">Cohort</th><th>Date</th><th>Model</th><th class="ue-totalcol">Vehicles</th></tr></thead><tbody>';
       sorted.forEach((c, i) => {
-        const cm = cohMonth(c), pw = mondaysOnOrAfter(cm, cohDay(c));
         const mn = (finModels.find((x) => x.id === c.model) || {}).name || c.model;
-        list += `<tr class="ue-row ue-leaf"><td class="ue-rowlabel">F${i + 1}</td><td>${c.date || '-'}</td><td>${escH(mn)}</td><td style="color:var(--text-2)">${pw} of ${FIN_MONDAYS[cm]}</td><td class="ue-cell ue-totalcol">${c.qty}</td></tr>`;
+        list += `<tr class="ue-row ue-leaf"><td class="ue-rowlabel">F${i + 1}</td><td>${c.date || '-'}</td><td>${escH(mn)}</td><td class="ue-cell ue-totalcol">${c.qty}</td></tr>`;
       });
       const totQ = finCohorts.reduce((s, c) => s + c.qty, 0);
-      list += `<tr><td colspan="4" style="font-weight:700">Total</td><td class="ue-cell ue-totalcol" style="font-weight:700">${totQ}</td></tr></tbody></table></div>`;
+      list += `<tr><td colspan="3" style="font-weight:700">Total</td><td class="ue-cell ue-totalcol" style="font-weight:700">${totQ}</td></tr></tbody></table></div>`;
       if (!finCohorts.length) list = '<div class="fin-note">No cohorts yet — click a day to add vehicles.</div>';
-      el.innerHTML = cal + editor + (isAdmin ? excelBtn('cohortExcel') : '') + list;
+      el.innerHTML = cal + editor + list;
       if (!isAdmin) return;
       el.querySelectorAll('.fc-day[data-iso]').forEach((d) => d.addEventListener('click', () => { finSelDay = (finSelDay === d.dataset.iso ? null : d.dataset.iso); renderFleetPlan(); }));
       el.querySelectorAll('.fin-dq').forEach((inp) => inp.addEventListener('change', () => {
@@ -2154,8 +2153,6 @@
         else finCohorts.push({ id: 'c' + Date.now() + '_' + model, model, date: finSelDay, qty });
         saveCohorts();
       }));
-      const bx = el.querySelector('#cohortExcel');
-      if (bx) bx.addEventListener('click', () => loadExcel('cohorts', (d) => { finCohorts = d.cohorts; finSelDay = null; renderFleetPlan(); renderCac(); renderPnl(); }));
     }
 
     // ---------- Assumptions ----------
@@ -2198,12 +2195,10 @@
       });
       h += '</tbody></table></div>';
       if (!(finHc.roles || []).length) h += '<div class="fin-note">No roles yet — add the roles and their monthly headcount.</div>';
-      if (isAdmin) h += '<button class="ue-fleet-btn uet-add" id="finAddRole" style="margin-top:12px">+ Add role</button>' + excelBtn('hcExcel');
-      h += '<div class="fin-note">Costs are per person, per month (USD). The monthly columns are the headcount for that role. 13th + vacation and the annual bonus hit December, as in the Excel.</div>';
+      if (isAdmin) h += '<button class="ue-fleet-btn uet-add" id="finAddRole" style="margin-top:12px">+ Add role</button>';
+      h += '<div class="fin-note">Costs are per person, per month (USD). The monthly columns are the headcount for that role. 13th + vacation and the annual bonus hit December.</div>';
       el.innerHTML = h;
       if (!isAdmin) return;
-      const bx = document.getElementById('hcExcel');
-      if (bx) bx.addEventListener('click', () => loadExcel('hc', (d) => { finHc = d.hc; renderHc(); renderPnl(); }));
       el.querySelectorAll('.hc-f').forEach((inp) => inp.addEventListener('change', () => {
         const r = finHc.roles[+inp.dataset.i]; if (!r) return; const f = inp.dataset.f;
         r[f] = (f === 'name') ? inp.value : Math.max(0, Number(inp.value) || 0);
@@ -2230,16 +2225,6 @@
       });
     }
 
-    // ---------- botão "Load Excel inputs" (força o seed extraído do arquivo) ----------
-    async function loadExcel(which, apply) {
-      if (!window.confirm('Load the inputs from the Excel study? This overwrites the current table.')) return;
-      try {
-        const r = await fetch('/api/finance/load-excel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ which }) });
-        const d = await r.json().catch(() => ({}));
-        if (r.ok && d.ok) apply(d);
-      } catch (e) {}
-    }
-    const excelBtn = (id) => (isAdmin ? `<button class="ue-fleet-btn uet-add" id="${id}" style="margin-top:12px;margin-left:8px">⟳ Load Excel inputs</button>` : '');
 
     // ---------- editor genérico: uma TABELA POR VARIÁVEL (itens de detalhe × 12 meses) ----------
     // itens editáveis (rótulo + valores mensais positivos), com FY, remover e adicionar — como no Excel.
@@ -2301,10 +2286,8 @@
       el.appendChild(itemsTable('IT', finSga.it, saveSga));
       const note = document.createElement('div');
       note.className = 'fin-note';
-      note.innerHTML = 'Amounts are positive (USD) and enter the P&amp;L as costs. Each table mirrors the Excel support table, item by item.' + excelBtn('sgaExcel');
+      note.innerHTML = 'Amounts are positive (USD) and enter the P&amp;L as costs. One table per variable, item by item.';
       el.appendChild(note);
-      const b = note.querySelector('#sgaExcel');
-      if (b) b.addEventListener('click', () => loadExcel('sga', (d) => { finSga = d.sga; renderAdmin(); renderPnl(); }));
     }
 
     // ---------- CAC & Marketing: comissão (referenciada) + Ads + influenciadores ----------
@@ -2337,10 +2320,8 @@
       el.appendChild(itemsTable('Digital Influencers — active profiles × price per profile', finCac.inf, saveCac, { priceCol: true, itemLabel: 'Tier' }));
       const note = document.createElement('div');
       note.className = 'fin-note';
-      note.innerHTML = 'Influencer cost = profiles in the month × price per profile (like the Excel).' + excelBtn('cacExcel');
+      note.innerHTML = 'Influencer cost = active profiles in the month × price per profile.';
       el.appendChild(note);
-      const b = note.querySelector('#cacExcel');
-      if (b) b.addEventListener('click', () => loadExcel('cac', (d) => { finCac = d.cac; renderCac(); renderPnl(); }));
     }
 
     (async () => {

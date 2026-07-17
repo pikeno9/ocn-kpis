@@ -301,8 +301,9 @@ app.post('/api/finance/cohorts', requireAdmin, async (req, res) => {
 
 // ---------- Finance: headcount (cargos + plano mensal) ----------
 // { roles: [{id,name,salary,meal,health,taxPct,bonus}], plan: { roleId: [12 números] } }
+const FIN_SEED = require('./config/finance-seed');
 app.get('/api/finance/hc', requireAdmin, async (req, res) => {
-  try { const d = await store.getDoc('fin_hc'); res.json({ hc: (d && typeof d === 'object') ? d : { roles: [], plan: {} } }); }
+  try { const d = await store.getDoc('fin_hc'); res.json({ hc: (d && Array.isArray(d.roles) && d.roles.length) ? d : FIN_SEED.HC }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/finance/hc', requireAdmin, async (req, res) => {
@@ -322,6 +323,61 @@ app.post('/api/finance/hc', requireAdmin, async (req, res) => {
   });
   try { await store.setDoc('fin_hc', { roles, plan }, req.user.login); res.json({ ok: true, hc: { roles, plan } }); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ---------- Finance: SG&A (Rent & Utilities / Professional Services / IT, itens × 12 meses) ----------
+// { rent: [{label, v:[12]}], prof: [...], it: [...] } — valores positivos (entram negativos no P&L)
+function cleanItems(list, max) {
+  if (!Array.isArray(list)) return [];
+  return list.slice(0, max || 60).map((it) => ({
+    label: String(it.label || '').slice(0, 80),
+    v: Array.from({ length: 12 }, (_, i) => Math.max(0, Number((it.v || [])[i]) || 0)),
+  })).filter((it) => it.label);
+}
+app.get('/api/finance/sga', requireAdmin, async (req, res) => {
+  try { const d = await store.getDoc('fin_sga'); res.json({ sga: (d && Array.isArray(d.rent)) ? d : FIN_SEED.SGA }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/finance/sga', requireAdmin, async (req, res) => {
+  const b = (req.body && req.body.sga) || null;
+  if (!b) return res.status(400).json({ error: 'sga obrigatório' });
+  const sga = { rent: cleanItems(b.rent), prof: cleanItems(b.prof), it: cleanItems(b.it) };
+  try { await store.setDoc('fin_sga', sga, req.user.login); res.json({ ok: true, sga }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ---------- Finance: CAC (comissão por carro entregue, Ads, influenciadores) ----------
+// { perUnit: USD/carro, ads: [{label, v:[12]}], inf: [{label, price, profiles:[12]}] }
+app.get('/api/finance/cac', requireAdmin, async (req, res) => {
+  try { const d = await store.getDoc('fin_cac'); res.json({ cac: (d && d.ads) ? d : FIN_SEED.CAC }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/finance/cac', requireAdmin, async (req, res) => {
+  const b = (req.body && req.body.cac) || null;
+  if (!b) return res.status(400).json({ error: 'cac obrigatório' });
+  const cac = {
+    perUnit: Math.max(0, Number(b.perUnit) || 0),
+    ads: cleanItems(b.ads),
+    inf: (Array.isArray(b.inf) ? b.inf : []).slice(0, 20).map((t) => ({
+      label: String(t.label || '').slice(0, 80),
+      price: Math.max(0, Number(t.price) || 0),
+      profiles: Array.from({ length: 12 }, (_, i) => Math.max(0, Number((t.profiles || [])[i]) || 0)),
+    })).filter((t) => t.label),
+  };
+  try { await store.setDoc('fin_cac', cac, req.user.login); res.json({ ok: true, cac }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ---------- Finance: carregar os inputs do Excel (força o seed por seção) ----------
+app.post('/api/finance/load-excel', requireAdmin, async (req, res) => {
+  const which = String((req.body && req.body.which) || '');
+  try {
+    if (which === 'cohorts') { await store.setDoc('fin_cohorts', FIN_COHORT_SEED, req.user.login); return res.json({ ok: true, cohorts: FIN_COHORT_SEED }); }
+    if (which === 'hc') { await store.setDoc('fin_hc', FIN_SEED.HC, req.user.login); return res.json({ ok: true, hc: FIN_SEED.HC }); }
+    if (which === 'sga') { await store.setDoc('fin_sga', FIN_SEED.SGA, req.user.login); return res.json({ ok: true, sga: FIN_SEED.SGA }); }
+    if (which === 'cac') { await store.setDoc('fin_cac', FIN_SEED.CAC, req.user.login); return res.json({ ok: true, cac: FIN_SEED.CAC }); }
+    return res.status(400).json({ error: 'which deve ser cohorts|hc|sga|cac' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ---------- Migração de dados manuais entre ambientes (main <-> experimentos) ----------

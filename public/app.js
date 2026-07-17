@@ -1900,13 +1900,11 @@
   // (3) Assumptions (impostos, payment fee, active rate, FX). Igual ao Excel: Security Deposit
   // e Vehicle Purchase NÃO entram no COGS (ficam em OPEX/capex).
   let finReady = false, finCohorts = [], finModels = [], finModelVals = {}, finCfg = {};
-  let finHc = { roles: [], plan: {} }, finAdmin = {}, finCac = {};
+  let finHc = { roles: [], plan: {} }, finSga = { rent: [], prof: [], it: [] }, finCac = { perUnit: 0, ads: [], inf: [] };
   const FIN_MONTHS = 12; // 2026-01 .. 2026-12
   const FIN_ML = (i) => '2026-' + String(i + 1).padStart(2, '0');
   const FIN_REV_LINES = ['Subscription', 'Late-payment interest', 'Initial Fee / Vehicle Sell', 'Security Deposit Refund'];
   const FIN_COGS_LINES = ['Subrental fee', 'Maintenance', 'Insurance', 'GPS', 'Car Preparation', 'Sticker'];
-  const FIN_ADMIN_LINES = ['Rent & Utilities', 'Professional Services', 'IT'];
-  const FIN_CAC_LINES = ['Sales Commission', 'Google/Meta Ads', 'Digital Influencers'];
   const FIN_ASSUMP = [
     { k: '__fin_tax_fed__', label: 'Federal taxes (% of gross revenue)', def: 13.36 },
     { k: '__fin_tax_credit__', label: 'Tax input credit (% of gross revenue)', def: 8.25 },
@@ -2000,19 +1998,27 @@
         });
       }
       const hcTot = zeros(); for (let m = 0; m < FIN_MONTHS; m++) hcTot[m] = base[m] + meal[m] + health[m] + ptax[m] + th13[m] + bonus[m];
-      const admin = {}, cacL = {};
-      FIN_ADMIN_LINES.forEach((L) => { admin[L] = zeros(); for (let m = 0; m < FIN_MONTHS; m++) admin[L][m] = -(Number(finAdmin[L + '@@' + m]) || 0); });
-      FIN_CAC_LINES.forEach((L) => { cacL[L] = zeros(); for (let m = 0; m < FIN_MONTHS; m++) cacL[L][m] = -(Number(finCac[L + '@@' + m]) || 0); });
-      const adminTot = zeros(), cacTot = zeros();
-      for (let m = 0; m < FIN_MONTHS; m++) { FIN_ADMIN_LINES.forEach((L) => adminTot[m] += admin[L][m]); FIN_CAC_LINES.forEach((L) => cacTot[m] += cacL[L][m]); }
-      const sga = zeros(); for (let m = 0; m < FIN_MONTHS; m++) sga[m] = hcTot[m] + adminTot[m];
+      // CAC (referenciado, como no Excel): comissão = USD/carro × carros ENTREGUES no mês;
+      // Ads = soma dos canais; Influenciadores = nº de perfis do mês × preço por perfil.
+      const newDelivered = zeros(); finCohorts.forEach((c) => { if (c.month >= 0 && c.month < FIN_MONTHS) newDelivered[c.month] += c.qty; });
+      const commission = zeros(), adsTot = zeros(), infTot = zeros();
+      for (let m = 0; m < FIN_MONTHS; m++) {
+        commission[m] = -(finCac.perUnit || 0) * newDelivered[m];
+        (finCac.ads || []).forEach((a) => { adsTot[m] -= Number((a.v || [])[m]) || 0; });
+        (finCac.inf || []).forEach((t) => { infTot[m] -= (Number((t.profiles || [])[m]) || 0) * (t.price || 0); });
+      }
+      const cacTot = zeros(); for (let m = 0; m < FIN_MONTHS; m++) cacTot[m] = commission[m] + adsTot[m] + infTot[m];
+      // SG&A – Admin: soma dos itens de cada tabela (Rent & Utilities / Professional Services / IT)
+      const sumItems = (list) => { const a = zeros(); (list || []).forEach((it) => { for (let m = 0; m < FIN_MONTHS; m++) a[m] -= Number((it.v || [])[m]) || 0; }); return a; };
+      const rentTot = sumItems(finSga.rent), profTot = sumItems(finSga.prof), itTot = sumItems(finSga.it);
+      const sga = zeros(); for (let m = 0; m < FIN_MONTHS; m++) sga[m] = hcTot[m] + rentTot[m] + profTot[m] + itTot[m];
       const opex = zeros(); for (let m = 0; m < FIN_MONTHS; m++) opex[m] = secDep[m] + cacTot[m] + sga[m];
       const netCf = gm.map((v, m) => v + opex[m]);
       const accCf = []; let a1 = 0; netCf.forEach((v) => { a1 += v; accCf.push(a1); });
       const netCfNoSd = gm.map((v, m) => v + opex[m] - secDep[m]); // igual ao Excel: visão sem o calção
       const accNoSd = []; let a2 = 0; netCfNoSd.forEach((v) => { a2 += v; accNoSd.push(a2); });
       return { delivered, active, rev, cogs, secDep, grossRev, fed, cred, taxes, netRev, cogsTot, payProc, gm,
-        base, meal, health, ptax, th13, bonus, hcTot, admin, cacL, adminTot, cacTot, sga, opex, netCf, accCf, netCfNoSd, accNoSd };
+        base, meal, health, ptax, th13, bonus, hcTot, commission, adsTot, infTot, cacTot, rentTot, profTot, itTot, sga, opex, netCf, accCf, netCfNoSd, accNoSd, newDelivered };
     }
 
     // ---------- P&L ----------
@@ -2052,7 +2058,9 @@
       html += row('(-) OPEX', P.opex, 'ue-totalOutflow ue-calc');
       html += row('   (-) Sub-rental security deposit', P.secDep, 'ue-leaf');
       html += row('   (-) CAC', P.cacTot, 'ue-leaf');
-      FIN_CAC_LINES.forEach((L) => { html += row('      (-) ' + L, P.cacL[L], 'ue-leaf'); });
+      html += row('      (-) Sales commission', P.commission, 'ue-leaf');
+      html += row('      (-) Google/Meta Ads', P.adsTot, 'ue-leaf');
+      html += row('      (-) Digital Influencers', P.infTot, 'ue-leaf');
       html += row('   (-) SG&A', P.sga, 'ue-leaf');
       html += row('      (-) HC Payroll', P.hcTot, 'ue-leaf');
       html += row('         (-) Base salary', P.base, 'ue-leaf');
@@ -2061,7 +2069,9 @@
       html += row('         (-) Payroll taxes', P.ptax, 'ue-leaf');
       html += row('         (-) 13th + vacation', P.th13, 'ue-leaf');
       html += row('         (-) Annual bonus', P.bonus, 'ue-leaf');
-      FIN_ADMIN_LINES.forEach((L) => { html += row('      (-) ' + L, P.admin[L], 'ue-leaf'); });
+      html += row('      (-) Rent & Utilities', P.rentTot, 'ue-leaf');
+      html += row('      (-) Professional Services', P.profTot, 'ue-leaf');
+      html += row('      (-) IT', P.itTot, 'ue-leaf');
       html += row('Net cashflow', P.netCf, 'ue-net ue-calc');
       html += row('Acc. Net cashflow', P.accCf, 'ue-acc ue-calc', false, true);
       html += row('Net cashflow w/o security deposit', P.netCfNoSd, 'ue-leaf');
@@ -2079,7 +2089,7 @@
         const d = await r.json().catch(() => ({}));
         if (d && d.cohorts) finCohorts = d.cohorts;
       } catch (e) {}
-      renderFleetPlan(); renderPnl();
+      renderFleetPlan(); renderCac(); renderPnl(); // CAC re-renderiza: a comissão referencia as entregas
     }
     function renderFleetPlan() {
       const el = document.getElementById('fleetPlanWrap'); if (!el) return;
@@ -2100,11 +2110,13 @@
       const totQty = finCohorts.reduce((s, c) => s + (c.qty || 0), 0);
       h += `<tr><td colspan="5" style="font-weight:700">Total</td><td style="font-weight:700">${totQty}</td><td></td></tr>`;
       h += '</tbody></table>';
-      h += '<div class="fin-note">Week = week of the month the fleet is received. Revenue and Subrental in that month are prorated by the remaining paid weeks (Mondays), like the Excel. Initial plan seeded from the Excel file (F1–F23).</div>';
+      h += '<div class="fin-note">Week = week of the month the fleet is received. Revenue and Subrental in that month are prorated by the remaining paid weeks (Mondays), like the Excel.</div>';
       if (!finCohorts.length) h += '<div class="fin-note">No cohorts yet — add the expected vehicle batches.</div>';
-      if (isAdmin) h += '<button class="ue-fleet-btn uet-add" id="finAddCohort" style="margin-top:12px">+ Add cohort</button>';
+      if (isAdmin) h += '<button class="ue-fleet-btn uet-add" id="finAddCohort" style="margin-top:12px">+ Add cohort</button>' + excelBtn('cohortExcel');
       el.innerHTML = h;
       if (!isAdmin) return;
+      const bx = document.getElementById('cohortExcel');
+      if (bx) bx.addEventListener('click', () => loadExcel('cohorts', (d) => { finCohorts = d.cohorts; renderFleetPlan(); renderCac(); renderPnl(); }));
       el.querySelectorAll('.fin-in').forEach((inp) => inp.addEventListener('change', () => {
         const c = finCohorts[+inp.dataset.i]; if (!c) return;
         const f = inp.dataset.f;
@@ -2159,10 +2171,12 @@
       });
       h += '</tbody></table></div>';
       if (!(finHc.roles || []).length) h += '<div class="fin-note">No roles yet — add the roles and their monthly headcount.</div>';
-      if (isAdmin) h += '<button class="ue-fleet-btn uet-add" id="finAddRole" style="margin-top:12px">+ Add role</button>';
+      if (isAdmin) h += '<button class="ue-fleet-btn uet-add" id="finAddRole" style="margin-top:12px">+ Add role</button>' + excelBtn('hcExcel');
       h += '<div class="fin-note">Costs are per person, per month (USD). The monthly columns are the headcount for that role. 13th + vacation and the annual bonus hit December, as in the Excel.</div>';
       el.innerHTML = h;
       if (!isAdmin) return;
+      const bx = document.getElementById('hcExcel');
+      if (bx) bx.addEventListener('click', () => loadExcel('hc', (d) => { finHc = d.hc; renderHc(); renderPnl(); }));
       el.querySelectorAll('.hc-f').forEach((inp) => inp.addEventListener('change', () => {
         const r = finHc.roles[+inp.dataset.i]; if (!r) return; const f = inp.dataset.f;
         r[f] = (f === 'name') ? inp.value : Math.max(0, Number(inp.value) || 0);
@@ -2189,47 +2203,118 @@
       });
     }
 
-    // ---------- matriz mensal (Admin & Other / CAC & Marketing) ----------
-    function renderMatrix(wrapId, fleet, lines, bag, rerender) {
-      const el = document.getElementById(wrapId); if (!el) return;
-      let h = '<div class="ue-table-wrap"><table class="ue-table"><thead><tr><th class="ue-rowlabel">Line (USD)</th>';
+    // ---------- botão "Load Excel inputs" (força o seed extraído do arquivo) ----------
+    async function loadExcel(which, apply) {
+      if (!window.confirm('Load the inputs from the Excel study? This overwrites the current table.')) return;
+      try {
+        const r = await fetch('/api/finance/load-excel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ which }) });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.ok) apply(d);
+      } catch (e) {}
+    }
+    const excelBtn = (id) => (isAdmin ? `<button class="ue-fleet-btn uet-add" id="${id}" style="margin-top:12px;margin-left:8px">⟳ Load Excel inputs</button>` : '');
+
+    // ---------- editor genérico: uma TABELA POR VARIÁVEL (itens de detalhe × 12 meses) ----------
+    // itens editáveis (rótulo + valores mensais positivos), com FY, remover e adicionar — como no Excel.
+    function itemsTable(title, items, onChange, opts) {
+      opts = opts || {};
+      const dis = isAdmin ? '' : ' disabled';
+      let h = `<div class="sub2-title" style="margin-top:18px">${escH(title)}</div>`;
+      h += '<div class="ue-table-wrap"><table class="ue-table"><thead><tr><th class="ue-rowlabel">' + escH(opts.itemLabel || 'Item') + '</th>';
+      if (opts.priceCol) h += '<th>Price/mo</th>';
+      for (let m = 0; m < FIN_MONTHS; m++) h += `<th>${FIN_ML(m)}</th>`;
+      h += '<th class="ue-totalcol">FY-26E</th><th></th></tr></thead><tbody>';
+      items.forEach((it, i) => {
+        let tot = 0;
+        const vals = opts.priceCol ? it.profiles : it.v;
+        h += `<tr class="ue-row ue-leaf"><td class="ue-rowlabel"><input class="hc-f itx-label" data-i="${i}" value="${escH(it.label)}"${dis} style="width:150px"></td>`;
+        if (opts.priceCol) h += `<td class="ue-cell"><input class="hc-f hc-n itx-price" type="number" min="0" step="any" data-i="${i}" value="${it.price}"${dis}></td>`;
+        for (let m = 0; m < FIN_MONTHS; m++) {
+          const n = Number((vals || [])[m]) || 0;
+          tot += opts.priceCol ? n * (it.price || 0) : n;
+          h += `<td class="ue-cell"><input class="hc-f hc-n itx-v" type="number" min="0" step="any" data-i="${i}" data-m="${m}" value="${n || ''}" placeholder="-"${dis}></td>`;
+        }
+        h += `<td class="ue-cell ue-totalcol">${tot ? fmtNum(tot) : '-'}</td>`;
+        h += `<td class="ue-cell">${isAdmin ? `<button class="fin-del itx-del" data-i="${i}">✕</button>` : ''}</td></tr>`;
+      });
+      h += '</tbody></table></div>';
+      if (isAdmin) h += `<button class="ue-fleet-btn uet-add itx-add" style="margin-top:8px">+ Add item</button>`;
+      const box = document.createElement('div');
+      box.innerHTML = h;
+      if (isAdmin) {
+        box.querySelectorAll('.itx-label').forEach((inp) => inp.addEventListener('change', () => { const it = items[+inp.dataset.i]; if (it) { it.label = inp.value; onChange(); } }));
+        box.querySelectorAll('.itx-price').forEach((inp) => inp.addEventListener('change', () => { const it = items[+inp.dataset.i]; if (it) { it.price = Math.max(0, Number(inp.value) || 0); onChange(); } }));
+        box.querySelectorAll('.itx-v').forEach((inp) => inp.addEventListener('change', () => {
+          const it = items[+inp.dataset.i]; if (!it) return;
+          const key = opts.priceCol ? 'profiles' : 'v';
+          if (!Array.isArray(it[key])) it[key] = new Array(FIN_MONTHS).fill(0);
+          it[key][+inp.dataset.m] = Math.max(0, Number(inp.value) || 0);
+          onChange();
+        }));
+        box.querySelectorAll('.itx-del').forEach((b) => b.addEventListener('click', () => { items.splice(+b.dataset.i, 1); onChange(); }));
+        const add = box.querySelector('.itx-add');
+        if (add) add.addEventListener('click', () => {
+          items.push(opts.priceCol ? { label: 'New item', price: 0, profiles: new Array(FIN_MONTHS).fill(0) } : { label: 'New item', v: new Array(FIN_MONTHS).fill(0) });
+          onChange();
+        });
+      }
+      return box;
+    }
+
+    // ---------- SG&A – Admin: Rent & Utilities / Professional Services / IT (uma tabela cada) ----------
+    async function saveSga() {
+      try { const r = await fetch('/api/finance/sga', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ sga: finSga }) }); const d = await r.json().catch(() => ({})); if (d && d.sga) finSga = d.sga; } catch (e) {}
+      renderAdmin(); renderPnl();
+    }
+    function renderAdmin() {
+      const el = document.getElementById('finAdminWrap'); if (!el) return;
+      el.innerHTML = '';
+      el.appendChild(itemsTable('Rent & Utilities', finSga.rent, saveSga));
+      el.appendChild(itemsTable('Professional Services', finSga.prof, saveSga));
+      el.appendChild(itemsTable('IT', finSga.it, saveSga));
+      const note = document.createElement('div');
+      note.className = 'fin-note';
+      note.innerHTML = 'Amounts are positive (USD) and enter the P&amp;L as costs. Each table mirrors the Excel support table, item by item.' + excelBtn('sgaExcel');
+      el.appendChild(note);
+      const b = note.querySelector('#sgaExcel');
+      if (b) b.addEventListener('click', () => loadExcel('sga', (d) => { finSga = d.sga; renderAdmin(); renderPnl(); }));
+    }
+
+    // ---------- CAC & Marketing: comissão (referenciada) + Ads + influenciadores ----------
+    async function saveCac() {
+      try { const r = await fetch('/api/finance/cac', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ cac: finCac }) }); const d = await r.json().catch(() => ({})); if (d && d.cac) finCac = d.cac; } catch (e) {}
+      renderCac(); renderPnl();
+    }
+    function renderCac() {
+      const el = document.getElementById('finCacWrap'); if (!el) return;
+      el.innerHTML = '';
+      // comissão: valor por carro × entregas do mês (referenciado ao Fleet Plan, como no Excel)
+      const newDelivered = new Array(FIN_MONTHS).fill(0);
+      finCohorts.forEach((c) => { if (c.month >= 0 && c.month < FIN_MONTHS) newDelivered[c.month] += c.qty; });
+      const per = finCac.perUnit || 0;
+      const head = document.createElement('div');
+      let h = `<div class="sub2-title">Sales Commission</div>` +
+        `<div class="fin-note" style="margin:6px 0 10px">USD per delivered vehicle: <input class="hc-f hc-n" id="cacPerUnit" type="number" min="0" step="any" value="${per}"${isAdmin ? '' : ' disabled'}> × vehicles delivered in the month (from the Fleet Plan)</div>`;
+      h += '<div class="ue-table-wrap"><table class="ue-table"><thead><tr><th class="ue-rowlabel">Line</th>';
       for (let m = 0; m < FIN_MONTHS; m++) h += `<th>${FIN_ML(m)}</th>`;
       h += '<th class="ue-totalcol">FY-26E</th></tr></thead><tbody>';
-      lines.forEach((L) => {
-        h += `<tr class="ue-row ue-leaf"><td class="ue-rowlabel">${escH(L)}</td>`;
-        let tot = 0;
-        for (let m = 0; m < FIN_MONTHS; m++) {
-          const v = bag[L + '@@' + m]; const n = v == null ? 0 : Number(v); tot += n;
-          h += `<td class="ue-cell${isAdmin ? ' ue-editable' : ''}" data-line="${escH(L)}" data-p="${m}">${n ? fmtNum(n) : ''}</td>`;
-        }
-        h += `<td class="ue-cell ue-totalcol">${tot ? fmtNum(tot) : '-'}</td></tr>`;
-      });
-      h += '</tbody></table></div><div class="fin-note">Enter positive amounts — they are costs and enter the P&amp;L as negative.</div>';
-      el.innerHTML = h;
-      if (!isAdmin) return;
-      el.querySelectorAll('td.ue-editable').forEach((td) => td.addEventListener('click', () => {
-        if (td.querySelector('input')) return;
-        const L = td.dataset.line, p = +td.dataset.p, k = L + '@@' + p, cur = bag[k];
-        td.innerHTML = `<input class="uet-in" type="text" inputmode="decimal" value="${cur == null ? '' : cur}">`;
-        const inp = td.querySelector('input'); inp.focus(); inp.select();
-        let done = false;
-        const finish = async (save) => {
-          if (done) return; done = true;
-          if (save) {
-            const raw = inp.value.trim();
-            try {
-              if (raw === '') { await fetch('/api/ue/value/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet, line: L, period: p }) }); delete bag[k]; }
-              else { const n = parseInput(raw); if (n != null) { await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet, line: L, period: p, value: n, kind: 'proj' }) }); bag[k] = n; } }
-            } catch (e) {}
-          }
-          rerender(); renderPnl();
-        };
-        inp.addEventListener('blur', () => finish(true));
-        inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } else if (e.key === 'Escape') { finish(false); } });
-      }));
+      const rowH = (label, arr) => { let s = `<tr class="ue-row ue-leaf"><td class="ue-rowlabel">${label}</td>`; let t = 0; for (let m = 0; m < FIN_MONTHS; m++) { t += arr[m]; s += `<td class="ue-cell">${arr[m] ? fmtNum(arr[m]) : '-'}</td>`; } return s + `<td class="ue-cell ue-totalcol">${t ? fmtNum(t) : '-'}</td></tr>`; };
+      h += rowH('Vehicles delivered', newDelivered);
+      h += rowH('Commission (USD)', newDelivered.map((n) => n * per));
+      h += '</tbody></table></div>';
+      head.innerHTML = h;
+      el.appendChild(head);
+      const pu = head.querySelector('#cacPerUnit');
+      if (pu && isAdmin) pu.addEventListener('change', () => { finCac.perUnit = Math.max(0, Number(pu.value) || 0); saveCac(); });
+      el.appendChild(itemsTable('Paid Media (Google/Meta Ads)', finCac.ads, saveCac));
+      el.appendChild(itemsTable('Digital Influencers — active profiles × price per profile', finCac.inf, saveCac, { priceCol: true, itemLabel: 'Tier' }));
+      const note = document.createElement('div');
+      note.className = 'fin-note';
+      note.innerHTML = 'Influencer cost = profiles in the month × price per profile (like the Excel).' + excelBtn('cacExcel');
+      el.appendChild(note);
+      const b = note.querySelector('#cacExcel');
+      if (b) b.addEventListener('click', () => loadExcel('cac', (d) => { finCac = d.cac; renderCac(); renderPnl(); }));
     }
-    const renderAdmin = () => renderMatrix('finAdminWrap', '__fin_admin__', FIN_ADMIN_LINES, finAdmin, renderAdmin);
-    const renderCac = () => renderMatrix('finCacWrap', '__fin_cac__', FIN_CAC_LINES, finCac, renderCac);
 
     (async () => {
       const getVals = async (fleet) => { const o = {}; try { const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(fleet), { credentials: 'include' }); const d = await r.json(); (d.values || []).forEach((v) => { o[v.line + '@@' + v.period] = v.value; }); } catch (e) {} return o; };
@@ -2237,8 +2322,8 @@
       try { const r = await fetch('/api/finance/cohorts', { credentials: 'include' }); const d = await r.json(); finCohorts = d.cohorts || []; } catch (e) { finCohorts = []; }
       try { const r = await fetch('/api/finance/hc', { credentials: 'include' }); const d = await r.json(); finHc = (d && d.hc) || { roles: [], plan: {} }; } catch (e) { finHc = { roles: [], plan: {} }; }
       finCfg = await getVals('__fin_cfg__');
-      finAdmin = await getVals('__fin_admin__');
-      finCac = await getVals('__fin_cac__');
+      try { const r = await fetch('/api/finance/sga', { credentials: 'include' }); const d = await r.json(); finSga = (d && d.sga) || finSga; } catch (e) {}
+      try { const r = await fetch('/api/finance/cac', { credentials: 'include' }); const d = await r.json(); finCac = (d && d.cac) || finCac; } catch (e) {}
       for (const m of finModels) finModelVals[m.id] = await getVals('__theoric_' + m.id + '__');
       renderFleetPlan(); renderHc(); renderAdmin(); renderCac(); renderAssump(); renderPnl();
     })();

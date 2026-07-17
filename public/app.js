@@ -1827,25 +1827,16 @@
     { label: 'Subscription', group: 'inflow' },
     { label: 'Late-payment interest', group: 'inflow' },
     { label: 'Initial Fee / Vehicle Sell', group: 'inflow' },
-    { label: 'Drivers Revenue Share', group: 'inflow' },
     { label: 'Security Deposit Refund', group: 'inflow' },
     { label: 'Total Inflow', group: 'totalInflow' },
-    { label: 'Car Price', group: 'outflow' },
     { label: 'Subrental fee', group: 'outflow' },
-    { label: 'Debt Principal', group: 'outflow' },
-    { label: 'Debt Interest', group: 'outflow' },
-    { label: 'Disbursement Fee', group: 'outflow' },
     { label: 'Insurance', group: 'outflow' },
     { label: 'Car Preparation', group: 'outflow' },
-    { label: 'Charger Installation', group: 'outflow' },
-    { label: 'Initial Plates + Plates Mgmt.', group: 'outflow' },
-    { label: 'Holding Tax', group: 'outflow' },
     { label: 'Maintenance', group: 'outflow' },
     { label: 'GPS', group: 'outflow' },
     { label: 'Sticker', group: 'outflow' },
     { label: 'Security Deposit', group: 'outflow' },
     { label: 'Vehicle Purchase', group: 'outflow' },
-    { label: 'Collection Fee', group: 'outflow' },
     { label: 'Total Outflow', group: 'totalOutflow' },
     { label: 'Net monthly cashflow', group: 'net' },
     { label: 'Acc Cashflow', group: 'acc' },
@@ -1861,16 +1852,6 @@
     'Sticker': [{ k: '__sticker__', label: 'Amount at M0 (R$)' }],
     'Vehicle Purchase': [{ k: '__vehicle__', label: 'Purchase/buyback amount (R$) — enters at M13' }],
     'Security Deposit Refund': [{ k: '__refund_pct__', label: 'Deposit refund correction (%)' }],
-    // linhas vindas do UE do Excel (regras simples: pontual no M0 e/ou recorrente M1..M12)
-    'Drivers Revenue Share': [{ k: '__drs_mensal__', label: 'Monthly amount, from M1 (R$)' }],
-    'Car Price': [{ k: '__car_price__', label: 'Amount at M0 (R$)' }],
-    'Debt Principal': [{ k: '__debt_princ__', label: 'Monthly amount, from M1 (R$)' }],
-    'Debt Interest': [{ k: '__debt_int__', label: 'Monthly amount, from M1 (R$)' }],
-    'Disbursement Fee': [{ k: '__disb_fee__', label: 'Amount at M0 (R$)' }],
-    'Charger Installation': [{ k: '__charger__', label: 'Amount at M0 (R$)' }],
-    'Initial Plates + Plates Mgmt.': [{ k: '__plates_m0__', label: 'Amount at M0 (R$)' }, { k: '__plates_mensal__', label: 'Monthly amount, from M1 (R$)' }],
-    'Holding Tax': [{ k: '__holding_tax__', label: 'Monthly amount, from M1 (R$)' }],
-    'Collection Fee': [{ k: '__collection_fee__', label: 'Monthly amount, from M1 (R$)' }],
   };
   // ---- MOTOR de projeção do Theoric, extraído para ser reusado pelo P&L (Finance) ----
   // Funções puras: recebem o mapa de valores de UM modelo (vals) e o id do modelo.
@@ -1903,18 +1884,6 @@
       case 'Sticker': return (p === 0 && par('__sticker__') > 0) ? -par('__sticker__') : null;
       case 'Security Deposit': { const dep = par('__num_alugueis__') * par('__subrental_mensal__'); return (p === 0 && dep > 0) ? -dep : null; }
       case 'Vehicle Purchase': return (p === PMAX && par('__vehicle__') > 0) ? -par('__vehicle__') : null;
-      // ---- linhas do UE do Excel (pontual no M0 e/ou recorrente M1..M12) ----
-      case 'Drivers Revenue Share': return (p >= 1 && p <= UET_RECUR && par('__drs_mensal__') > 0) ? par('__drs_mensal__') : null;
-      case 'Car Price': return (p === 0 && par('__car_price__') > 0) ? -par('__car_price__') : null;
-      case 'Debt Principal': return (p >= 1 && p <= UET_RECUR && par('__debt_princ__') > 0) ? -par('__debt_princ__') : null;
-      case 'Debt Interest': return (p >= 1 && p <= UET_RECUR && par('__debt_int__') > 0) ? -par('__debt_int__') : null;
-      case 'Disbursement Fee': return (p === 0 && par('__disb_fee__') > 0) ? -par('__disb_fee__') : null;
-      case 'Charger Installation': return (p === 0 && par('__charger__') > 0) ? -par('__charger__') : null;
-      case 'Initial Plates + Plates Mgmt.':
-        if (p === 0 && par('__plates_m0__') > 0) return -par('__plates_m0__');
-        return (p >= 1 && p <= UET_RECUR && par('__plates_mensal__') > 0) ? -par('__plates_mensal__') : null;
-      case 'Holding Tax': return (p >= 1 && p <= UET_RECUR && par('__holding_tax__') > 0) ? -par('__holding_tax__') : null;
-      case 'Collection Fee': return (p >= 1 && p <= UET_RECUR && par('__collection_fee__') > 0) ? -par('__collection_fee__') : null;
       default: return null;
     }
   }
@@ -1934,7 +1903,7 @@
   let finHc = { roles: [], plan: {} }, finAdmin = {}, finCac = {};
   const FIN_MONTHS = 12; // 2026-01 .. 2026-12
   const FIN_ML = (i) => '2026-' + String(i + 1).padStart(2, '0');
-  const FIN_REV_LINES = ['Subscription', 'Late-payment interest', 'Initial Fee / Vehicle Sell', 'Drivers Revenue Share', 'Security Deposit Refund'];
+  const FIN_REV_LINES = ['Subscription', 'Late-payment interest', 'Initial Fee / Vehicle Sell', 'Security Deposit Refund'];
   const FIN_COGS_LINES = ['Subrental fee', 'Maintenance', 'Insurance', 'GPS', 'Car Preparation', 'Sticker'];
   const FIN_ADMIN_LINES = ['Rent & Utilities', 'Professional Services', 'IT'];
   const FIN_CAC_LINES = ['Sales Commission', 'Google/Meta Ads', 'Digital Influencers'];

@@ -486,11 +486,44 @@
 
     <!-- ===================== FINANCE ===================== -->
     <section class="section" id="sec-finance">
-      <div class="section-head">
-        <div>
-          <div class="section-title"><i class="ti ti-cash"></i> Finance</div>
-          <div class="section-desc">Coming soon</div>
+      <div class="sub-tabs">
+        <button class="sub-tab active" data-sub="pnl">P&amp;L <span class="sub-tab-wip">in progress</span></button>
+        <button class="sub-tab" data-sub="fleetplan">Fleet Plan</button>
+        <button class="sub-tab" data-sub="finassump">Assumptions</button>
+      </div>
+
+      <!-- ---------- P&L (consolidado) ---------- -->
+      <div class="subsection active" id="sub-pnl">
+        <div class="section-head">
+          <div>
+            <div class="section-title"><i class="ti ti-cash"></i> P&amp;L projection (USD)</div>
+            <div class="section-desc">Cash view · consolidated from the Fleet Plan and each model's Unit Economics Theoric</div>
+          </div>
         </div>
+        <div class="ue-head" id="pnlControls"></div>
+        <div class="ue-table-wrap"><table class="ue-table" id="pnlTable"></table></div>
+      </div>
+
+      <!-- ---------- FLEET PLAN (coortes) ---------- -->
+      <div class="subsection" id="sub-fleetplan">
+        <div class="section-head">
+          <div>
+            <div class="section-title"><i class="ti ti-car"></i> Fleet Plan</div>
+            <div class="section-desc">Expected vehicle cohorts — model, delivery month and quantity</div>
+          </div>
+        </div>
+        <div id="fleetPlanWrap"></div>
+      </div>
+
+      <!-- ---------- ASSUMPTIONS ---------- -->
+      <div class="subsection" id="sub-finassump">
+        <div class="section-head">
+          <div>
+            <div class="section-title"><i class="ti ti-adjustments"></i> Assumptions</div>
+            <div class="section-desc">Tax rates, non-payment, payment fee, active rate and FX</div>
+          </div>
+        </div>
+        <div id="finAssumpWrap"></div>
       </div>
     </section>
   </main>

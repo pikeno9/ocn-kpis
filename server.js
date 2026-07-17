@@ -92,8 +92,9 @@ app.use(requireAuth);
 // ======================= ROTAS PROTEGIDAS =======================
 // Seções restritas a não-admin (visualizador): sub-aba -> chaves de dados removidas do payload.
 // Bloqueio REAL: o visualizador não recebe esses dados (nem via dev tools / chamada direta à API).
-// unittheoric não tem chave em /api/data (dados vêm de /api/ue/values); [] só esconde a sub-aba (hiddenSubs)
-const RESTRICTED_NON_ADMIN = { unit: ['ue'], headcount: ['rh'], unittheoric: [] };
+// unittheoric/pnl/fleetplan/finassump não têm chave em /api/data (dados vêm de /api/ue/values e
+// /api/finance/*); [] só esconde a sub-aba (hiddenSubs). Sem sub-aba visível, a aba principal some.
+const RESTRICTED_NON_ADMIN = { unit: ['ue'], headcount: ['rh'], unittheoric: [], pnl: [], fleetplan: [], finassump: [] };
 app.get('/api/data', (req, res) => {
   if (!cache.data) return res.status(503).json({ error: cache.error || 'dados ainda não disponíveis' });
   const isAdmin = !!(req.user && req.user.role === 'admin');
@@ -186,8 +187,8 @@ app.post('/api/org', requireAdmin, async (req, res) => {
 });
 app.get('/api/ue/values', async (req, res) => {
   const fleet = String(req.query.fleet || '');
-  // dados do Unit Economics Theoric são restritos a admin (igual ao UE real, escondido do visualizador)
-  if (fleet.startsWith('__theoric_') && !(req.user && req.user.role === 'admin')) {
+  // dados do Unit Economics Theoric e do Finance são restritos a admin (bloqueio real, não só visual)
+  if ((fleet.startsWith('__theoric_') || fleet.startsWith('__fin_')) && !(req.user && req.user.role === 'admin')) {
     return res.status(403).json({ error: 'apenas administradores' });
   }
   try { res.json({ values: await store.getFleet(fleet) }); }
@@ -260,6 +261,26 @@ app.post('/api/theoric/models', requireAdmin, async (req, res) => {
     await store.setDoc('theoric_models', list, req.user.login);
     res.json({ ok: true, models: list, added });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ---------- Finance: plano de frota (coortes dinâmicas) ----------
+// Cada coorte = um lote: { id, model (id do modelo do Theoric), month (0..11 de 2026), qty }.
+// POST salva a LISTA inteira (cobre adicionar/editar/remover numa chamada só).
+app.get('/api/finance/cohorts', requireAdmin, async (req, res) => {
+  try { const c = await store.getDoc('fin_cohorts'); res.json({ cohorts: Array.isArray(c) ? c : [] }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/finance/cohorts', requireAdmin, async (req, res) => {
+  const list = Array.isArray(req.body && req.body.cohorts) ? req.body.cohorts : null;
+  if (!list) return res.status(400).json({ error: 'cohorts deve ser uma lista' });
+  const clean = list.slice(0, 200).map((c, i) => ({
+    id: String(c.id || ('c' + i)).slice(0, 40),
+    model: String(c.model || '').slice(0, 40),
+    month: Math.max(0, Math.min(11, parseInt(c.month, 10) || 0)),
+    qty: Math.max(0, Number(c.qty) || 0),
+  })).filter((c) => c.model);
+  try { await store.setDoc('fin_cohorts', clean, req.user.login); res.json({ ok: true, cohorts: clean }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ---------- Migração de dados manuais entre ambientes (main <-> experimentos) ----------

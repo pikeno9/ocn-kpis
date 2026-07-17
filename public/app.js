@@ -1852,6 +1852,47 @@
     'Vehicle Purchase': [{ k: '__vehicle__', label: 'Purchase/buyback amount (R$) — enters at M13' }],
     'Security Deposit Refund': [{ k: '__refund_pct__', label: 'Deposit refund correction (%)' }],
   };
+  // ---- MOTOR de projeção do Theoric, extraído para ser reusado pelo P&L (Finance) ----
+  // Funções puras: recebem o mapa de valores de UM modelo (vals) e o id do modelo.
+  function uetPar(vals, k) { const v = vals[k + '@@0']; return v == null ? 0 : Number(v); }
+  // Maintenance: km/semana agenda as revisões e joga o preço de cada revisão (varia por nº) no mês
+  function uetMaint(vals, model) {
+    const arr = {}; const kmWeek = uetPar(vals, '__km_semana__');
+    const prices = (OCN.ue && OCN.ue.revisoes && OCN.ue.revisoes[model]) || [];
+    if (kmWeek > 0 && prices.length) {
+      const kmMonth = kmWeek * UET_WPM;
+      prices.forEach((r) => { const km = r.km || (r.n * 10000); const mo = Math.ceil(km / kmMonth); if (mo >= 1 && mo <= UET_RECUR) arr[mo] = (arr[mo] || 0) + (r.valor || 0); });
+    }
+    return arr;
+  }
+  // valor projetado (COM sinal) de uma linha na IDADE p do contrato (M0..M13), a partir dos params/sliders
+  function uetCell(vals, model, line, p, maint) {
+    const par = (k) => uetPar(vals, k);
+    const PMAX = UET_PERIODS - 1;
+    const subMonthly = par('__sub_semanal__') * UET_WPM;
+    switch (line) {
+      case 'Subscription': return (p >= 1 && p <= UET_RECUR && par('__sub_semanal__') > 0) ? subMonthly * (1 - par('__inadimplencia__') / 100) : null;
+      case 'Late-payment interest': return (p >= 1 && p <= UET_RECUR && par('__sub_semanal__') > 0) ? subMonthly * (par('__late_pct__') / 100) * (par('__sub_juros__') / 100) : null;
+      case 'Initial Fee / Vehicle Sell': return (p === PMAX && par('__vehicle__') > 0) ? par('__vehicle__') * 1.03 : null;
+      case 'Security Deposit Refund': { const dep = par('__num_alugueis__') * par('__subrental_mensal__'); return (p === PMAX && dep > 0) ? dep * (1 + par('__refund_pct__') / 100) : null; }
+      case 'Subrental fee': return (p >= 1 && p <= UET_RECUR && par('__subrental_mensal__') > 0) ? -par('__subrental_mensal__') : null;
+      case 'Insurance': { const total = par('__ins_total__'), N = Math.round(par('__ins_parcelas__')); return (total > 0 && N >= 1 && p >= 1 && p <= Math.min(N, UET_RECUR)) ? -(total / N) : null; }
+      case 'Car Preparation': return (p === 0 && par('__car_prep__') > 0) ? -par('__car_prep__') : null;
+      case 'Maintenance': return (maint[p] != null) ? -maint[p] : null;
+      case 'GPS': if (p === 0 && par('__gps_m0__') > 0) return -par('__gps_m0__'); return (p >= 1 && p <= UET_RECUR && par('__gps_mensal__') > 0) ? -par('__gps_mensal__') : null;
+      case 'Sticker': return (p === 0 && par('__sticker__') > 0) ? -par('__sticker__') : null;
+      case 'Security Deposit': { const dep = par('__num_alugueis__') * par('__subrental_mensal__'); return (p === 0 && dep > 0) ? -dep : null; }
+      case 'Vehicle Purchase': return (p === PMAX && par('__vehicle__') > 0) ? -par('__vehicle__') : null;
+      default: return null;
+    }
+  }
+  // valor EFETIVO: override manual da célula (magnitude) vence a projeção
+  function uetEff(vals, model, lineObj, p, maint) {
+    const ov = vals[lineObj.label + '@@' + p];
+    if (ov != null) return (lineObj.group === 'outflow') ? -Math.abs(Number(ov)) : Math.abs(Number(ov));
+    return uetCell(vals, model, lineObj.label, p, maint);
+  }
+
   function initUnitTheoric() {
     if (uetReady) return;
     uetReady = true;
@@ -1872,43 +1913,16 @@
     const conv = (v) => (v == null ? null : (uetCurrency === 'USD' ? v / cotacao() : v)); // R$ -> moeda de exibição
     const parseInput = (raw) => { raw = String(raw).trim(); if (raw === '') return null; raw = raw.replace(/[R$\s]/gi, '').replace(/\./g, '').replace(',', '.'); const n = Number(raw); return isFinite(n) ? n : null; };
 
-    // Maintenance: slider km/semana agenda as revisões (a cada km) e joga o preço de cada revisão (varia por nº) no mês
-    function maintByMonth() {
-      const arr = {}; const kmWeek = par('__km_semana__');
-      const prices = (OCN.ue && OCN.ue.revisoes && OCN.ue.revisoes[uetSel]) || [];
-      if (kmWeek > 0 && prices.length) {
-        const kmMonth = kmWeek * UET_WPM;
-        prices.forEach((r) => { const km = r.km || (r.n * 10000); const mo = Math.ceil(km / kmMonth); if (mo >= 1 && mo <= UET_RECUR) arr[mo] = (arr[mo] || 0) + (r.valor || 0); });
-      }
-      return arr;
-    }
-    // valor projetado (COM sinal: inflow +, outflow −) de cada linha num período, a partir dos params/sliders
-    function cellValue(line, p, maint) {
-      const subMonthly = par('__sub_semanal__') * UET_WPM;
-      switch (line) {
-        case 'Subscription': return (p >= 1 && p <= UET_RECUR && par('__sub_semanal__') > 0) ? subMonthly * (1 - par('__inadimplencia__') / 100) : null;
-        case 'Late-payment interest': return (p >= 1 && p <= UET_RECUR && par('__sub_semanal__') > 0) ? subMonthly * (par('__late_pct__') / 100) * (par('__sub_juros__') / 100) : null;
-        case 'Initial Fee / Vehicle Sell': return (p === PMAX && par('__vehicle__') > 0) ? par('__vehicle__') * 1.03 : null;
-        case 'Security Deposit Refund': { const dep = par('__num_alugueis__') * par('__subrental_mensal__'); return (p === PMAX && dep > 0) ? dep * (1 + par('__refund_pct__') / 100) : null; }
-        case 'Subrental fee': return (p >= 1 && p <= UET_RECUR && par('__subrental_mensal__') > 0) ? -par('__subrental_mensal__') : null;
-        case 'Insurance': { const total = par('__ins_total__'), N = Math.round(par('__ins_parcelas__')); return (total > 0 && N >= 1 && p >= 1 && p <= Math.min(N, UET_RECUR)) ? -(total / N) : null; }
-        case 'Car Preparation': return (p === 0 && par('__car_prep__') > 0) ? -par('__car_prep__') : null;
-        case 'Maintenance': return (maint[p] != null) ? -maint[p] : null;
-        case 'GPS': if (p === 0 && par('__gps_m0__') > 0) return -par('__gps_m0__'); return (p >= 1 && p <= UET_RECUR && par('__gps_mensal__') > 0) ? -par('__gps_mensal__') : null;
-        case 'Sticker': return (p === 0 && par('__sticker__') > 0) ? -par('__sticker__') : null;
-        case 'Security Deposit': { const dep = par('__num_alugueis__') * par('__subrental_mensal__'); return (p === 0 && dep > 0) ? -dep : null; }
-        case 'Vehicle Purchase': return (p === PMAX && par('__vehicle__') > 0) ? -par('__vehicle__') : null;
-        default: return null;
-      }
-    }
+    // usam o motor extraído acima (mesma lógica), agora compartilhado com o P&L do Finance
+    const maintByMonth = () => uetMaint(uetVals, uetSel);
+    const cellValue = (line, p, maint) => uetCell(uetVals, uetSel, line, p, maint);
     function computeAll() {
       const maint = maintByMonth(); const cells = {}; const ti = [], to = [], net = [], acc = []; let a = 0;
       for (let p = 0; p < UET_PERIODS; p++) {
         let inf = 0, ouf = 0;
         UET_LINES.forEach((l) => {
           if (!isLeaf(l.group)) return;
-          const ov = uetVals[l.label + '@@' + p]; // override manual da célula (magnitude) vence a projeção
-          const v = (ov != null) ? ((l.group === 'outflow') ? -Math.abs(Number(ov)) : Math.abs(Number(ov))) : cellValue(l.label, p, maint);
+          const v = uetEff(uetVals, uetSel, l, p, maint); // override manual vence a projeção
           cells[l.label + '@@' + p] = v;
           if (v == null) return;
           if (l.group === 'inflow') inf += v; else ouf += v;

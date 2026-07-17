@@ -264,10 +264,25 @@ app.post('/api/theoric/models', requireAdmin, async (req, res) => {
 });
 
 // ---------- Finance: plano de frota (coortes dinâmicas) ----------
-// Cada coorte = um lote: { id, model (id do modelo do Theoric), month (0..11 de 2026), qty }.
-// POST salva a LISTA inteira (cobre adicionar/editar/remover numa chamada só).
+// Cada coorte = um lote: { id, model (id do modelo do Theoric), month (0..11 de 2026),
+// week (1..5 = semana do mês do recebimento — entra pro-rata), qty }.
+// Seed = o plano do Excel "(09.06.26) BR - P&L projection" (F1..F23, 775 carros).
+const FIN_COHORT_SEED = [
+  { id: 'F1', model: 'Polo', month: 3, week: 2, qty: 50 }, { id: 'F2', model: 'Argo', month: 4, week: 2, qty: 30 },
+  { id: 'F3', model: 'Polo', month: 4, week: 3, qty: 25 }, { id: 'F4', model: 'Argo', month: 5, week: 1, qty: 33 },
+  { id: 'F5', model: 'Argo', month: 5, week: 2, qty: 6 }, { id: 'F6', model: 'Polo', month: 5, week: 3, qty: 25 },
+  { id: 'F7', model: 'Polo', month: 6, week: 1, qty: 25 }, { id: 'F8', model: 'Polo', month: 6, week: 2, qty: 25 },
+  { id: 'F9', model: 'Polo', month: 6, week: 3, qty: 24 }, { id: 'F10', model: 'Polo', month: 7, week: 2, qty: 28 },
+  { id: 'F11', model: 'Polo', month: 7, week: 3, qty: 28 }, { id: 'F12', model: 'Polo', month: 7, week: 4, qty: 28 },
+  { id: 'F13', model: 'Polo', month: 8, week: 1, qty: 34 }, { id: 'F14', model: 'Polo', month: 8, week: 2, qty: 30 },
+  { id: 'F15', model: 'Polo', month: 8, week: 3, qty: 30 }, { id: 'F16', model: 'Polo', month: 9, week: 1, qty: 36 },
+  { id: 'F17', model: 'Polo', month: 9, week: 2, qty: 36 }, { id: 'F18', model: 'Polo', month: 9, week: 3, qty: 34 },
+  { id: 'F19', model: 'Polo', month: 10, week: 2, qty: 50 }, { id: 'F20', model: 'Polo', month: 10, week: 3, qty: 50 },
+  { id: 'F21', model: 'Polo', month: 10, week: 4, qty: 47 }, { id: 'F22', model: 'Polo', month: 10, week: 5, qty: 50 },
+  { id: 'F23', model: 'Polo', month: 11, week: 1, qty: 51 },
+];
 app.get('/api/finance/cohorts', requireAdmin, async (req, res) => {
-  try { const c = await store.getDoc('fin_cohorts'); res.json({ cohorts: Array.isArray(c) ? c : [] }); }
+  try { const c = await store.getDoc('fin_cohorts'); res.json({ cohorts: (Array.isArray(c) && c.length) ? c : FIN_COHORT_SEED }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/finance/cohorts', requireAdmin, async (req, res) => {
@@ -277,6 +292,7 @@ app.post('/api/finance/cohorts', requireAdmin, async (req, res) => {
     id: String(c.id || ('c' + i)).slice(0, 40),
     model: String(c.model || '').slice(0, 40),
     month: Math.max(0, Math.min(11, parseInt(c.month, 10) || 0)),
+    week: Math.max(1, Math.min(5, parseInt(c.week, 10) || 1)),
     qty: Math.max(0, Number(c.qty) || 0),
   })).filter((c) => c.model);
   try { await store.setDoc('fin_cohorts', clean, req.user.login); res.json({ ok: true, cohorts: clean }); }

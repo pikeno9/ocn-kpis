@@ -1911,7 +1911,7 @@
     { k: '__fin_tax_fed__', label: 'Federal taxes (% of gross revenue)', def: 13.36 },
     { k: '__fin_tax_credit__', label: 'Tax input credit (% of gross revenue)', def: 8.25 },
     { k: '__fin_payfee__', label: 'Payment processing fee (% of gross revenue)', def: 1.5 },
-    { k: '__fin_active__', label: 'Active rate (% of delivered fleet)', def: 100 },
+    { k: '__fin_decomm__', label: 'Monthly decommissioning (% of active fleet)', def: 0.725 },
     { k: '__fin_13th__', label: '13th + vacation factor (× December salary)', def: 1.3333 },
     { k: '__fin_fx__', label: 'FX (R$ per US$)', def: 5.5 },
   ];
@@ -1927,11 +1927,20 @@
     const finPar = (k) => { const v = finCfg[k + '@@0']; if (v != null) return Number(v); const d = FIN_ASSUMP.find((a) => a.k === k); return d ? d.def : 0; };
     const lineOf = (label) => UET_LINES.find((l) => l.label === label);
 
-    // ---------- cálculo do P&L a partir das coortes + UE do Theoric ----------
+    // ---------- cálculo do P&L a partir das coortes + UE do Theoric (mecânica do Excel) ----------
+    // - Semanas pagas = nº de SEGUNDAS-FEIRAS do mês (calendário 2026); no mês de recebimento,
+    //   só as segundas a partir da semana de entrega (pro-rata). Receita = semanal × semanas × ativos.
+    // - Subrental é pro-rata pelo billable ratio (semanas/segundas do mês). Maintenance/Insurance/GPS
+    //   seguem a idade do contrato, sem pro-rata (como no Excel).
+    // - Frota ativa decai pelo decomissionamento mensal (default 0,725%/mês).
+    // - Mês de entrega = M1 do UE (recorrências), e os one-offs do M0 caem junto nele.
+    const FIN_MONDAYS = (() => { const a = []; for (let mo = 0; mo < 12; mo++) { let n = 0; const d = new Date(2026, mo, 1); while (d.getMonth() === mo) { if (d.getDay() === 1) n++; d.setDate(d.getDate() + 1); } a.push(n); } return a; })(); // 2026: [4,4,5,4,4,5,4,5,4,4,5,4]
     function computePnl() {
       const fx = finPar('__fin_fx__') || 5.5;
       const taxFed = finPar('__fin_tax_fed__') / 100, taxCred = finPar('__fin_tax_credit__') / 100;
-      const payFee = finPar('__fin_payfee__') / 100, activeRate = finPar('__fin_active__') / 100;
+      const payFee = finPar('__fin_payfee__') / 100, decomm = finPar('__fin_decomm__') / 100;
+      const WEEKLY_LINES = { 'Subscription': 1, 'Late-payment interest': 1 };   // semanal × semanas pagas
+      const BILLABLE_LINES = { 'Subrental fee': 1 };                            // mensal × billable ratio
       const maints = {}; finModels.forEach((m) => { maints[m.id] = uetMaint(finModelVals[m.id] || {}, m.id); });
       const zeros = () => new Array(FIN_MONTHS).fill(0);
       const rev = {}, cogs = {}; FIN_REV_LINES.forEach((l) => rev[l] = zeros()); FIN_COGS_LINES.forEach((l) => cogs[l] = zeros());
@@ -1940,16 +1949,33 @@
         finCohorts.forEach((c) => {
           if (c.month > m) return;
           delivered[m] += c.qty;
-          const age = m - c.month;
-          if (age > UET_PERIODS - 1) return; // já saiu do contrato
+          const age = m - c.month;                 // 0 = mês de recebimento
+          const activeN = c.qty * Math.pow(1 - decomm, age);
+          active[m] += activeN;
+          const p = age + 1;                        // idade no UE (mês de entrega = M1)
+          if (p > UET_PERIODS - 1) return;          // além do M13: contrato encerrado
           const vals = finModelVals[c.model] || {}, maint = maints[c.model] || {};
-          const add = (L, bag) => { const lo = lineOf(L); if (!lo) return; const v = uetEff(vals, c.model, lo, age, maint); if (v != null) bag[L][m] += (v * c.qty) / fx; };
+          const mondays = FIN_MONDAYS[m];
+          const weeks = age === 0 ? Math.max(0, FIN_MONDAYS[c.month] - ((c.week || 1) - 1)) : mondays;
+          const billable = mondays ? weeks / mondays : 0;
+          const add = (L, bag) => {
+            const lo = lineOf(L); if (!lo) return;
+            let v = uetEff(vals, c.model, lo, p, maint);
+            if (v != null) {
+              if (WEEKLY_LINES[L]) v = (v / UET_WPM) * weeks;      // mensal -> semanal -> × semanas pagas
+              else if (BILLABLE_LINES[L]) v = v * billable;        // pro-rata no mês de entrega
+              bag[L][m] += (v * activeN) / fx;
+            }
+            if (age === 0) {                                        // one-offs do M0 caem no mês de entrega
+              const v0 = uetEff(vals, c.model, lo, 0, maint);
+              if (v0 != null) bag[L][m] += (v0 * c.qty) / fx;
+            }
+          };
           FIN_REV_LINES.forEach((L) => add(L, rev));
           FIN_COGS_LINES.forEach((L) => add(L, cogs));
           const sd = lineOf('Security Deposit');
-          if (sd) { const v = uetEff(vals, c.model, sd, age, maint); if (v != null) secDep[m] += (v * c.qty) / fx; }
+          if (sd && age === 0) { const v0 = uetEff(vals, c.model, sd, 0, maint); if (v0 != null) secDep[m] += (v0 * c.qty) / fx; }
         });
-        active[m] = delivered[m] * activeRate;
       }
       const grossRev = zeros(), cogsTot = zeros();
       for (let m = 0; m < FIN_MONTHS; m++) {
@@ -2059,15 +2085,22 @@
       const el = document.getElementById('fleetPlanWrap'); if (!el) return;
       const opts = (sel) => finModels.map((m) => `<option value="${escH(m.id)}"${m.id === sel ? ' selected' : ''}>${escH(m.name)}</option>`).join('');
       const mopts = (sel) => Array.from({ length: FIN_MONTHS }, (_, i) => `<option value="${i}"${i === sel ? ' selected' : ''}>${FIN_ML(i)}</option>`).join('');
-      let h = '<table class="rh-table fin-table"><thead><tr><th>Cohort</th><th>Model</th><th>Delivery month</th><th>Vehicles</th><th></th></tr></thead><tbody>';
+      const wopts = (sel) => [1, 2, 3, 4, 5].map((w) => `<option value="${w}"${w === (sel || 1) ? ' selected' : ''}>W${w}</option>`).join('');
+      let h = '<table class="rh-table fin-table"><thead><tr><th>Cohort</th><th>Model</th><th>Delivery month</th><th>Week</th><th>Paid weeks (1st mo)</th><th>Vehicles</th><th></th></tr></thead><tbody>';
       finCohorts.forEach((c, i) => {
+        const w1 = Math.max(0, FIN_MONDAYS[c.month] - ((c.week || 1) - 1));
         h += `<tr><td>F${i + 1}</td>` +
           `<td><select class="fin-in" data-i="${i}" data-f="model"${isAdmin ? '' : ' disabled'}>${opts(c.model)}</select></td>` +
           `<td><select class="fin-in" data-i="${i}" data-f="month"${isAdmin ? '' : ' disabled'}>${mopts(c.month)}</select></td>` +
+          `<td><select class="fin-in" data-i="${i}" data-f="week"${isAdmin ? '' : ' disabled'}>${wopts(c.week)}</select></td>` +
+          `<td style="color:var(--text-2)">${w1} of ${FIN_MONDAYS[c.month]}</td>` +
           `<td><input class="fin-in" type="number" min="0" step="1" data-i="${i}" data-f="qty" value="${c.qty}"${isAdmin ? '' : ' disabled'}></td>` +
           `<td>${isAdmin ? `<button class="fin-del" data-i="${i}" title="Remove">✕</button>` : ''}</td></tr>`;
       });
+      const totQty = finCohorts.reduce((s, c) => s + (c.qty || 0), 0);
+      h += `<tr><td colspan="5" style="font-weight:700">Total</td><td style="font-weight:700">${totQty}</td><td></td></tr>`;
       h += '</tbody></table>';
+      h += '<div class="fin-note">Week = week of the month the fleet is received. Revenue and Subrental in that month are prorated by the remaining paid weeks (Mondays), like the Excel. Initial plan seeded from the Excel file (F1–F23).</div>';
       if (!finCohorts.length) h += '<div class="fin-note">No cohorts yet — add the expected vehicle batches.</div>';
       if (isAdmin) h += '<button class="ue-fleet-btn uet-add" id="finAddCohort" style="margin-top:12px">+ Add cohort</button>';
       el.innerHTML = h;
@@ -2075,13 +2108,13 @@
       el.querySelectorAll('.fin-in').forEach((inp) => inp.addEventListener('change', () => {
         const c = finCohorts[+inp.dataset.i]; if (!c) return;
         const f = inp.dataset.f;
-        c[f] = (f === 'qty') ? Math.max(0, Number(inp.value) || 0) : (f === 'month' ? parseInt(inp.value, 10) : inp.value);
+        c[f] = (f === 'qty') ? Math.max(0, Number(inp.value) || 0) : ((f === 'month' || f === 'week') ? parseInt(inp.value, 10) : inp.value);
         saveCohorts();
       }));
       el.querySelectorAll('.fin-del').forEach((b) => b.addEventListener('click', () => { finCohorts.splice(+b.dataset.i, 1); saveCohorts(); }));
       const add = document.getElementById('finAddCohort');
       if (add) add.addEventListener('click', () => {
-        finCohorts.push({ id: 'c' + Date.now(), model: (finModels[0] || {}).id || '', month: 0, qty: 0 });
+        finCohorts.push({ id: 'c' + Date.now(), model: (finModels[0] || {}).id || '', month: 0, week: 1, qty: 0 });
         saveCohorts();
       });
     }

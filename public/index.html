@@ -64,6 +64,8 @@
     <button class="main-tab active" data-sec="operacao"><i class="ti ti-settings-2"></i> Vehicles</button>
     <button class="main-tab" data-sec="comercial"><i class="ti ti-chart-bar"></i> Clients</button>
     <button class="main-tab" data-sec="rh"><i class="ti ti-users"></i> Human Resources</button>
+    <button class="main-tab" data-sec="ue"><i class="ti ti-trending-up"></i> Unit Economics</button>
+    <button class="main-tab" data-sec="finance"><i class="ti ti-cash"></i> Finance</button>
   </nav>
 
   <main class="content">
@@ -74,8 +76,6 @@
         <button class="sub-tab" data-sub="utilization">Utilization</button>
         <button class="sub-tab" data-sub="ocorrencias">Incidents</button>
         <button class="sub-tab" data-sub="redeployment">Redeployment</button>
-        <button class="sub-tab" data-sub="unit">Unit Economics <span class="sub-tab-wip">in progress</span></button>
-        <button class="sub-tab" data-sub="unittheoric">Unit Economics Theoric <span class="sub-tab-wip">in progress</span></button>
       </div>
 
       <!-- ---------- FLEET ---------- -->
@@ -238,34 +238,6 @@
           </div>
           <div id="swapsDetail"></div>
         </div>
-      </div>
-
-      <!-- ---------- UNIT ECONOMICS ---------- -->
-      <div class="subsection" id="sub-unit">
-        <div class="section-head">
-          <div>
-            <div class="section-title"><i class="ti ti-trending-up"></i> Unit Economics</div>
-            <div class="section-desc">Cash flow per vehicle · budget vs. actual · by fleet</div>
-          </div>
-        </div>
-        <div class="ue-fleets" id="ueFleets"></div>
-        <div class="ue-head" id="ueHead"></div>
-        <div class="ue-table-wrap"><table class="ue-table" id="ueTable"></table></div>
-        <div class="ue-foot" id="ueFoot"></div>
-        <div class="ue-plates" id="uePlates"></div>
-      </div>
-
-      <!-- ---------- UNIT ECONOMICS THEORIC ---------- -->
-      <div class="subsection" id="sub-unittheoric">
-        <div class="section-head">
-          <div>
-            <div class="section-title"><i class="ti ti-trending-up"></i> Unit Economics Theoric</div>
-            <div class="section-desc">Expected cash flow per vehicle model · manual input</div>
-          </div>
-        </div>
-        <div class="ue-fleets" id="uetFleets"></div>
-        <div class="ue-head" id="uetControls"></div>
-        <div class="ue-table-wrap"><table class="ue-table" id="uetTable"></table></div>
       </div>
 
       <!-- ---------- UTILIZATION ---------- -->
@@ -472,6 +444,52 @@
           <div class="sub2-title"><i class="ti ti-user-minus"></i> Turnover</div>
           <div class="sub2-desc">Team members who left the company</div>
           <div id="rhTurnover"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== UNIT ECONOMICS ===================== -->
+    <section class="section" id="sec-ue">
+      <div class="sub-tabs">
+        <button class="sub-tab active" data-sub="unit">Unit Economics <span class="sub-tab-wip">in progress</span></button>
+        <button class="sub-tab" data-sub="unittheoric">Unit Economics Theoric <span class="sub-tab-wip">in progress</span></button>
+      </div>
+
+      <!-- ---------- UNIT ECONOMICS (real) ---------- -->
+      <div class="subsection active" id="sub-unit">
+        <div class="section-head">
+          <div>
+            <div class="section-title"><i class="ti ti-trending-up"></i> Unit Economics</div>
+            <div class="section-desc">Cash flow per vehicle · budget vs. actual · by fleet</div>
+          </div>
+        </div>
+        <div class="ue-fleets" id="ueFleets"></div>
+        <div class="ue-head" id="ueHead"></div>
+        <div class="ue-table-wrap"><table class="ue-table" id="ueTable"></table></div>
+        <div class="ue-foot" id="ueFoot"></div>
+        <div class="ue-plates" id="uePlates"></div>
+      </div>
+
+      <!-- ---------- UNIT ECONOMICS THEORIC ---------- -->
+      <div class="subsection" id="sub-unittheoric">
+        <div class="section-head">
+          <div>
+            <div class="section-title"><i class="ti ti-trending-up"></i> Unit Economics Theoric</div>
+            <div class="section-desc">Expected cash flow per vehicle model · manual input</div>
+          </div>
+        </div>
+        <div class="ue-fleets" id="uetFleets"></div>
+        <div class="ue-head" id="uetControls"></div>
+        <div class="ue-table-wrap"><table class="ue-table" id="uetTable"></table></div>
+      </div>
+    </section>
+
+    <!-- ===================== FINANCE ===================== -->
+    <section class="section" id="sec-finance">
+      <div class="section-head">
+        <div>
+          <div class="section-title"><i class="ti ti-cash"></i> Finance</div>
+          <div class="section-desc">Coming soon</div>
         </div>
       </div>
     </section>

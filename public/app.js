@@ -27,12 +27,21 @@
   // usuário logado + botão Sair
   const meta = OCN._meta || {};
   // esconde sub-abas restritas ao papel — o servidor manda meta.hiddenSubs (admin recebe []).
-  // Como nenhuma restrita é a sub-aba padrão, a navegação não quebra; e o servidor já
-  // removeu os dados dessas seções do payload (bloqueio real, não só visual).
+  // O servidor já removeu os dados dessas seções do payload (bloqueio real, não só visual).
   (meta.hiddenSubs || []).forEach((sub) => {
     document.querySelectorAll('.sub-tab[data-sub="' + sub + '"]').forEach((b) => { b.style.display = 'none'; });
     const pane = document.getElementById('sub-' + sub);
     if (pane) pane.style.display = 'none';
+  });
+  // se uma seção ficou sem NENHUMA sub-aba visível (ex.: Unit Economics para o visualizador),
+  // esconde a aba principal e a seção inteira — senão sobraria uma aba vazia
+  document.querySelectorAll('.section').forEach((sec) => {
+    const tabs = sec.querySelectorAll('.sub-tab');
+    if (!tabs.length) return;
+    if ([...tabs].some((t) => t.style.display !== 'none')) return;
+    sec.style.display = 'none';
+    const mt = document.querySelector('.main-tab[data-sec="' + sec.id.replace(/^sec-/, '') + '"]');
+    if (mt) mt.style.display = 'none';
   });
   if (meta.user) {
     const un = document.getElementById('userName'); if (un) un.textContent = meta.user.name || meta.user.login;
@@ -114,6 +123,7 @@
       document.getElementById('sec-' + tab.dataset.sec).classList.add('active');
       if (tab.dataset.sec === 'rh') initRH();
       if (tab.dataset.sec === 'comercial') initLeads();
+      if (tab.dataset.sec === 'ue') initUnit(); // sub-aba padrão da seção Unit Economics
     });
   });
 

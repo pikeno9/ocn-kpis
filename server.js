@@ -94,7 +94,7 @@ app.use(requireAuth);
 // Bloqueio REAL: o visualizador não recebe esses dados (nem via dev tools / chamada direta à API).
 // unittheoric/pnl/fleetplan/finassump não têm chave em /api/data (dados vêm de /api/ue/values e
 // /api/finance/*); [] só esconde a sub-aba (hiddenSubs). Sem sub-aba visível, a aba principal some.
-const RESTRICTED_NON_ADMIN = { unit: ['ue'], headcount: ['rh'], unittheoric: [], pnl: [], fleetplan: [], finassump: [] };
+const RESTRICTED_NON_ADMIN = { unit: ['ue'], headcount: ['rh'], unittheoric: [], pnl: [], fleetplan: [], finassump: [], finhc: [], finadmin: [], fincac: [] };
 app.get('/api/data', (req, res) => {
   if (!cache.data) return res.status(503).json({ error: cache.error || 'dados ainda não disponíveis' });
   const isAdmin = !!(req.user && req.user.role === 'admin');
@@ -280,6 +280,31 @@ app.post('/api/finance/cohorts', requireAdmin, async (req, res) => {
     qty: Math.max(0, Number(c.qty) || 0),
   })).filter((c) => c.model);
   try { await store.setDoc('fin_cohorts', clean, req.user.login); res.json({ ok: true, cohorts: clean }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ---------- Finance: headcount (cargos + plano mensal) ----------
+// { roles: [{id,name,salary,meal,health,taxPct,bonus}], plan: { roleId: [12 números] } }
+app.get('/api/finance/hc', requireAdmin, async (req, res) => {
+  try { const d = await store.getDoc('fin_hc'); res.json({ hc: (d && typeof d === 'object') ? d : { roles: [], plan: {} } }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/finance/hc', requireAdmin, async (req, res) => {
+  const b = (req.body && req.body.hc) || null;
+  if (!b || !Array.isArray(b.roles)) return res.status(400).json({ error: 'hc.roles deve ser uma lista' });
+  const num = (v) => Math.max(0, Number(v) || 0);
+  const roles = b.roles.slice(0, 100).map((r, i) => ({
+    id: String(r.id || ('r' + i)).slice(0, 40),
+    name: String(r.name || '').slice(0, 80),
+    salary: num(r.salary), meal: num(r.meal), health: num(r.health),
+    taxPct: num(r.taxPct), bonus: num(r.bonus),
+  })).filter((r) => r.name);
+  const plan = {};
+  roles.forEach((r) => {
+    const arr = (b.plan && Array.isArray(b.plan[r.id])) ? b.plan[r.id] : [];
+    plan[r.id] = Array.from({ length: 12 }, (_, i) => num(arr[i]));
+  });
+  try { await store.setDoc('fin_hc', { roles, plan }, req.user.login); res.json({ ok: true, hc: { roles, plan } }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 

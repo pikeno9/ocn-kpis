@@ -1900,15 +1900,19 @@
   // (3) Assumptions (impostos, payment fee, active rate, FX). Igual ao Excel: Security Deposit
   // e Vehicle Purchase NÃO entram no COGS (ficam em OPEX/capex).
   let finReady = false, finCohorts = [], finModels = [], finModelVals = {}, finCfg = {};
+  let finHc = { roles: [], plan: {} }, finAdmin = {}, finCac = {};
   const FIN_MONTHS = 12; // 2026-01 .. 2026-12
   const FIN_ML = (i) => '2026-' + String(i + 1).padStart(2, '0');
   const FIN_REV_LINES = ['Subscription', 'Late-payment interest', 'Initial Fee / Vehicle Sell', 'Security Deposit Refund'];
   const FIN_COGS_LINES = ['Subrental fee', 'Maintenance', 'Insurance', 'GPS', 'Car Preparation', 'Sticker'];
+  const FIN_ADMIN_LINES = ['Rent & Utilities', 'Professional Services', 'IT'];
+  const FIN_CAC_LINES = ['Sales Commission', 'Google/Meta Ads', 'Digital Influencers'];
   const FIN_ASSUMP = [
     { k: '__fin_tax_fed__', label: 'Federal taxes (% of gross revenue)', def: 13.36 },
     { k: '__fin_tax_credit__', label: 'Tax input credit (% of gross revenue)', def: 8.25 },
     { k: '__fin_payfee__', label: 'Payment processing fee (% of gross revenue)', def: 1.5 },
     { k: '__fin_active__', label: 'Active rate (% of delivered fleet)', def: 100 },
+    { k: '__fin_13th__', label: '13th + vacation factor (× December salary)', def: 1.3333 },
     { k: '__fin_fx__', label: 'FX (R$ per US$)', def: 5.5 },
   ];
   function initFinance() {
@@ -1957,7 +1961,32 @@
       const netRev = grossRev.map((v, m) => v + taxes[m]);
       const payProc = grossRev.map((v) => -v * payFee);
       const gm = netRev.map((v, m) => v + cogsTot[m] + payProc[m]);
-      return { delivered, active, rev, cogs, secDep, grossRev, fed, cred, taxes, netRev, cogsTot, payProc, gm };
+      // ---- OPEX: HC payroll + Admin + CAC + security deposit (todos negativos) ----
+      const th13f = finPar('__fin_13th__');
+      const hcOf = (r, m) => ((finHc.plan && finHc.plan[r.id]) ? Number(finHc.plan[r.id][m]) || 0 : 0);
+      const base = zeros(), meal = zeros(), health = zeros(), ptax = zeros(), th13 = zeros(), bonus = zeros();
+      for (let m = 0; m < FIN_MONTHS; m++) {
+        (finHc.roles || []).forEach((r) => {
+          const n = hcOf(r, m);
+          base[m] -= n * r.salary; meal[m] -= n * r.meal; health[m] -= n * r.health;
+          ptax[m] -= n * r.salary * (r.taxPct / 100);
+          if (m === FIN_MONTHS - 1) { th13[m] -= n * r.salary * th13f; bonus[m] -= n * r.bonus; } // 13º e bônus em dezembro
+        });
+      }
+      const hcTot = zeros(); for (let m = 0; m < FIN_MONTHS; m++) hcTot[m] = base[m] + meal[m] + health[m] + ptax[m] + th13[m] + bonus[m];
+      const admin = {}, cacL = {};
+      FIN_ADMIN_LINES.forEach((L) => { admin[L] = zeros(); for (let m = 0; m < FIN_MONTHS; m++) admin[L][m] = -(Number(finAdmin[L + '@@' + m]) || 0); });
+      FIN_CAC_LINES.forEach((L) => { cacL[L] = zeros(); for (let m = 0; m < FIN_MONTHS; m++) cacL[L][m] = -(Number(finCac[L + '@@' + m]) || 0); });
+      const adminTot = zeros(), cacTot = zeros();
+      for (let m = 0; m < FIN_MONTHS; m++) { FIN_ADMIN_LINES.forEach((L) => adminTot[m] += admin[L][m]); FIN_CAC_LINES.forEach((L) => cacTot[m] += cacL[L][m]); }
+      const sga = zeros(); for (let m = 0; m < FIN_MONTHS; m++) sga[m] = hcTot[m] + adminTot[m];
+      const opex = zeros(); for (let m = 0; m < FIN_MONTHS; m++) opex[m] = secDep[m] + cacTot[m] + sga[m];
+      const netCf = gm.map((v, m) => v + opex[m]);
+      const accCf = []; let a1 = 0; netCf.forEach((v) => { a1 += v; accCf.push(a1); });
+      const netCfNoSd = gm.map((v, m) => v + opex[m] - secDep[m]); // igual ao Excel: visão sem o calção
+      const accNoSd = []; let a2 = 0; netCfNoSd.forEach((v) => { a2 += v; accNoSd.push(a2); });
+      return { delivered, active, rev, cogs, secDep, grossRev, fed, cred, taxes, netRev, cogsTot, payProc, gm,
+        base, meal, health, ptax, th13, bonus, hcTot, admin, cacL, adminTot, cacTot, sga, opex, netCf, accCf, netCfNoSd, accNoSd };
     }
 
     // ---------- P&L ----------
@@ -1965,10 +1994,11 @@
       const el = document.getElementById('pnlTable'); if (!el) return;
       const P = computePnl();
       const sum = (a) => a.reduce((s, x) => s + (x || 0), 0);
-      const row = (label, arr, cls, isQty) => {
+      // isQty = contagem de frota (estoque -> total = último mês) | isAcc = acumulado (total = valor final)
+      const row = (label, arr, cls, isQty, isAcc) => {
         let h = `<tr class="ue-row ${cls}"><td class="ue-rowlabel">${escH(label)}</td>`;
         for (let m = 0; m < FIN_MONTHS; m++) h += `<td class="ue-cell">${isQty ? fmtQty(arr[m]) : fmt(arr[m])}</td>`;
-        const tot = isQty ? arr[FIN_MONTHS - 1] : sum(arr); // frota: último mês (estoque). dinheiro: soma
+        const tot = (isQty || isAcc) ? arr[FIN_MONTHS - 1] : sum(arr);
         h += `<td class="ue-cell ue-totalcol">${isQty ? fmtQty(tot) : fmt(tot)}</td></tr>`;
         return h;
       };
@@ -1991,7 +2021,26 @@
       for (let m = 0; m < FIN_MONTHS; m++) hp += `<td class="ue-cell">${gmPct[m] == null ? '-' : Math.round(gmPct[m]) + '%'}</td>`;
       const gmT = sum(P.grossRev) ? Math.round((sum(P.gm) / sum(P.grossRev)) * 100) + '%' : '-';
       hp += `<td class="ue-cell ue-totalcol">${gmT}</td></tr>`;
-      html += hp + '</tbody>';
+      html += hp;
+      // ---- OPEX -> Net cashflow ----
+      html += row('(-) OPEX', P.opex, 'ue-totalOutflow ue-calc');
+      html += row('   (-) Sub-rental security deposit', P.secDep, 'ue-leaf');
+      html += row('   (-) CAC', P.cacTot, 'ue-leaf');
+      FIN_CAC_LINES.forEach((L) => { html += row('      (-) ' + L, P.cacL[L], 'ue-leaf'); });
+      html += row('   (-) SG&A', P.sga, 'ue-leaf');
+      html += row('      (-) HC Payroll', P.hcTot, 'ue-leaf');
+      html += row('         (-) Base salary', P.base, 'ue-leaf');
+      html += row('         (-) Meal voucher', P.meal, 'ue-leaf');
+      html += row('         (-) Healthplan', P.health, 'ue-leaf');
+      html += row('         (-) Payroll taxes', P.ptax, 'ue-leaf');
+      html += row('         (-) 13th + vacation', P.th13, 'ue-leaf');
+      html += row('         (-) Annual bonus', P.bonus, 'ue-leaf');
+      FIN_ADMIN_LINES.forEach((L) => { html += row('      (-) ' + L, P.admin[L], 'ue-leaf'); });
+      html += row('Net cashflow', P.netCf, 'ue-net ue-calc');
+      html += row('Acc. Net cashflow', P.accCf, 'ue-acc ue-calc', false, true);
+      html += row('Net cashflow w/o security deposit', P.netCfNoSd, 'ue-leaf');
+      html += row('Acc. Net cashflow w/o security deposit', P.accNoSd, 'ue-leaf', false, true);
+      html += '</tbody>';
       el.innerHTML = html;
       const ctl = document.getElementById('pnlControls');
       if (ctl) ctl.innerHTML = `<div class="fin-note">Fed by <b>${finCohorts.length}</b> cohort(s) · per-vehicle UE from <b>Unit Economics Theoric</b> · FX <b>R$ ${finPar('__fin_fx__').toFixed(2).replace('.', ',')}</b>/US$ · Security Deposit and Vehicle Purchase are not in COGS (OPEX/capex, like the Excel)</div>`;
@@ -2057,13 +2106,108 @@
       }));
     }
 
+    // ---------- Headcount (cargos + plano mensal) ----------
+    async function saveHc() {
+      try { const r = await fetch('/api/finance/hc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ hc: finHc }) }); const d = await r.json().catch(() => ({})); if (d && d.hc) finHc = d.hc; } catch (e) {}
+      renderHc(); renderPnl();
+    }
+    function renderHc() {
+      const el = document.getElementById('finHcWrap'); if (!el) return;
+      const dis = isAdmin ? '' : ' disabled';
+      let h = '<div class="ue-table-wrap"><table class="ue-table"><thead><tr><th class="ue-rowlabel">Role</th>' +
+        '<th>Salary/mo</th><th>Meal/mo</th><th>Health/mo</th><th>Tax %</th><th>Bonus (Dec)</th>';
+      for (let m = 0; m < FIN_MONTHS; m++) h += `<th>${FIN_ML(m)}</th>`;
+      h += '<th></th></tr></thead><tbody>';
+      (finHc.roles || []).forEach((r, i) => {
+        h += `<tr class="ue-row ue-leaf"><td class="ue-rowlabel"><input class="hc-f" data-i="${i}" data-f="name" value="${escH(r.name)}"${dis} style="width:140px"></td>`;
+        ['salary', 'meal', 'health', 'taxPct', 'bonus'].forEach((f) => { h += `<td class="ue-cell"><input class="hc-f hc-n" type="number" min="0" step="any" data-i="${i}" data-f="${f}" value="${r[f]}"${dis}></td>`; });
+        for (let m = 0; m < FIN_MONTHS; m++) { const n = ((finHc.plan || {})[r.id] || [])[m] || 0; h += `<td class="ue-cell"><input class="hc-p hc-n" type="number" min="0" step="1" data-i="${i}" data-m="${m}" value="${n}"${dis}></td>`; }
+        h += `<td class="ue-cell">${isAdmin ? `<button class="fin-del" data-i="${i}" title="Remove">✕</button>` : ''}</td></tr>`;
+      });
+      h += '</tbody></table></div>';
+      if (!(finHc.roles || []).length) h += '<div class="fin-note">No roles yet — add the roles and their monthly headcount.</div>';
+      if (isAdmin) h += '<button class="ue-fleet-btn uet-add" id="finAddRole" style="margin-top:12px">+ Add role</button>';
+      h += '<div class="fin-note">Costs are per person, per month (USD). The monthly columns are the headcount for that role. 13th + vacation and the annual bonus hit December, as in the Excel.</div>';
+      el.innerHTML = h;
+      if (!isAdmin) return;
+      el.querySelectorAll('.hc-f').forEach((inp) => inp.addEventListener('change', () => {
+        const r = finHc.roles[+inp.dataset.i]; if (!r) return; const f = inp.dataset.f;
+        r[f] = (f === 'name') ? inp.value : Math.max(0, Number(inp.value) || 0);
+        saveHc();
+      }));
+      el.querySelectorAll('.hc-p').forEach((inp) => inp.addEventListener('change', () => {
+        const r = finHc.roles[+inp.dataset.i]; if (!r) return;
+        if (!finHc.plan) finHc.plan = {};
+        if (!Array.isArray(finHc.plan[r.id])) finHc.plan[r.id] = new Array(FIN_MONTHS).fill(0);
+        finHc.plan[r.id][+inp.dataset.m] = Math.max(0, Number(inp.value) || 0);
+        saveHc();
+      }));
+      el.querySelectorAll('.fin-del').forEach((b) => b.addEventListener('click', () => {
+        const r = finHc.roles[+b.dataset.i]; if (r && finHc.plan) delete finHc.plan[r.id];
+        finHc.roles.splice(+b.dataset.i, 1); saveHc();
+      }));
+      const add = document.getElementById('finAddRole');
+      if (add) add.addEventListener('click', () => {
+        const id = 'r' + Date.now();
+        finHc.roles.push({ id, name: 'New role', salary: 0, meal: 0, health: 0, taxPct: 0, bonus: 0 });
+        if (!finHc.plan) finHc.plan = {};
+        finHc.plan[id] = new Array(FIN_MONTHS).fill(0);
+        saveHc();
+      });
+    }
+
+    // ---------- matriz mensal (Admin & Other / CAC & Marketing) ----------
+    function renderMatrix(wrapId, fleet, lines, bag, rerender) {
+      const el = document.getElementById(wrapId); if (!el) return;
+      let h = '<div class="ue-table-wrap"><table class="ue-table"><thead><tr><th class="ue-rowlabel">Line (USD)</th>';
+      for (let m = 0; m < FIN_MONTHS; m++) h += `<th>${FIN_ML(m)}</th>`;
+      h += '<th class="ue-totalcol">FY-26E</th></tr></thead><tbody>';
+      lines.forEach((L) => {
+        h += `<tr class="ue-row ue-leaf"><td class="ue-rowlabel">${escH(L)}</td>`;
+        let tot = 0;
+        for (let m = 0; m < FIN_MONTHS; m++) {
+          const v = bag[L + '@@' + m]; const n = v == null ? 0 : Number(v); tot += n;
+          h += `<td class="ue-cell${isAdmin ? ' ue-editable' : ''}" data-line="${escH(L)}" data-p="${m}">${n ? fmtNum(n) : ''}</td>`;
+        }
+        h += `<td class="ue-cell ue-totalcol">${tot ? fmtNum(tot) : '-'}</td></tr>`;
+      });
+      h += '</tbody></table></div><div class="fin-note">Enter positive amounts — they are costs and enter the P&amp;L as negative.</div>';
+      el.innerHTML = h;
+      if (!isAdmin) return;
+      el.querySelectorAll('td.ue-editable').forEach((td) => td.addEventListener('click', () => {
+        if (td.querySelector('input')) return;
+        const L = td.dataset.line, p = +td.dataset.p, k = L + '@@' + p, cur = bag[k];
+        td.innerHTML = `<input class="uet-in" type="text" inputmode="decimal" value="${cur == null ? '' : cur}">`;
+        const inp = td.querySelector('input'); inp.focus(); inp.select();
+        let done = false;
+        const finish = async (save) => {
+          if (done) return; done = true;
+          if (save) {
+            const raw = inp.value.trim();
+            try {
+              if (raw === '') { await fetch('/api/ue/value/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet, line: L, period: p }) }); delete bag[k]; }
+              else { const n = parseInput(raw); if (n != null) { await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet, line: L, period: p, value: n, kind: 'proj' }) }); bag[k] = n; } }
+            } catch (e) {}
+          }
+          rerender(); renderPnl();
+        };
+        inp.addEventListener('blur', () => finish(true));
+        inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } else if (e.key === 'Escape') { finish(false); } });
+      }));
+    }
+    const renderAdmin = () => renderMatrix('finAdminWrap', '__fin_admin__', FIN_ADMIN_LINES, finAdmin, renderAdmin);
+    const renderCac = () => renderMatrix('finCacWrap', '__fin_cac__', FIN_CAC_LINES, finCac, renderCac);
+
     (async () => {
       const getVals = async (fleet) => { const o = {}; try { const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(fleet), { credentials: 'include' }); const d = await r.json(); (d.values || []).forEach((v) => { o[v.line + '@@' + v.period] = v.value; }); } catch (e) {} return o; };
       try { const r = await fetch('/api/theoric/models', { credentials: 'include' }); const d = await r.json(); finModels = d.models || []; } catch (e) { finModels = []; }
       try { const r = await fetch('/api/finance/cohorts', { credentials: 'include' }); const d = await r.json(); finCohorts = d.cohorts || []; } catch (e) { finCohorts = []; }
+      try { const r = await fetch('/api/finance/hc', { credentials: 'include' }); const d = await r.json(); finHc = (d && d.hc) || { roles: [], plan: {} }; } catch (e) { finHc = { roles: [], plan: {} }; }
       finCfg = await getVals('__fin_cfg__');
+      finAdmin = await getVals('__fin_admin__');
+      finCac = await getVals('__fin_cac__');
       for (const m of finModels) finModelVals[m.id] = await getVals('__theoric_' + m.id + '__');
-      renderFleetPlan(); renderAssump(); renderPnl();
+      renderFleetPlan(); renderHc(); renderAdmin(); renderCac(); renderAssump(); renderPnl();
     })();
   }
 

@@ -299,9 +299,23 @@ button { font-family: inherit; cursor: pointer; }
 .fin-dm { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; }
 .fin-dm input { width: 62px; text-align: right; font: inherit; font-size: 12.5px; padding: 4px 6px; border: 1px solid var(--border-2); border-radius: 5px; margin-left: 4px; }
 .fin-dm input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
-.ue-table .hc-f { font: inherit; font-size: 11.5px; padding: 3px 5px; border: 1px solid var(--border-2); border-radius: 4px; background: var(--surface); color: var(--text); box-sizing: border-box; }
-.ue-table .hc-n { width: 62px; text-align: right; }
-.ue-table .hc-f:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+.ue-table .hc-f { font: inherit; font-size: 11.5px; padding: 4px 7px; border: 1px solid var(--border-2); border-radius: 5px; background: var(--surface); color: var(--text); box-sizing: border-box; transition: border-color .12s, box-shadow .12s; }
+.ue-table .hc-f:hover { border-color: var(--accent); }
+.ue-table .hc-n { width: 66px; text-align: right; }
+.ue-table .hc-name { width: 118px; }
+.ue-table .hc-p.hc-n { width: 50px; text-align: center; padding-left: 3px; padding-right: 3px; }
+/* clean, spinner-less number fields (item 4) */
+.ue-table input[type=number].hc-n::-webkit-outer-spin-button,
+.ue-table input[type=number].hc-n::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.ue-table input[type=number].hc-n { -moz-appearance: textfield; appearance: textfield; }
+.ue-table .hc-f:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent); }
+/* sub-headings + summary / totals rows */
+.fin-sub { font-size: 12px; font-weight: 700; color: var(--text-2); margin: 20px 0 8px; letter-spacing: .03em; text-transform: uppercase; }
+.fin-sub:first-child { margin-top: 0; }
+.fin-sub-tag { text-transform: none; letter-spacing: 0; font-weight: 600; font-size: 10.5px; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 999px; padding: 1px 8px; margin-left: 8px; }
+.ue-table.hc-summary tbody .ue-rowlabel { font-weight: 500; }
+.ue-table tr.hc-total td { font-weight: 700; border-top: 1.5px solid var(--border-2); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.ue-table .hc-rolelbl { color: var(--text-2); font-size: 12px; }
 #uetTable .uet-in { width: 100%; border: 0; background: #fff; text-align: right; font-family: inherit; font-size: 10.5px; padding: 1px 2px; box-sizing: border-box; color: var(--text); outline: 1px solid var(--accent); border-radius: 3px; }
 #uetControls { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
 .uet-ctrl { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--text-2); }

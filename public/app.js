@@ -2183,21 +2183,63 @@
     function renderHc() {
       const el = document.getElementById('finHcWrap'); if (!el) return;
       const dis = isAdmin ? '' : ' disabled';
-      let h = '<div class="ue-table-wrap"><table class="ue-table"><thead><tr><th class="ue-rowlabel">Role</th><th>Name</th>' +
-        '<th>Salary/mo</th><th>Meal/mo</th><th>Health/mo</th><th>Tax %</th><th>Bonus (Dec)</th>';
-      for (let m = 0; m < FIN_MONTHS; m++) h += `<th>${FIN_ML(m)}</th>`;
-      h += '<th></th></tr></thead><tbody>';
-      (finHc.roles || []).forEach((r, i) => {
-        h += `<tr class="ue-row ue-leaf"><td class="ue-rowlabel"><input class="hc-f" data-i="${i}" data-f="name" value="${escH(r.name)}"${dis} style="width:140px"></td>`;
-        h += `<td class="ue-cell"><input class="hc-f" data-i="${i}" data-f="person" value="${escH(r.person || '')}"${dis} placeholder="—" style="width:110px"></td>`;
-        ['salary', 'meal', 'health', 'taxPct', 'bonus'].forEach((f) => { h += `<td class="ue-cell"><input class="hc-f hc-n" type="number" min="0" step="any" data-i="${i}" data-f="${f}" value="${r[f]}"${dis}></td>`; });
-        for (let m = 0; m < FIN_MONTHS; m++) { const n = ((finHc.plan || {})[r.id] || [])[m] || 0; h += `<td class="ue-cell"><input class="hc-p hc-n" type="number" min="0" step="1" data-i="${i}" data-m="${m}" value="${n}"${dis}></td>`; }
+      const roles = finHc.roles || [];
+      const plan = finHc.plan || {};
+      const th13f = finPar('__fin_13th__') || 1.3333;
+      const hcOf = (r, m) => (plan[r.id] ? Number(plan[r.id][m]) || 0 : 0);
+      const zeros = () => new Array(FIN_MONTHS).fill(0);
+      const monthCols = () => { let s = ''; for (let m = 0; m < FIN_MONTHS; m++) s += `<th>${FIN_ML(m)}</th>`; return s; };
+
+      // ---- Cost summary (spend per period, per cost type) — mirrors the P&L HC payroll lines ----
+      const cSal = zeros(), cMeal = zeros(), cHealth = zeros(), cTax = zeros(), c13 = zeros(), cBonus = zeros(), head = zeros();
+      for (let m = 0; m < FIN_MONTHS; m++) {
+        roles.forEach((r) => {
+          const n = hcOf(r, m); if (!n) return;
+          head[m] += n;
+          cSal[m] += n * (r.salary || 0);
+          cMeal[m] += n * (r.meal || 0);
+          cHealth[m] += n * (r.health || 0);
+          cTax[m] += n * (r.salary || 0) * ((r.taxPct || 0) / 100);
+          if (m === FIN_MONTHS - 1) { c13[m] += n * (r.salary || 0) * th13f; cBonus[m] += n * (r.bonus || 0); }
+        });
+      }
+      const cTotal = zeros(); for (let m = 0; m < FIN_MONTHS; m++) cTotal[m] = cSal[m] + cMeal[m] + cHealth[m] + cTax[m] + c13[m] + cBonus[m];
+      const money = (v) => (Math.round(v) === 0 ? '-' : fmtNum(v));
+      const sumRow = (label, arr, cls) => { let s = `<tr class="${cls || ''}"><td class="ue-rowlabel">${label}</td>`; for (let m = 0; m < FIN_MONTHS; m++) s += `<td class="ue-cell ue-calc">${money(arr[m])}</td>`; return s + '</tr>'; };
+
+      let h = '<div class="fin-sub">Total spend per period (USD)</div>';
+      h += '<div class="ue-table-wrap"><table class="ue-table hc-summary"><thead><tr><th class="ue-rowlabel">Cost type</th>' + monthCols() + '</tr></thead><tbody>';
+      h += sumRow('Salaries', cSal) + sumRow('Meal voucher', cMeal) + sumRow('Health plan', cHealth) +
+        sumRow('Payroll taxes', cTax) + sumRow('13th + vacation', c13) + sumRow('Bonus', cBonus) + sumRow('Total', cTotal, 'hc-total');
+      h += '</tbody></table></div>';
+
+      // ---- Table 1: headcount by role & period (+ totals row) ----
+      h += '<div class="fin-sub">Headcount by role &amp; period</div>';
+      h += '<div class="ue-table-wrap"><table class="ue-table"><thead><tr><th class="ue-rowlabel">Role</th><th>Name</th>' + monthCols() + '<th></th></tr></thead><tbody>';
+      roles.forEach((r, i) => {
+        h += `<tr class="ue-row ue-leaf"><td class="ue-rowlabel"><input class="hc-f" data-i="${i}" data-f="name" value="${escH(r.name)}"${dis} style="width:150px"></td>`;
+        h += `<td class="ue-cell"><input class="hc-f hc-name" data-i="${i}" data-f="person" value="${escH(r.person || '')}"${dis} placeholder="—"></td>`;
+        for (let m = 0; m < FIN_MONTHS; m++) { const n = (plan[r.id] || [])[m] || 0; h += `<td class="ue-cell"><input class="hc-p hc-n" type="number" min="0" step="0.5" data-i="${i}" data-m="${m}" value="${n}"${dis}></td>`; }
         h += `<td class="ue-cell">${isAdmin ? `<button class="fin-del" data-i="${i}" title="Remove">✕</button>` : ''}</td></tr>`;
       });
+      h += '<tr class="hc-total"><td class="ue-rowlabel">Total employees</td><td class="ue-cell"></td>';
+      for (let m = 0; m < FIN_MONTHS; m++) { const v = head[m]; h += `<td class="ue-cell ue-calc">${v ? v.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : '-'}</td>`; }
+      h += '<td class="ue-cell"></td></tr></tbody></table></div>';
+
+      // ---- Table 2 (support): salaries & other costs per person ----
+      h += '<div class="fin-sub">Salaries &amp; costs per person <span class="fin-sub-tag">support table</span></div>';
+      h += '<div class="ue-table-wrap"><table class="ue-table"><thead><tr><th class="ue-rowlabel">Role</th>' +
+        '<th>Salary/mo</th><th>Meal/mo</th><th>Health/mo</th><th>Tax %</th><th>Bonus (Dec)</th></tr></thead><tbody>';
+      roles.forEach((r, i) => {
+        h += `<tr class="ue-row ue-leaf"><td class="ue-rowlabel hc-rolelbl">${escH(r.name)}</td>`;
+        ['salary', 'meal', 'health', 'taxPct', 'bonus'].forEach((f) => { h += `<td class="ue-cell"><input class="hc-f hc-n" type="number" min="0" step="any" data-i="${i}" data-f="${f}" value="${r[f]}"${dis}></td>`; });
+        h += '</tr>';
+      });
       h += '</tbody></table></div>';
-      if (!(finHc.roles || []).length) h += '<div class="fin-note">No roles yet — add the roles and their monthly headcount.</div>';
+
+      if (!roles.length) h += '<div class="fin-note">No roles yet — add the roles and their monthly headcount.</div>';
       if (isAdmin) h += '<button class="ue-fleet-btn uet-add" id="finAddRole" style="margin-top:12px">+ Add role</button>';
-      h += '<div class="fin-note">Costs are per person, per month (USD). The monthly columns are the headcount for that role. 13th + vacation and the annual bonus hit December.</div>';
+      h += '<div class="fin-note">Costs are per person, per month (USD). A headcount of <b>0.5</b> = mid-month hire, so only half the cost that month. 13th + vacation and the annual bonus hit December.</div>';
       el.innerHTML = h;
       if (!isAdmin) return;
       el.querySelectorAll('.hc-f').forEach((inp) => inp.addEventListener('change', () => {

@@ -48,6 +48,9 @@ button { font-family: inherit; cursor: pointer; }
   cursor: pointer; background: #ffffff1f; border: 1px solid #ffffff40; font-family: inherit;
 }
 .app-user__logout:hover { background: #ffffff33; }
+.app-pw-btn { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.app-pw-btn i { font-size: 15px; }
+@media (max-width: 720px) { .app-pw-btn span { display: none; } } /* em telas estreitas volta a ser só o ícone */
 .app-freeze-btn {
   display: inline-flex; align-items: center; gap: 5px;
   color: #fff; padding: 7px 14px; border-radius: 999px; font-size: 12px; font-weight: 600;

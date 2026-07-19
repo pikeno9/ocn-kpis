@@ -45,7 +45,7 @@
   });
   if (meta.user) {
     const un = document.getElementById('userName'); if (un) un.textContent = meta.user.name || meta.user.login;
-    const ur = document.getElementById('userRole'); if (ur) ur.textContent = (meta.user.role || '').toUpperCase();
+    const ur = document.getElementById('userRole'); if (ur) ur.textContent = (meta.user.role || '').replace(/_/g, ' ').toUpperCase();
   }
   const btnLogout = document.getElementById('btnLogout');
   if (btnLogout) btnLogout.addEventListener('click', async () => {
@@ -56,7 +56,7 @@
   const btnFreeze = document.getElementById('btnFreeze');
   const btnFreezeLabel = document.getElementById('btnFreezeLabel');
   if (btnFreeze) {
-    const isAdminHdr = !!(meta.user && meta.user.role === 'admin');
+    const isAdminHdr = !!(meta.user && (meta.user.role === 'admin' || meta.user.role === 'giga_admin'));
     let frozen = !!meta.frozen;
     const paintFreeze = () => {
       btnFreeze.style.display = 'inline-flex';
@@ -549,7 +549,7 @@
     // editor manual (admin): sobrescreve os absolutos; valor igual ao da planilha remove o override
     const editBtn = document.getElementById('utilEditBtn');
     const editEl = document.getElementById('utilEdit');
-    if (editBtn && editEl && meta.user && meta.user.role === 'admin') {
+    if (editBtn && editEl && meta.user && (meta.user.role === 'admin' || meta.user.role === 'giga_admin')) {
       editBtn.style.display = 'inline-flex';
       let open = false;
       const inpStyle = 'width:80px;padding:4px 6px;border:1px solid #d1d5db;border-radius:6px;font-size:13px';
@@ -603,7 +603,7 @@
     const el = document.getElementById('orgChart');
     if (!el) return;
     const meta = OCN._meta || {};
-    const isAdmin = !!(meta.user && meta.user.role === 'admin');
+    const isAdmin = !!(meta.user && (meta.user.role === 'admin' || meta.user.role === 'giga_admin'));
     const ORG = { id: 'luiz', name: 'Luiz Apostólico', title: 'VP of Business Development', children: [
       { id: 'lucas', name: 'Lucas Gomes', title: 'Head of Fleet', children: [
         { id: 'livia', name: 'Lívia Selegatto', title: 'Control Tower, Claims & Repairs and Recovery Manager', children: [
@@ -1729,7 +1729,7 @@
       }));
       // --- editor manual da "Active fleet" (base do % de incidents) — admin ---
       const ocEditBtn = document.getElementById('ocorActiveEditBtn'), ocEditEl = document.getElementById('ocorActiveEdit');
-      if (ocEditBtn && ocEditEl && OCN._meta && OCN._meta.user && OCN._meta.user.role === 'admin') {
+      if (ocEditBtn && ocEditEl && OCN._meta && OCN._meta.user && (OCN._meta.user.role === 'admin' || OCN._meta.user.role === 'giga_admin')) {
         ocEditBtn.style.display = 'inline-flex';
         let ocOpen = false;
         const ocInp = 'width:80px;padding:4px 6px;border:1px solid #d1d5db;border-radius:6px;font-size:13px';
@@ -1922,7 +1922,7 @@
     const fmt = (v) => (v == null) ? '' : (Math.round(v) === 0 ? '-' : (v < 0 ? '(' + fmtNum(v) + ')' : fmtNum(v)));
     const fmtQty = (v) => (v == null || Math.round(v) === 0) ? '-' : Math.round(v).toLocaleString('pt-BR');
     const parseInput = (raw) => { raw = String(raw).trim(); if (raw === '') return null; raw = raw.replace(/[R$\s]/gi, '').replace(/\./g, '').replace(',', '.'); const n = Number(raw); return isFinite(n) ? n : null; };
-    const isAdmin = !!(OCN._meta && OCN._meta.user && OCN._meta.user.role === 'admin');
+    const isAdmin = !!(OCN._meta && OCN._meta.user && (OCN._meta.user.role === 'admin' || OCN._meta.user.role === 'giga_admin'));
     const finPar = (k) => { const v = finCfg[k + '@@0']; if (v != null) return Number(v); const d = FIN_ASSUMP.find((a) => a.k === k); return d ? d.def : 0; };
     const lineOf = (label) => UET_LINES.find((l) => l.label === label);
 
@@ -2437,7 +2437,7 @@
     // formatação: milhar com ponto, SEM casas decimais, negativos entre parênteses, 0 vira "-"
     const fmtNum = (v) => Math.abs(v).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
     const ueFmt = (v) => (v === null || v === undefined) ? '' : (Math.round(v) === 0 ? '-' : (v < 0 ? '(' + fmtNum(v) + ')' : fmtNum(v)));
-    const isAdmin = !!(OCN._meta && OCN._meta.user && OCN._meta.user.role === 'admin');
+    const isAdmin = !!(OCN._meta && OCN._meta.user && (OCN._meta.user.role === 'admin' || OCN._meta.user.role === 'giga_admin'));
     const fleetsEl = document.getElementById('uetFleets');
     const ctrlEl = document.getElementById('uetControls');
     const tableEl = document.getElementById('uetTable');
@@ -2637,7 +2637,7 @@
     if (unitReady) return;
     unitReady = true;
     const U = OCN.ue;
-    const isAdmin = !!(OCN._meta && OCN._meta.user && OCN._meta.user.role === 'admin');
+    const isAdmin = !!(OCN._meta && OCN._meta.user && (OCN._meta.user.role === 'admin' || OCN._meta.user.role === 'giga_admin'));
     const fleetsEl = document.getElementById('ueFleets');
     if (!U || !U.fleets || !U.fleets.length) {
       fleetsEl.innerHTML = '<div style="color:var(--text-2);font-size:13px">No Unit Economics data.</div>';

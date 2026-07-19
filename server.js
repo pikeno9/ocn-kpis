@@ -94,17 +94,27 @@ app.use(requireAuth);
 // Bloqueio REAL: o visualizador não recebe esses dados (nem via dev tools / chamada direta à API).
 // unittheoric/pnl/fleetplan/finassump não têm chave em /api/data (dados vêm de /api/ue/values e
 // /api/finance/*); [] só esconde a sub-aba (hiddenSubs). Sem sub-aba visível, a aba principal some.
-const RESTRICTED_NON_ADMIN = { unit: ['ue'], headcount: ['rh'], unittheoric: [], pnl: [], fleetplan: [], finassump: [], finhc: [], finadmin: [], fincac: [] };
+// Unit Economics (real + teórico) e Finance: SÓ Giga Admin. sub -> chaves removidas do payload.
+const RESTRICTED_GIGA_ONLY = { unit: ['ue'], unittheoric: [], pnl: [], fleetplan: [], finhc: [], finadmin: [], fincac: [], finassump: [] };
+// Restrições do visualizador (não-admin), como antes.
+const RESTRICTED_NON_ADMIN = { headcount: ['rh'] };
 app.get('/api/data', (req, res) => {
   if (!cache.data) return res.status(503).json({ error: cache.error || 'dados ainda não disponíveis' });
-  const isAdmin = !!(req.user && req.user.role === 'admin');
+  const isGiga = isGigaUser(req.user);
+  const isAdmin = isAdminUser(req.user);
   let payload = cache.data;
   const hiddenSubs = [];
-  if (!isAdmin) {
+  if (!isGiga) {
     payload = { ...cache.data }; // clone raso: apagar chaves top-level não mexe no cache
-    for (const [sub, keys] of Object.entries(RESTRICTED_NON_ADMIN)) {
+    for (const [sub, keys] of Object.entries(RESTRICTED_GIGA_ONLY)) {
       keys.forEach((k) => { delete payload[k]; });
       hiddenSubs.push(sub);
+    }
+    if (!isAdmin) {
+      for (const [sub, keys] of Object.entries(RESTRICTED_NON_ADMIN)) {
+        keys.forEach((k) => { delete payload[k]; });
+        hiddenSubs.push(sub);
+      }
     }
   }
   res.json({ ...payload, _meta: { updatedAt: cache.updatedAt, live: cache.ok, user: req.user, frozen, hiddenSubs } });
@@ -138,7 +148,7 @@ app.get('/api/freeze', (req, res) => res.json({ frozen }));
 // só admin altera; ao descongelar, dispara um refresh imediato
 // (requireAdmin é definido mais abaixo, mas hoisted não se aplica a const; então checa inline)
 app.post('/api/freeze', async (req, res) => {
-  if (!req.user || req.user.role !== 'admin') return res.status(403).json({ error: 'apenas administradores podem congelar/descongelar' });
+  if (!isAdminUser(req.user)) return res.status(403).json({ error: 'apenas administradores podem congelar/descongelar' });
   frozen = !!(req.body && req.body.frozen);
   try {
     await store.setDoc('freeze', { frozen }, req.user.login);
@@ -159,7 +169,7 @@ app.get('/api/org', async (req, res) => {
 // ---------- Unit Economics: valores realizados/projetados ----------
 // Settings globais (% do Security Deposit Refund) — qualquer usuário autenticado pode alterar
 const UE_SETTINGS = ['__refund_pct__'];
-app.post('/api/ue/setting', async (req, res) => {
+app.post('/api/ue/setting', requireGiga, async (req, res) => {
   const b = req.body || {};
   const line = String(b.line || '');
   const value = Number(b.value);
@@ -168,9 +178,16 @@ app.post('/api/ue/setting', async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Papéis: giga_admin (super-admin: vê tudo, inclusive Unit Economics e Finance) ⊃ admin ⊃ visualizador.
+function isGigaUser(u) { return !!(u && u.role === 'giga_admin'); }
+function isAdminUser(u) { return !!(u && (u.role === 'admin' || u.role === 'giga_admin')); }
 function requireAdmin(req, res, next) {
-  if (req.user && req.user.role === 'admin') return next();
+  if (isAdminUser(req.user)) return next();
   return res.status(403).json({ error: 'apenas administradores podem editar' });
+}
+function requireGiga(req, res, next) {
+  if (isGigaUser(req.user)) return next();
+  return res.status(403).json({ error: 'apenas Giga Admin tem acesso a Unit Economics e Finance' });
 }
 
 // edição de um nó do organograma (nome/cargo) — só admin
@@ -185,16 +202,13 @@ app.post('/api/org', requireAdmin, async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.get('/api/ue/values', async (req, res) => {
+app.get('/api/ue/values', requireGiga, async (req, res) => {
+  // Unit Economics inteiro (real, teórico e Finance) é restrito a Giga Admin — bloqueio real, não só visual.
   const fleet = String(req.query.fleet || '');
-  // dados do Unit Economics Theoric e do Finance são restritos a admin (bloqueio real, não só visual)
-  if ((fleet.startsWith('__theoric_') || fleet.startsWith('__fin_')) && !(req.user && req.user.role === 'admin')) {
-    return res.status(403).json({ error: 'apenas administradores' });
-  }
   try { res.json({ values: await store.getFleet(fleet) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.post('/api/ue/value', requireAdmin, async (req, res) => {
+app.post('/api/ue/value', requireGiga, async (req, res) => {
   const b = req.body || {};
   const fleet = String(b.fleet || '').trim();
   const line = String(b.line || '').trim();
@@ -207,7 +221,7 @@ app.post('/api/ue/value', requireAdmin, async (req, res) => {
   try { await store.set({ fleetId: fleet, line, period, value, kind, user: req.user.login }); res.json({ ok: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.post('/api/ue/values/bulk', requireAdmin, async (req, res) => {
+app.post('/api/ue/values/bulk', requireGiga, async (req, res) => {
   const b = req.body || {};
   const fleet = String(b.fleet || '').trim();
   const items = Array.isArray(b.items) ? b.items : [];
@@ -226,7 +240,7 @@ app.post('/api/ue/values/bulk', requireAdmin, async (req, res) => {
     res.json({ ok: true, n });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.post('/api/ue/value/delete', requireAdmin, async (req, res) => {
+app.post('/api/ue/value/delete', requireGiga, async (req, res) => {
   const b = req.body || {};
   const fleet = String(b.fleet || '').trim();
   const line = String(b.line || '').trim();
@@ -243,11 +257,11 @@ const THEORIC_SEED = [
   { id: 'Tera', name: 'Tera', color: '#DDD6FE' },
 ];
 const THEORIC_PALETTE = ['#5A00F8', '#0EA5E9', '#F97316', '#16A34A', '#DB2777', '#CA8A04', '#0D9488', '#9333EA'];
-app.get('/api/theoric/models', requireAdmin, async (req, res) => {
+app.get('/api/theoric/models', requireGiga, async (req, res) => {
   try { const stored = await store.getDoc('theoric_models'); res.json({ models: (Array.isArray(stored) && stored.length) ? stored : THEORIC_SEED }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.post('/api/theoric/models', requireAdmin, async (req, res) => {
+app.post('/api/theoric/models', requireGiga, async (req, res) => {
   const name = String((req.body && req.body.name) || '').trim().slice(0, 60);
   if (!name) return res.status(400).json({ error: 'nome do modelo é obrigatório' });
   try {
@@ -282,11 +296,11 @@ const FIN_COHORT_SEED = [
   { id: 'F23', model: 'Polo', date: '2026-12-01', qty: 51 },
 ];
 const FIN_ISO = (s) => (/^2026-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(String(s)) ? String(s) : null);
-app.get('/api/finance/cohorts', requireAdmin, async (req, res) => {
+app.get('/api/finance/cohorts', requireGiga, async (req, res) => {
   try { const c = await store.getDoc('fin_cohorts'); res.json({ cohorts: (Array.isArray(c) && c.length) ? c : FIN_COHORT_SEED }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.post('/api/finance/cohorts', requireAdmin, async (req, res) => {
+app.post('/api/finance/cohorts', requireGiga, async (req, res) => {
   const list = Array.isArray(req.body && req.body.cohorts) ? req.body.cohorts : null;
   if (!list) return res.status(400).json({ error: 'cohorts deve ser uma lista' });
   const clean = list.slice(0, 400).map((c, i) => ({
@@ -302,7 +316,7 @@ app.post('/api/finance/cohorts', requireAdmin, async (req, res) => {
 // ---------- Finance: headcount (cargos + plano mensal) ----------
 // { roles: [{id,name,salary,meal,health,taxPct,bonus}], plan: { roleId: [12 números] } }
 const FIN_SEED = require('./config/finance-seed');
-app.get('/api/finance/hc', requireAdmin, async (req, res) => {
+app.get('/api/finance/hc', requireGiga, async (req, res) => {
   try {
     const d = await store.getDoc('fin_hc');
     // Serve the seed unless we have saved data from the current version (carrying the per-employee `people` list).
@@ -310,7 +324,7 @@ app.get('/api/finance/hc', requireAdmin, async (req, res) => {
     res.json({ hc: isCurrent ? d : FIN_SEED.HC });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.post('/api/finance/hc', requireAdmin, async (req, res) => {
+app.post('/api/finance/hc', requireGiga, async (req, res) => {
   const b = (req.body && req.body.hc) || null;
   if (!b || !Array.isArray(b.roles)) return res.status(400).json({ error: 'hc.roles deve ser uma lista' });
   const num = (v) => Math.max(0, Number(v) || 0);
@@ -345,11 +359,11 @@ function cleanItems(list, max) {
     v: Array.from({ length: 12 }, (_, i) => Math.max(0, Number((it.v || [])[i]) || 0)),
   })).filter((it) => it.label);
 }
-app.get('/api/finance/sga', requireAdmin, async (req, res) => {
+app.get('/api/finance/sga', requireGiga, async (req, res) => {
   try { const d = await store.getDoc('fin_sga'); res.json({ sga: (d && Array.isArray(d.rent)) ? d : FIN_SEED.SGA }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.post('/api/finance/sga', requireAdmin, async (req, res) => {
+app.post('/api/finance/sga', requireGiga, async (req, res) => {
   const b = (req.body && req.body.sga) || null;
   if (!b) return res.status(400).json({ error: 'sga obrigatório' });
   const sga = { rent: cleanItems(b.rent), prof: cleanItems(b.prof), it: cleanItems(b.it) };
@@ -359,11 +373,11 @@ app.post('/api/finance/sga', requireAdmin, async (req, res) => {
 
 // ---------- Finance: CAC (comissão por carro entregue, Ads, influenciadores) ----------
 // { perUnit: USD/carro, ads: [{label, v:[12]}], inf: [{label, price, profiles:[12]}] }
-app.get('/api/finance/cac', requireAdmin, async (req, res) => {
+app.get('/api/finance/cac', requireGiga, async (req, res) => {
   try { const d = await store.getDoc('fin_cac'); res.json({ cac: (d && d.ads) ? d : FIN_SEED.CAC }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.post('/api/finance/cac', requireAdmin, async (req, res) => {
+app.post('/api/finance/cac', requireGiga, async (req, res) => {
   const b = (req.body && req.body.cac) || null;
   if (!b) return res.status(400).json({ error: 'cac obrigatório' });
   const cac = {
@@ -380,7 +394,7 @@ app.post('/api/finance/cac', requireAdmin, async (req, res) => {
 });
 
 // ---------- Finance: carregar os inputs do Excel (força o seed por seção) ----------
-app.post('/api/finance/load-excel', requireAdmin, async (req, res) => {
+app.post('/api/finance/load-excel', requireGiga, async (req, res) => {
   const which = String((req.body && req.body.which) || '');
   try {
     if (which === 'cohorts') { await store.setDoc('fin_cohorts', FIN_COHORT_SEED, req.user.login); return res.json({ ok: true, cohorts: FIN_COHORT_SEED }); }
@@ -394,7 +408,7 @@ app.post('/api/finance/load-excel', requireAdmin, async (req, res) => {
 // ---------- Migração de dados manuais entre ambientes (main <-> experimentos) ----------
 // Exporta TODOS os dados manuais (Unit Economics + overrides + organograma) como JSON.
 // Não inclui o estado de freeze (é específico do ambiente e o snapshot é enorme).
-app.get('/api/store/export', requireAdmin, async (req, res) => {
+app.get('/api/store/export', requireGiga, async (req, res) => {
   try {
     const dump = await store.dumpAll();
     if (dump && dump.docs) { delete dump.docs.freeze; delete dump.docs.freeze_snapshot; }
@@ -403,7 +417,7 @@ app.get('/api/store/export', requireAdmin, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // Importa (upsert) os dados manuais exportados de outro ambiente. Sobrescreve os valores existentes.
-app.post('/api/store/import', requireAdmin, async (req, res) => {
+app.post('/api/store/import', requireGiga, async (req, res) => {
   const b = req.body || {};
   const rows = Array.isArray(b.ue_values) ? b.ue_values : [];
   const docs = b.docs && typeof b.docs === 'object' ? b.docs : {};

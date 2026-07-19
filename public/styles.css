@@ -335,6 +335,26 @@ button { font-family: inherit; cursor: pointer; }
 /* support table (item 3): much wider role column so long titles never crowd the values */
 .ue-table.hc-support th:first-child, .ue-table.hc-support td:first-child { min-width: 360px; padding-right: 24px; }
 .ue-table .hc-rolename { width: 340px; max-width: 340px; }
+/* people table breathing room: keep the Name column clear of the first month */
+/* auto layout so the min-widths below are honored (the base .ue-table is table-layout:fixed) */
+.ue-table.hc-people, .ue-table.hc-support { table-layout: auto; }
+.ue-table.hc-people th, .ue-table.hc-people td { padding-top: 5px; padding-bottom: 5px; }
+.ue-table.hc-people th:first-child, .ue-table.hc-people td:first-child { min-width: 208px; }
+.ue-table.hc-people .hc-role { max-width: 194px; width: 100%; }
+.ue-table.hc-people th:nth-child(2), .ue-table.hc-people td:nth-child(2) { min-width: 152px; padding-right: 20px; }
+.ue-table.hc-people .hc-pname { width: 138px; }
+.ue-table.hc-people td.hc-segcell, .ue-table.hc-people th.hc-segcell { padding-left: 4px; padding-right: 4px; }
+.ue-table.hc-people .hc-seg { min-width: 34px; height: 22px; }
+.ue-table.hc-people .ue-rowlabel { box-shadow: 1px 0 0 var(--border-2); } /* clean edge between the sticky role col and Name */
+/* edit / lock toggle for the Headcount section */
+.hc-editbar { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+.hc-lockbtn { font: inherit; font-size: 12.5px; font-weight: 600; padding: 6px 14px; border: 1px solid var(--accent); border-radius: 7px; background: var(--surface); color: var(--accent); cursor: pointer; transition: background .12s, color .12s; }
+.hc-lockbtn:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.hc-lockbtn.on { background: var(--accent); color: #fff; }
+.hc-editnote { font-size: 12px; color: var(--text-2); }
+/* read-only (locked) view: render editable fields as plain text, no input chrome */
+.ue-table .hc-f:disabled, .ue-table .hc-role:disabled, .ue-table .hc-pname:disabled { border-color: transparent; background: transparent; color: var(--text); opacity: 1; -webkit-text-fill-color: var(--text); cursor: default; -webkit-appearance: none; appearance: none; }
+.ue-table .hc-role:disabled { padding-left: 6px; }
 #uetTable .uet-in { width: 100%; border: 0; background: #fff; text-align: right; font-family: inherit; font-size: 10.5px; padding: 1px 2px; box-sizing: border-box; color: var(--text); outline: 1px solid var(--accent); border-radius: 3px; }
 #uetControls { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
 .uet-ctrl { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--text-2); }

@@ -1900,7 +1900,8 @@
   // (3) Assumptions (impostos, payment fee, active rate, FX). Igual ao Excel: Security Deposit
   // e Vehicle Purchase NÃO entram no COGS (ficam em OPEX/capex).
   let finReady = false, finCohorts = [], finModels = [], finModelVals = {}, finCfg = {};
-  let finHc = { roles: [], plan: {} }, finSga = { rent: [], prof: [], it: [] }, finCac = { perUnit: 0, ads: [], inf: [] };
+  let finHc = { roles: [], people: [], plan: {} }, finSga = { rent: [], prof: [], it: [] }, finCac = { perUnit: 0, ads: [], inf: [] };
+  let hcEdit = false; // Headcount edit/lock toggle — starts read-only
   const FIN_MONTHS = 12; // 2026-01 .. 2026-12
   const FIN_ML = (i) => '2026-' + String(i + 1).padStart(2, '0');
   const FIN_REV_LINES = ['Subscription', 'Late-payment interest', 'Initial Fee / Vehicle Sell', 'Security Deposit Refund'];
@@ -2213,14 +2214,18 @@
     }
     function renderHc() {
       const el = document.getElementById('finHcWrap'); if (!el) return;
-      const dis = isAdmin ? '' : ' disabled';
+      const canEdit = isAdmin && hcEdit;
+      const dis = canEdit ? '' : ' disabled';
       hcEnsurePeople(); hcSyncPlan();
       const roles = finHc.roles || [];
       const plan = finHc.plan || {};
       const th13f = finPar('__fin_13th__') || 1.3333;
       const hcOf = (r, m) => (plan[r.id] ? Number(plan[r.id][m]) || 0 : 0);
       const zeros = () => new Array(FIN_MONTHS).fill(0);
-      const monthCols = () => { let s = ''; for (let m = 0; m < FIN_MONTHS; m++) s += `<th>${FIN_ML(m)}</th>`; return s; };
+      const HC_MON3 = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+      const monthLbl = (m) => { const parts = String(FIN_ML(m)).split('-'); const mo = parseInt(parts[1], 10) - 1; const yy = (parts[0] || '').slice(2); return (HC_MON3[mo] || parts[1]) + '-' + yy; }; // 2026-02 -> feb-26
+      const monthCols = () => { let s = ''; for (let m = 0; m < FIN_MONTHS; m++) s += `<th>${monthLbl(m)}</th>`; return s; };
+      let h = isAdmin ? `<div class="hc-editbar"><button id="hcEditToggle" class="hc-lockbtn${hcEdit ? ' on' : ''}">${hcEdit ? '🔒 Lock editing' : '✎ Edit'}</button><span class="hc-editnote">${hcEdit ? 'Editing — changes save automatically.' : 'Read-only. Click Edit to make changes.'}</span></div>` : '';
 
       // ---- Cost summary (spend per period, per cost type) — mirrors the P&L HC payroll lines ----
       const cSal = zeros(), cMeal = zeros(), cHealth = zeros(), cTax = zeros(), c13 = zeros(), cBonus = zeros(), head = zeros();
@@ -2239,7 +2244,7 @@
       const money = (v) => (Math.round(v) === 0 ? '-' : fmtNum(v));
       const sumRow = (label, arr, cls) => { let s = `<tr class="${cls || ''}"><td class="ue-rowlabel">${label}</td>`; for (let m = 0; m < FIN_MONTHS; m++) s += `<td class="ue-cell ue-calc">${money(arr[m])}</td>`; return s + '</tr>'; };
 
-      let h = '<div class="fin-sub">Total spend per period (USD)</div>';
+      h += '<div class="fin-sub">Total spend per period (USD)</div>';
       h += '<div class="ue-table-wrap"><table class="ue-table hc-summary"><thead><tr><th class="ue-rowlabel">Cost type</th>' + monthCols() + '</tr></thead><tbody>';
       h += sumRow('Salaries', cSal) + sumRow('Meal voucher', cMeal) + sumRow('Health plan', cHealth) +
         sumRow('Payroll taxes', cTax) + sumRow('13th + vacation', c13) + sumRow('Bonus', cBonus) + sumRow('Total', cTotal, 'hc-total');
@@ -2260,13 +2265,13 @@
           const tip = v ? (v === 0.5 ? (isHire ? 'Half month — mid-month hire' : 'Half month — mid-month exit') : 'Active') : 'Inactive';
           h += `<td class="ue-cell hc-segcell"><button type="button" class="hc-seg hc-seg-${cls}" data-i="${i}" data-m="${m}"${dis ? ' disabled' : ''} title="${tip}"></button></td>`;
         }
-        h += `<td class="ue-cell">${isAdmin ? `<button class="fin-del hc-delp" data-i="${i}" title="Remove employee">✕</button>` : ''}</td></tr>`;
+        h += `<td class="ue-cell">${canEdit ? `<button class="fin-del hc-delp" data-i="${i}" title="Remove employee">✕</button>` : ''}</td></tr>`;
       });
       h += '<tr class="hc-total"><td class="ue-rowlabel">Total employees</td><td class="ue-cell"></td>';
       for (let m = 0; m < FIN_MONTHS; m++) { const v = head[m]; h += `<td class="ue-cell ue-calc">${v ? v.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : '-'}</td>`; }
       h += '<td class="ue-cell"></td></tr></tbody></table></div>';
       if (!(finHc.people || []).length) h += '<div class="fin-note">No employees yet — add roles below, then add employees and mark when each was active.</div>';
-      if (isAdmin) h += '<button class="ue-fleet-btn uet-add" id="finAddEmp" style="margin-top:10px">+ Add employee</button>';
+      if (canEdit) h += '<button class="ue-fleet-btn uet-add" id="finAddEmp" style="margin-top:10px">+ Add employee</button>';
 
       // ---- Table 2 (support): salaries & other costs per person, by role ----
       h += '<div class="fin-sub">Salaries &amp; costs per person <span class="fin-sub-tag">support table</span></div>';
@@ -2275,13 +2280,15 @@
       roles.forEach((r, i) => {
         h += `<tr class="ue-row ue-leaf"><td class="ue-rowlabel"><input class="hc-f hc-rolename" data-i="${i}" data-f="name" value="${escH(r.name)}"${dis}></td>`;
         ['salary', 'meal', 'health', 'taxPct', 'bonus'].forEach((f) => { h += `<td class="ue-cell"><input class="hc-f hc-n" type="number" min="0" step="any" data-i="${i}" data-f="${f}" value="${r[f]}"${dis}></td>`; });
-        h += `<td class="ue-cell">${isAdmin ? `<button class="fin-del hc-delrole" data-i="${i}" title="Remove role">✕</button>` : ''}</td></tr>`;
+        h += `<td class="ue-cell">${canEdit ? `<button class="fin-del hc-delrole" data-i="${i}" title="Remove role">✕</button>` : ''}</td></tr>`;
       });
       h += '</tbody></table></div>';
-      if (isAdmin) h += '<button class="ue-fleet-btn uet-add" id="finAddRole" style="margin-top:10px">+ Add role</button>';
+      if (canEdit) h += '<button class="ue-fleet-btn uet-add" id="finAddRole" style="margin-top:10px">+ Add role</button>';
       h += '<div class="fin-note">One row per employee — click a month to toggle presence: <b>off → active → ½ → off</b>. A ½ charges half the cost that month; it fills the <b>right</b> half at the start of a contract (mid-month hire) and the <b>left</b> half at the end (mid-month exit). Costs per person come from the support table (USD). 13th + vacation and the annual bonus hit December.</div>';
       el.innerHTML = h;
-      if (!isAdmin) return;
+      const tog = document.getElementById('hcEditToggle');
+      if (tog) tog.addEventListener('click', () => { hcEdit = !hcEdit; renderHc(); });
+      if (!canEdit) return;
       // support table: role name + cost fields
       el.querySelectorAll('.hc-f').forEach((inp) => inp.addEventListener('change', () => {
         const r = finHc.roles[+inp.dataset.i]; if (!r) return; const f = inp.dataset.f;

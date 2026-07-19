@@ -2183,12 +2183,13 @@
     function renderHc() {
       const el = document.getElementById('finHcWrap'); if (!el) return;
       const dis = isAdmin ? '' : ' disabled';
-      let h = '<div class="ue-table-wrap"><table class="ue-table"><thead><tr><th class="ue-rowlabel">Role</th>' +
+      let h = '<div class="ue-table-wrap"><table class="ue-table"><thead><tr><th class="ue-rowlabel">Role</th><th>Name</th>' +
         '<th>Salary/mo</th><th>Meal/mo</th><th>Health/mo</th><th>Tax %</th><th>Bonus (Dec)</th>';
       for (let m = 0; m < FIN_MONTHS; m++) h += `<th>${FIN_ML(m)}</th>`;
       h += '<th></th></tr></thead><tbody>';
       (finHc.roles || []).forEach((r, i) => {
         h += `<tr class="ue-row ue-leaf"><td class="ue-rowlabel"><input class="hc-f" data-i="${i}" data-f="name" value="${escH(r.name)}"${dis} style="width:140px"></td>`;
+        h += `<td class="ue-cell"><input class="hc-f" data-i="${i}" data-f="person" value="${escH(r.person || '')}"${dis} placeholder="—" style="width:110px"></td>`;
         ['salary', 'meal', 'health', 'taxPct', 'bonus'].forEach((f) => { h += `<td class="ue-cell"><input class="hc-f hc-n" type="number" min="0" step="any" data-i="${i}" data-f="${f}" value="${r[f]}"${dis}></td>`; });
         for (let m = 0; m < FIN_MONTHS; m++) { const n = ((finHc.plan || {})[r.id] || [])[m] || 0; h += `<td class="ue-cell"><input class="hc-p hc-n" type="number" min="0" step="1" data-i="${i}" data-m="${m}" value="${n}"${dis}></td>`; }
         h += `<td class="ue-cell">${isAdmin ? `<button class="fin-del" data-i="${i}" title="Remove">✕</button>` : ''}</td></tr>`;
@@ -2201,7 +2202,7 @@
       if (!isAdmin) return;
       el.querySelectorAll('.hc-f').forEach((inp) => inp.addEventListener('change', () => {
         const r = finHc.roles[+inp.dataset.i]; if (!r) return; const f = inp.dataset.f;
-        r[f] = (f === 'name') ? inp.value : Math.max(0, Number(inp.value) || 0);
+        r[f] = (f === 'name' || f === 'person') ? inp.value : Math.max(0, Number(inp.value) || 0);
         saveHc();
       }));
       el.querySelectorAll('.hc-p').forEach((inp) => inp.addEventListener('change', () => {
@@ -2218,7 +2219,7 @@
       const add = document.getElementById('finAddRole');
       if (add) add.addEventListener('click', () => {
         const id = 'r' + Date.now();
-        finHc.roles.push({ id, name: 'New role', salary: 0, meal: 0, health: 0, taxPct: 0, bonus: 0 });
+        finHc.roles.push({ id, name: 'New role', person: '', salary: 0, meal: 0, health: 0, taxPct: 0, bonus: 0 });
         if (!finHc.plan) finHc.plan = {};
         finHc.plan[id] = new Array(FIN_MONTHS).fill(0);
         saveHc();

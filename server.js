@@ -303,8 +303,12 @@ app.post('/api/finance/cohorts', requireAdmin, async (req, res) => {
 // { roles: [{id,name,salary,meal,health,taxPct,bonus}], plan: { roleId: [12 números] } }
 const FIN_SEED = require('./config/finance-seed');
 app.get('/api/finance/hc', requireAdmin, async (req, res) => {
-  try { const d = await store.getDoc('fin_hc'); res.json({ hc: (d && Array.isArray(d.roles) && d.roles.length) ? d : FIN_SEED.HC }); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+  try {
+    const d = await store.getDoc('fin_hc');
+    // Serve the seed unless we have saved roles from the current version (i.e. carrying the `person` field).
+    const isCurrent = d && Array.isArray(d.roles) && d.roles.length && d.roles.some((r) => r && r.person !== undefined);
+    res.json({ hc: isCurrent ? d : FIN_SEED.HC });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/finance/hc', requireAdmin, async (req, res) => {
   const b = (req.body && req.body.hc) || null;
@@ -313,6 +317,7 @@ app.post('/api/finance/hc', requireAdmin, async (req, res) => {
   const roles = b.roles.slice(0, 100).map((r, i) => ({
     id: String(r.id || ('r' + i)).slice(0, 40),
     name: String(r.name || '').slice(0, 80),
+    person: String(r.person || '').slice(0, 80),
     salary: num(r.salary), meal: num(r.meal), health: num(r.health),
     taxPct: num(r.taxPct), bonus: num(r.bonus),
   })).filter((r) => r.name);

@@ -1,13 +1,13 @@
 // Seed do Finance extraído do Excel "(09.06.26) BR - P&L projection.xlsx".
-// HC por cargo (nome-pessoa editável, salário/VR/saúde/encargos%/bônus + headcount mensal),
-// SG&A (Rent/Prof/IT com itens × 12 meses) e CAC (comissão/carro, Ads, influenciadores).
+// HC: cargos (support table de custos por pessoa) + people (1 linha por funcionário,
+// com timeline de atividade 0/0.5/1) + plan (headcount agregado por cargo, derivado).
+// SG&A (Rent/Prof/IT × 12 meses) e CAC (comissão/carro, Ads, influenciadores).
 module.exports = {
  "HC": {
   "roles": [
    {
     "id": "x0",
     "name": "Sales Consultant I (contractor)",
-    "person": "",
     "salary": 540,
     "meal": 0,
     "health": 0,
@@ -17,7 +17,6 @@ module.exports = {
    {
     "id": "x1",
     "name": "Sales Consultant I",
-    "person": "",
     "salary": 540,
     "meal": 220,
     "health": 157.75,
@@ -27,7 +26,6 @@ module.exports = {
    {
     "id": "x2",
     "name": "Sales Manager",
-    "person": "",
     "salary": 2200,
     "meal": 220,
     "health": 291.01,
@@ -37,7 +35,6 @@ module.exports = {
    {
     "id": "x3",
     "name": "PMO Lead",
-    "person": "",
     "salary": 8800,
     "meal": 220,
     "health": 485,
@@ -47,7 +44,6 @@ module.exports = {
    {
     "id": "x4",
     "name": "Strategy & Business Performance Lead",
-    "person": "",
     "salary": 8000,
     "meal": 220,
     "health": 485,
@@ -57,7 +53,6 @@ module.exports = {
    {
     "id": "x5",
     "name": "Customer Support Manager",
-    "person": "",
     "salary": 4500,
     "meal": 220,
     "health": 0,
@@ -67,7 +62,6 @@ module.exports = {
    {
     "id": "x6",
     "name": "Marketing Lead",
-    "person": "",
     "salary": 4200,
     "meal": 220,
     "health": 663.48,
@@ -77,7 +71,6 @@ module.exports = {
    {
     "id": "x7",
     "name": "Office Manager",
-    "person": "",
     "salary": 3600,
     "meal": 220,
     "health": 683.38,
@@ -87,7 +80,6 @@ module.exports = {
    {
     "id": "x8",
     "name": "Fleet Manager (Fleet Delivery)",
-    "person": "",
     "salary": 3600,
     "meal": 220,
     "health": 1272.09,
@@ -97,7 +89,6 @@ module.exports = {
    {
     "id": "x9",
     "name": "Collections Manager",
-    "person": "",
     "salary": 2400,
     "meal": 220,
     "health": 751.87,
@@ -107,7 +98,6 @@ module.exports = {
    {
     "id": "x10",
     "name": "Operations Manager (Control Tower, Claims & Repairs and Recovery)",
-    "person": "",
     "salary": 3900,
     "meal": 220,
     "health": 291.01,
@@ -117,7 +107,6 @@ module.exports = {
    {
     "id": "x11",
     "name": "Operations Analyst (Fleet Management)",
-    "person": "",
     "salary": 1500,
     "meal": 220,
     "health": 107.46,
@@ -127,7 +116,6 @@ module.exports = {
    {
     "id": "x12",
     "name": "Collections Analyst",
-    "person": "",
     "salary": 540,
     "meal": 220,
     "health": 0,
@@ -137,7 +125,6 @@ module.exports = {
    {
     "id": "x13",
     "name": "Claims & Repairs Analyst",
-    "person": "",
     "salary": 540,
     "meal": 220,
     "health": 0,
@@ -147,7 +134,6 @@ module.exports = {
    {
     "id": "x14",
     "name": "Marketing Analyst",
-    "person": "",
     "salary": 800,
     "meal": 220,
     "health": 0,
@@ -157,7 +143,6 @@ module.exports = {
    {
     "id": "x15",
     "name": "Customer Support Analyst I",
-    "person": "",
     "salary": 540,
     "meal": 220,
     "health": 0,
@@ -167,7 +152,6 @@ module.exports = {
    {
     "id": "x16",
     "name": "Customer Support Analyst II",
-    "person": "",
     "salary": 700,
     "meal": 220,
     "health": 107.46,
@@ -177,7 +161,6 @@ module.exports = {
    {
     "id": "x17",
     "name": "Onboarding Assistant",
-    "person": "",
     "salary": 800,
     "meal": 220,
     "health": 0,
@@ -187,7 +170,6 @@ module.exports = {
    {
     "id": "x18",
     "name": "Finance / Admin. Analyst",
-    "person": "",
     "salary": 800,
     "meal": 220,
     "health": 0,
@@ -197,7 +179,6 @@ module.exports = {
    {
     "id": "x19",
     "name": "Fleet Delivery Receptionist",
-    "person": "",
     "salary": 800,
     "meal": 220,
     "health": 0,
@@ -207,7 +188,6 @@ module.exports = {
    {
     "id": "x20",
     "name": "Patio Assistant",
-    "person": "",
     "salary": 800,
     "meal": 220,
     "health": 0,
@@ -510,7 +490,389 @@ module.exports = {
     0,
     0
    ]
-  }
+  },
+  "people": [
+   {
+    "id": "px0_0",
+    "roleId": "x0",
+    "name": "",
+    "active": [
+     0,
+     0,
+     0,
+     1,
+     1,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   {
+    "id": "px1_0",
+    "roleId": "x1",
+    "name": "",
+    "active": [
+     0,
+     0,
+     0,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   {
+    "id": "px1_1",
+    "roleId": "x1",
+    "name": "",
+    "active": [
+     0,
+     0,
+     0,
+     0,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   {
+    "id": "px1_2",
+    "roleId": "x1",
+    "name": "",
+    "active": [
+     0,
+     0,
+     0,
+     0,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   {
+    "id": "px1_3",
+    "roleId": "x1",
+    "name": "",
+    "active": [
+     0,
+     0,
+     0,
+     0,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   {
+    "id": "px2_0",
+    "roleId": "x2",
+    "name": "",
+    "active": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0.5,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   {
+    "id": "px3_0",
+    "roleId": "x3",
+    "name": "",
+    "active": [
+     0,
+     0.5,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   {
+    "id": "px4_0",
+    "roleId": "x4",
+    "name": "",
+    "active": [
+     0,
+     0,
+     0.5,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   {
+    "id": "px5_0",
+    "roleId": "x5",
+    "name": "",
+    "active": [
+     0,
+     0,
+     0.5,
+     1,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   {
+    "id": "px6_0",
+    "roleId": "x6",
+    "name": "",
+    "active": [
+     0,
+     0.5,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   {
+    "id": "px7_0",
+    "roleId": "x7",
+    "name": "",
+    "active": [
+     0,
+     0,
+     0.5,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   {
+    "id": "px8_0",
+    "roleId": "x8",
+    "name": "",
+    "active": [
+     0,
+     0,
+     0,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   {
+    "id": "px9_0",
+    "roleId": "x9",
+    "name": "",
+    "active": [
+     0,
+     0,
+     0,
+     0.5,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   {
+    "id": "px10_0",
+    "roleId": "x10",
+    "name": "",
+    "active": [
+     0,
+     0,
+     0,
+     0,
+     0.5,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   {
+    "id": "px11_0",
+    "roleId": "x11",
+    "name": "",
+    "active": [
+     0,
+     0,
+     0,
+     0,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   {
+    "id": "px15_0",
+    "roleId": "x15",
+    "name": "",
+    "active": [
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   {
+    "id": "px15_1",
+    "roleId": "x15",
+    "name": "",
+    "active": [
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   {
+    "id": "px16_0",
+    "roleId": "x16",
+    "name": "",
+    "active": [
+     0,
+     0,
+     0,
+     0,
+     0.5,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   {
+    "id": "px17_0",
+    "roleId": "x17",
+    "name": "",
+    "active": [
+     0,
+     0,
+     0,
+     0.5,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   {
+    "id": "px19_0",
+    "roleId": "x19",
+    "name": "",
+    "active": [
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  ]
  },
  "SGA": {
   "rent": [

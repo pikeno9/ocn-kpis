@@ -316,6 +316,21 @@ button { font-family: inherit; cursor: pointer; }
 .ue-table.hc-summary tbody .ue-rowlabel { font-weight: 500; }
 .ue-table tr.hc-total td { font-weight: 700; border-top: 1.5px solid var(--border-2); background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .ue-table .hc-rolelbl { color: var(--text-2); font-size: 12px; }
+/* people table: role dropdown + name + presence bar (1 row per employee) */
+.ue-table .hc-role { font: inherit; font-size: 11.5px; padding: 4px 6px; border: 1px solid var(--border-2); border-radius: 5px; background: var(--surface); color: var(--text); max-width: 210px; cursor: pointer; }
+.ue-table .hc-role:hover { border-color: var(--accent); }
+.ue-table .hc-pname { font: inherit; font-size: 11.5px; padding: 4px 7px; border: 1px solid var(--border-2); border-radius: 5px; background: var(--surface); color: var(--text); width: 120px; box-sizing: border-box; }
+.ue-table .hc-pname:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent); }
+.ue-table.hc-people td.hc-segcell { padding: 3px 1px; }
+.hc-seg { display: block; width: 100%; min-width: 30px; height: 20px; border: 1px solid var(--border-2); border-radius: 4px; background: var(--surface); cursor: pointer; padding: 0; transition: background .1s, border-color .1s; }
+.hc-seg:hover { border-color: var(--accent); }
+.hc-seg-full { background: var(--accent); border-color: var(--accent); }
+.hc-seg-half { background: linear-gradient(90deg, var(--accent) 0 50%, var(--surface) 50% 100%); border-color: var(--accent); }
+.hc-seg-off { background: var(--surface); }
+.hc-seg[disabled] { cursor: default; opacity: .85; }
+/* support table (item 4): keep value columns clear of the long role names */
+.ue-table.hc-support th:first-child, .ue-table.hc-support td:first-child { min-width: 250px; padding-right: 20px; }
+.ue-table .hc-rolename { width: 240px; max-width: 240px; }
 #uetTable .uet-in { width: 100%; border: 0; background: #fff; text-align: right; font-family: inherit; font-size: 10.5px; padding: 1px 2px; box-sizing: border-box; color: var(--text); outline: 1px solid var(--accent); border-radius: 3px; }
 #uetControls { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
 .uet-ctrl { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--text-2); }

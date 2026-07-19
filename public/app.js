@@ -2177,12 +2177,44 @@
 
     // ---------- Headcount (cargos + plano mensal) ----------
     async function saveHc() {
+      hcSyncPlan();
       try { const r = await fetch('/api/finance/hc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ hc: finHc }) }); const d = await r.json().catch(() => ({})); if (d && d.hc) finHc = d.hc; } catch (e) {}
       renderHc(); renderPnl();
+    }
+    // HC model: `people` (1 row per employee, active timeline of 0 / 0.5 / 1) is the source of truth;
+    // `plan` (aggregate headcount per role per month) is DERIVED from it and drives the P&L + summary.
+    function hcExpandPlan(P) {
+      const emps = []; let running = [];
+      for (let m = 0; m < FIN_MONTHS; m++) {
+        const t = Number((P || [])[m]) || 0;
+        const full = Math.floor(t + 1e-9);
+        const hasHalf = (t - full) > 0.4;
+        const desired = full + (hasHalf ? 1 : 0);
+        while (running.length > desired) running.pop();
+        while (running.length < desired) { const e = { active: new Array(FIN_MONTHS).fill(0) }; emps.push(e); running.push(e); }
+        running.forEach((e) => { e.active[m] = 1; });
+        if (hasHalf) { const st = running.filter((e) => e.active.slice(0, m).every((v) => v === 0)); (st.length ? st[st.length - 1] : running[running.length - 1]).active[m] = 0.5; }
+      }
+      return emps.map((e) => e.active);
+    }
+    function hcEnsurePeople() {
+      if (Array.isArray(finHc.people) && finHc.people.length) return;
+      const people = [];
+      (finHc.roles || []).forEach((r) => {
+        hcExpandPlan((finHc.plan || {})[r.id]).forEach((active, idx) => people.push({ id: 'p' + r.id + '_' + idx, roleId: r.id, name: '', active }));
+      });
+      finHc.people = people;
+    }
+    function hcSyncPlan() {
+      const plan = {};
+      (finHc.roles || []).forEach((r) => { plan[r.id] = new Array(FIN_MONTHS).fill(0); });
+      (finHc.people || []).forEach((p) => { if (!plan[p.roleId]) plan[p.roleId] = new Array(FIN_MONTHS).fill(0); for (let m = 0; m < FIN_MONTHS; m++) plan[p.roleId][m] += Number((p.active || [])[m]) || 0; });
+      finHc.plan = plan;
     }
     function renderHc() {
       const el = document.getElementById('finHcWrap'); if (!el) return;
       const dis = isAdmin ? '' : ' disabled';
+      hcEnsurePeople(); hcSyncPlan();
       const roles = finHc.roles || [];
       const plan = finHc.plan || {};
       const th13f = finPar('__fin_13th__') || 1.3333;
@@ -2213,59 +2245,65 @@
         sumRow('Payroll taxes', cTax) + sumRow('13th + vacation', c13) + sumRow('Bonus', cBonus) + sumRow('Total', cTotal, 'hc-total');
       h += '</tbody></table></div>';
 
-      // ---- Table 1: headcount by role & period (+ totals row) ----
-      h += '<div class="fin-sub">Headcount by role &amp; period</div>';
-      h += '<div class="ue-table-wrap"><table class="ue-table"><thead><tr><th class="ue-rowlabel">Role</th><th>Name</th>' + monthCols() + '<th></th></tr></thead><tbody>';
-      roles.forEach((r, i) => {
-        h += `<tr class="ue-row ue-leaf"><td class="ue-rowlabel"><input class="hc-f" data-i="${i}" data-f="name" value="${escH(r.name)}"${dis} style="width:150px"></td>`;
-        h += `<td class="ue-cell"><input class="hc-f hc-name" data-i="${i}" data-f="person" value="${escH(r.person || '')}"${dis} placeholder="—"></td>`;
-        for (let m = 0; m < FIN_MONTHS; m++) { const n = (plan[r.id] || [])[m] || 0; h += `<td class="ue-cell"><input class="hc-p hc-n" type="number" min="0" step="0.5" data-i="${i}" data-m="${m}" value="${n}"${dis}></td>`; }
-        h += `<td class="ue-cell">${isAdmin ? `<button class="fin-del" data-i="${i}" title="Remove">✕</button>` : ''}</td></tr>`;
+      // ---- Table 1: headcount by EMPLOYEE & period (one row per person, visual presence bar) ----
+      h += '<div class="fin-sub">Headcount by employee &amp; period</div>';
+      h += '<div class="ue-table-wrap"><table class="ue-table hc-people"><thead><tr><th class="ue-rowlabel">Role</th><th>Name</th>' + monthCols() + '<th></th></tr></thead><tbody>';
+      (finHc.people || []).forEach((p, i) => {
+        h += `<tr class="ue-row ue-leaf"><td class="ue-rowlabel"><select class="hc-role" data-i="${i}"${dis}>` +
+          roles.map((r) => `<option value="${r.id}"${r.id === p.roleId ? ' selected' : ''}>${escH(r.name)}</option>`).join('') + '</select></td>';
+        h += `<td class="ue-cell"><input class="hc-pname" data-i="${i}" value="${escH(p.name || '')}"${dis} placeholder="—"></td>`;
+        for (let m = 0; m < FIN_MONTHS; m++) {
+          const v = Number((p.active || [])[m]) || 0; const cls = v === 1 ? 'full' : (v === 0.5 ? 'half' : 'off');
+          h += `<td class="ue-cell hc-segcell"><button type="button" class="hc-seg hc-seg-${cls}" data-i="${i}" data-m="${m}"${dis ? ' disabled' : ''} title="${v ? (v === 0.5 ? 'Half month (mid-month hire)' : 'Active') : 'Inactive'}"></button></td>`;
+        }
+        h += `<td class="ue-cell">${isAdmin ? `<button class="fin-del hc-delp" data-i="${i}" title="Remove employee">✕</button>` : ''}</td></tr>`;
       });
       h += '<tr class="hc-total"><td class="ue-rowlabel">Total employees</td><td class="ue-cell"></td>';
       for (let m = 0; m < FIN_MONTHS; m++) { const v = head[m]; h += `<td class="ue-cell ue-calc">${v ? v.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : '-'}</td>`; }
       h += '<td class="ue-cell"></td></tr></tbody></table></div>';
+      if (!(finHc.people || []).length) h += '<div class="fin-note">No employees yet — add roles below, then add employees and mark when each was active.</div>';
+      if (isAdmin) h += '<button class="ue-fleet-btn uet-add" id="finAddEmp" style="margin-top:10px">+ Add employee</button>';
 
-      // ---- Table 2 (support): salaries & other costs per person ----
+      // ---- Table 2 (support): salaries & other costs per person, by role ----
       h += '<div class="fin-sub">Salaries &amp; costs per person <span class="fin-sub-tag">support table</span></div>';
-      h += '<div class="ue-table-wrap"><table class="ue-table"><thead><tr><th class="ue-rowlabel">Role</th>' +
-        '<th>Salary/mo</th><th>Meal/mo</th><th>Health/mo</th><th>Tax %</th><th>Bonus (Dec)</th></tr></thead><tbody>';
+      h += '<div class="ue-table-wrap"><table class="ue-table hc-support"><thead><tr><th class="ue-rowlabel">Role</th>' +
+        '<th>Salary/mo</th><th>Meal/mo</th><th>Health/mo</th><th>Tax %</th><th>Bonus (Dec)</th><th></th></tr></thead><tbody>';
       roles.forEach((r, i) => {
-        h += `<tr class="ue-row ue-leaf"><td class="ue-rowlabel hc-rolelbl">${escH(r.name)}</td>`;
+        h += `<tr class="ue-row ue-leaf"><td class="ue-rowlabel"><input class="hc-f hc-rolename" data-i="${i}" data-f="name" value="${escH(r.name)}"${dis}></td>`;
         ['salary', 'meal', 'health', 'taxPct', 'bonus'].forEach((f) => { h += `<td class="ue-cell"><input class="hc-f hc-n" type="number" min="0" step="any" data-i="${i}" data-f="${f}" value="${r[f]}"${dis}></td>`; });
-        h += '</tr>';
+        h += `<td class="ue-cell">${isAdmin ? `<button class="fin-del hc-delrole" data-i="${i}" title="Remove role">✕</button>` : ''}</td></tr>`;
       });
       h += '</tbody></table></div>';
-
-      if (!roles.length) h += '<div class="fin-note">No roles yet — add the roles and their monthly headcount.</div>';
-      if (isAdmin) h += '<button class="ue-fleet-btn uet-add" id="finAddRole" style="margin-top:12px">+ Add role</button>';
-      h += '<div class="fin-note">Costs are per person, per month (USD). A headcount of <b>0.5</b> = mid-month hire, so only half the cost that month. 13th + vacation and the annual bonus hit December.</div>';
+      if (isAdmin) h += '<button class="ue-fleet-btn uet-add" id="finAddRole" style="margin-top:10px">+ Add role</button>';
+      h += '<div class="fin-note">One row per employee — click a month to toggle presence: <b>off → active → ½ (mid-month hire) → off</b>. The ½ charges half the cost that month. Costs per person come from the support table (USD). 13th + vacation and the annual bonus hit December.</div>';
       el.innerHTML = h;
       if (!isAdmin) return;
+      // support table: role name + cost fields
       el.querySelectorAll('.hc-f').forEach((inp) => inp.addEventListener('change', () => {
         const r = finHc.roles[+inp.dataset.i]; if (!r) return; const f = inp.dataset.f;
-        r[f] = (f === 'name' || f === 'person') ? inp.value : Math.max(0, Number(inp.value) || 0);
+        r[f] = (f === 'name') ? inp.value : Math.max(0, Number(inp.value) || 0);
         saveHc();
       }));
-      el.querySelectorAll('.hc-p').forEach((inp) => inp.addEventListener('change', () => {
-        const r = finHc.roles[+inp.dataset.i]; if (!r) return;
-        if (!finHc.plan) finHc.plan = {};
-        if (!Array.isArray(finHc.plan[r.id])) finHc.plan[r.id] = new Array(FIN_MONTHS).fill(0);
-        finHc.plan[r.id][+inp.dataset.m] = Math.max(0, Number(inp.value) || 0);
+      // employee row: role dropdown, name, presence segments, delete
+      el.querySelectorAll('.hc-role').forEach((s) => s.addEventListener('change', () => { const p = finHc.people[+s.dataset.i]; if (p) p.roleId = s.value; saveHc(); }));
+      el.querySelectorAll('.hc-pname').forEach((inp) => inp.addEventListener('change', () => { const p = finHc.people[+inp.dataset.i]; if (p) p.name = inp.value; saveHc(); }));
+      el.querySelectorAll('.hc-seg').forEach((b) => b.addEventListener('click', () => {
+        const p = finHc.people[+b.dataset.i]; if (!p) return; const m = +b.dataset.m;
+        const cur = Number((p.active || [])[m]) || 0;
+        if (!Array.isArray(p.active)) p.active = new Array(FIN_MONTHS).fill(0);
+        p.active[m] = cur === 0 ? 1 : (cur === 1 ? 0.5 : 0);
         saveHc();
       }));
-      el.querySelectorAll('.fin-del').forEach((b) => b.addEventListener('click', () => {
-        const r = finHc.roles[+b.dataset.i]; if (r && finHc.plan) delete finHc.plan[r.id];
+      el.querySelectorAll('.hc-delp').forEach((b) => b.addEventListener('click', () => { finHc.people.splice(+b.dataset.i, 1); saveHc(); }));
+      el.querySelectorAll('.hc-delrole').forEach((b) => b.addEventListener('click', () => {
+        const r = finHc.roles[+b.dataset.i]; if (!r) return;
+        finHc.people = (finHc.people || []).filter((p) => p.roleId !== r.id);
         finHc.roles.splice(+b.dataset.i, 1); saveHc();
       }));
-      const add = document.getElementById('finAddRole');
-      if (add) add.addEventListener('click', () => {
-        const id = 'r' + Date.now();
-        finHc.roles.push({ id, name: 'New role', person: '', salary: 0, meal: 0, health: 0, taxPct: 0, bonus: 0 });
-        if (!finHc.plan) finHc.plan = {};
-        finHc.plan[id] = new Array(FIN_MONTHS).fill(0);
-        saveHc();
-      });
+      const addE = document.getElementById('finAddEmp');
+      if (addE) addE.addEventListener('click', () => { finHc.people = finHc.people || []; finHc.people.push({ id: 'e' + Date.now(), roleId: (finHc.roles[0] || {}).id || '', name: '', active: new Array(FIN_MONTHS).fill(0) }); saveHc(); });
+      const addR = document.getElementById('finAddRole');
+      if (addR) addR.addEventListener('click', () => { finHc.roles.push({ id: 'r' + Date.now(), name: 'New role', salary: 0, meal: 0, health: 0, taxPct: 0, bonus: 0 }); saveHc(); });
     }
 
 
@@ -2371,7 +2409,8 @@
       const getVals = async (fleet) => { const o = {}; try { const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(fleet), { credentials: 'include' }); const d = await r.json(); (d.values || []).forEach((v) => { o[v.line + '@@' + v.period] = v.value; }); } catch (e) {} return o; };
       try { const r = await fetch('/api/theoric/models', { credentials: 'include' }); const d = await r.json(); finModels = d.models || []; } catch (e) { finModels = []; }
       try { const r = await fetch('/api/finance/cohorts', { credentials: 'include' }); const d = await r.json(); finCohorts = d.cohorts || []; } catch (e) { finCohorts = []; }
-      try { const r = await fetch('/api/finance/hc', { credentials: 'include' }); const d = await r.json(); finHc = (d && d.hc) || { roles: [], plan: {} }; } catch (e) { finHc = { roles: [], plan: {} }; }
+      try { const r = await fetch('/api/finance/hc', { credentials: 'include' }); const d = await r.json(); finHc = (d && d.hc) || { roles: [], people: [], plan: {} }; } catch (e) { finHc = { roles: [], people: [], plan: {} }; }
+      hcEnsurePeople(); hcSyncPlan();
       finCfg = await getVals('__fin_cfg__');
       try { const r = await fetch('/api/finance/sga', { credentials: 'include' }); const d = await r.json(); finSga = (d && d.sga) || finSga; } catch (e) {}
       try { const r = await fetch('/api/finance/cac', { credentials: 'include' }); const d = await r.json(); finCac = (d && d.cac) || finCac; } catch (e) {}

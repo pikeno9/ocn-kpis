@@ -305,8 +305,8 @@ const FIN_SEED = require('./config/finance-seed');
 app.get('/api/finance/hc', requireAdmin, async (req, res) => {
   try {
     const d = await store.getDoc('fin_hc');
-    // Serve the seed unless we have saved roles from the current version (i.e. carrying the `person` field).
-    const isCurrent = d && Array.isArray(d.roles) && d.roles.length && d.roles.some((r) => r && r.person !== undefined);
+    // Serve the seed unless we have saved data from the current version (carrying the per-employee `people` list).
+    const isCurrent = d && Array.isArray(d.roles) && d.roles.length && Array.isArray(d.people);
     res.json({ hc: isCurrent ? d : FIN_SEED.HC });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -317,16 +317,22 @@ app.post('/api/finance/hc', requireAdmin, async (req, res) => {
   const roles = b.roles.slice(0, 100).map((r, i) => ({
     id: String(r.id || ('r' + i)).slice(0, 40),
     name: String(r.name || '').slice(0, 80),
-    person: String(r.person || '').slice(0, 80),
     salary: num(r.salary), meal: num(r.meal), health: num(r.health),
     taxPct: num(r.taxPct), bonus: num(r.bonus),
   })).filter((r) => r.name);
+  const roleIds = new Set(roles.map((r) => r.id));
+  const active1 = (v) => { const n = Number(v) || 0; return n >= 0.75 ? 1 : (n >= 0.25 ? 0.5 : 0); }; // clamp to 0 / 0.5 / 1
+  const people = (Array.isArray(b.people) ? b.people : []).slice(0, 400).map((p, i) => ({
+    id: String(p.id || ('e' + i)).slice(0, 60),
+    roleId: roleIds.has(String(p.roleId)) ? String(p.roleId) : (roles[0] ? roles[0].id : ''),
+    name: String(p.name || '').slice(0, 80),
+    active: Array.from({ length: 12 }, (_, m) => active1((p.active || [])[m])),
+  }));
+  // plan (aggregate headcount per role per month) is DERIVED from people — single source of truth.
   const plan = {};
-  roles.forEach((r) => {
-    const arr = (b.plan && Array.isArray(b.plan[r.id])) ? b.plan[r.id] : [];
-    plan[r.id] = Array.from({ length: 12 }, (_, i) => num(arr[i]));
-  });
-  try { await store.setDoc('fin_hc', { roles, plan }, req.user.login); res.json({ ok: true, hc: { roles, plan } }); }
+  roles.forEach((r) => { plan[r.id] = new Array(12).fill(0); });
+  people.forEach((p) => { if (!plan[p.roleId]) plan[p.roleId] = new Array(12).fill(0); for (let m = 0; m < 12; m++) plan[p.roleId][m] += p.active[m]; });
+  try { await store.setDoc('fin_hc', { roles, people, plan }, req.user.login); res.json({ ok: true, hc: { roles, people, plan } }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 

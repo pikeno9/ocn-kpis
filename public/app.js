@@ -2253,8 +2253,12 @@
           roles.map((r) => `<option value="${r.id}"${r.id === p.roleId ? ' selected' : ''}>${escH(r.name)}</option>`).join('') + '</select></td>';
         h += `<td class="ue-cell"><input class="hc-pname" data-i="${i}" value="${escH(p.name || '')}"${dis} placeholder="—"></td>`;
         for (let m = 0; m < FIN_MONTHS; m++) {
-          const v = Number((p.active || [])[m]) || 0; const cls = v === 1 ? 'full' : (v === 0.5 ? 'half' : 'off');
-          h += `<td class="ue-cell hc-segcell"><button type="button" class="hc-seg hc-seg-${cls}" data-i="${i}" data-m="${m}"${dis ? ' disabled' : ''} title="${v ? (v === 0.5 ? 'Half month (mid-month hire)' : 'Active') : 'Inactive'}"></button></td>`;
+          const v = Number((p.active || [])[m]) || 0;
+          const prev = m === 0 ? 0 : (Number((p.active || [])[m - 1]) || 0);
+          const isHire = (m === 0 || prev === 0);                    // 0.5 no início do vínculo = contratação (preenche à direita); no fim = demissão (à esquerda)
+          const cls = v === 1 ? 'full' : (v === 0.5 ? (isHire ? 'halfR' : 'halfL') : 'off');
+          const tip = v ? (v === 0.5 ? (isHire ? 'Half month — mid-month hire' : 'Half month — mid-month exit') : 'Active') : 'Inactive';
+          h += `<td class="ue-cell hc-segcell"><button type="button" class="hc-seg hc-seg-${cls}" data-i="${i}" data-m="${m}"${dis ? ' disabled' : ''} title="${tip}"></button></td>`;
         }
         h += `<td class="ue-cell">${isAdmin ? `<button class="fin-del hc-delp" data-i="${i}" title="Remove employee">✕</button>` : ''}</td></tr>`;
       });
@@ -2275,7 +2279,7 @@
       });
       h += '</tbody></table></div>';
       if (isAdmin) h += '<button class="ue-fleet-btn uet-add" id="finAddRole" style="margin-top:10px">+ Add role</button>';
-      h += '<div class="fin-note">One row per employee — click a month to toggle presence: <b>off → active → ½ (mid-month hire) → off</b>. The ½ charges half the cost that month. Costs per person come from the support table (USD). 13th + vacation and the annual bonus hit December.</div>';
+      h += '<div class="fin-note">One row per employee — click a month to toggle presence: <b>off → active → ½ → off</b>. A ½ charges half the cost that month; it fills the <b>right</b> half at the start of a contract (mid-month hire) and the <b>left</b> half at the end (mid-month exit). Costs per person come from the support table (USD). 13th + vacation and the annual bonus hit December.</div>';
       el.innerHTML = h;
       if (!isAdmin) return;
       // support table: role name + cost fields

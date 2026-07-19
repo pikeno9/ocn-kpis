@@ -325,12 +325,16 @@ button { font-family: inherit; cursor: pointer; }
 .hc-seg { display: block; width: 100%; min-width: 30px; height: 20px; border: 1px solid var(--border-2); border-radius: 4px; background: var(--surface); cursor: pointer; padding: 0; transition: background .1s, border-color .1s; }
 .hc-seg:hover { border-color: var(--accent); }
 .hc-seg-full { background: var(--accent); border-color: var(--accent); }
-.hc-seg-half { background: linear-gradient(90deg, var(--accent) 0 50%, var(--surface) 50% 100%); border-color: var(--accent); }
+.hc-seg-halfR { background: linear-gradient(90deg, var(--surface) 0 50%, var(--accent) 50% 100%); border-color: var(--accent); } /* mid-month hire → filled right */
+.hc-seg-halfL { background: linear-gradient(90deg, var(--accent) 0 50%, var(--surface) 50% 100%); border-color: var(--accent); } /* mid-month exit → filled left */
 .hc-seg-off { background: var(--surface); }
 .hc-seg[disabled] { cursor: default; opacity: .85; }
-/* support table (item 4): keep value columns clear of the long role names */
-.ue-table.hc-support th:first-child, .ue-table.hc-support td:first-child { min-width: 250px; padding-right: 20px; }
-.ue-table .hc-rolename { width: 240px; max-width: 240px; }
+/* HC tables: drop the leaf dash + indent so the dropdowns/labels sit at the left edge */
+.ue-table.hc-people .ue-leaf .ue-rowlabel, .ue-table.hc-support .ue-leaf .ue-rowlabel { padding-left: 6px; }
+.ue-table.hc-people .ue-leaf .ue-rowlabel::before, .ue-table.hc-support .ue-leaf .ue-rowlabel::before { display: none; }
+/* support table (item 3): much wider role column so long titles never crowd the values */
+.ue-table.hc-support th:first-child, .ue-table.hc-support td:first-child { min-width: 360px; padding-right: 24px; }
+.ue-table .hc-rolename { width: 340px; max-width: 340px; }
 #uetTable .uet-in { width: 100%; border: 0; background: #fff; text-align: right; font-family: inherit; font-size: 10.5px; padding: 1px 2px; box-sizing: border-box; color: var(--text); outline: 1px solid var(--accent); border-radius: 3px; }
 #uetControls { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
 .uet-ctrl { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--text-2); }

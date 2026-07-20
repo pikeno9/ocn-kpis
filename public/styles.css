@@ -421,6 +421,15 @@ button { font-family: inherit; cursor: pointer; }
 }
 .sub-tab:hover { border-color: var(--accent); color: var(--text); }
 .sub-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+/* 3º nível: uma aba por linha de despesa dentro de SG&A / CAC — mais leve que as sub-abas */
+.sub3-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin: -6px 0 18px; padding: 4px; background: var(--surface-2, #f1f5f9); border-radius: 999px; width: fit-content; max-width: 100%; }
+.sub3-tab {
+  padding: 6px 14px; font-size: 12.5px; font-weight: 600; font-family: inherit; border-radius: 999px;
+  border: 0; background: transparent; color: var(--text-2); cursor: pointer; white-space: nowrap;
+  transition: background .12s, color .12s;
+}
+.sub3-tab:hover { color: var(--accent); background: #ffffffb3; }
+.sub3-tab.active { background: var(--surface); color: var(--accent); box-shadow: 0 1px 3px #0000001f; }
 .subsection { display: none; }
 .subsection.active { display: block; }
 /* Commercial Funnel: os 3 gráficos lado a lado (empilha em telas estreitas) */

@@ -489,7 +489,6 @@
       <div class="sub-tabs">
         <button class="sub-tab active" data-sub="pnl">P&amp;L <span class="sub-tab-wip">in progress</span></button>
         <button class="sub-tab" data-sub="fleetplan">Fleet Plan</button>
-        <button class="sub-tab" data-sub="finhc">Headcount</button>
         <button class="sub-tab" data-sub="finadmin">SG&amp;A</button>
         <button class="sub-tab" data-sub="fincac">CAC &amp; Marketing</button>
         <button class="sub-tab" data-sub="finassump">Assumptions</button>
@@ -518,35 +517,36 @@
         <div id="fleetPlanWrap"></div>
       </div>
 
-      <!-- ---------- HEADCOUNT ---------- -->
-      <div class="subsection" id="sub-finhc">
-        <div class="section-head">
-          <div>
-            <div class="section-title"><i class="ti ti-users"></i> Headcount &amp; Payroll</div>
-            <div class="section-desc">Cost per role and headcount per month — drives SG&amp;A payroll in the P&amp;L</div>
-          </div>
-        </div>
-        <div id="finHcWrap"></div>
-      </div>
-
-      <!-- ---------- ADMIN & OTHER ---------- -->
+      <!-- ---------- SG&A (uma aba por linha de despesa: Headcount + Rent + Prof. Services + IT) ---------- -->
       <div class="subsection" id="sub-finadmin">
         <div class="section-head">
           <div>
             <div class="section-title"><i class="ti ti-building"></i> SG&amp;A</div>
-            <div class="section-desc">Rent &amp; Utilities, Professional Services and IT — one support table per variable (USD)</div>
+            <div class="section-desc">Payroll, Rent &amp; Utilities, Professional Services and IT — one support table per cost line (USD)</div>
           </div>
         </div>
+        <div class="sub3-tabs" id="sgaTabs">
+          <button class="sub3-tab active" data-t3="hc">Headcount</button>
+          <button class="sub3-tab" data-t3="rent">Rent &amp; Utilities</button>
+          <button class="sub3-tab" data-t3="prof">Professional Services</button>
+          <button class="sub3-tab" data-t3="it">IT</button>
+        </div>
+        <div id="finHcWrap"></div>
         <div id="finAdminWrap"></div>
       </div>
 
-      <!-- ---------- CAC & MARKETING ---------- -->
+      <!-- ---------- CAC & MARKETING (uma aba por linha de custo) ---------- -->
       <div class="subsection" id="sub-fincac">
         <div class="section-head">
           <div>
             <div class="section-title"><i class="ti ti-speakerphone"></i> CAC &amp; Marketing</div>
             <div class="section-desc">Sales commission, paid media and digital influencers — monthly (USD)</div>
           </div>
+        </div>
+        <div class="sub3-tabs" id="cacTabs">
+          <button class="sub3-tab active" data-t3="comm">Sales Commission</button>
+          <button class="sub3-tab" data-t3="ads">Paid Media</button>
+          <button class="sub3-tab" data-t3="inf">Digital Influencers</button>
         </div>
         <div id="finCacWrap"></div>
       </div>

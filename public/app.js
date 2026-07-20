@@ -1902,6 +1902,7 @@
   let finReady = false, finCohorts = [], finModels = [], finModelVals = {}, finCfg = {};
   let finHc = { roles: [], people: [], plan: {} }, finSga = { rent: [], prof: [], it: [] }, finCac = { perUnit: 0, ads: [], inf: [] };
   let hcEdit = false; // Headcount edit/lock toggle — starts read-only
+  let sgaTab = 'hc', cacTab = 'comm'; // abas de 3º nível dentro de SG&A e CAC & Marketing
   const FIN_MONTHS = 12; // 2026-01 .. 2026-12
   const FIN_ML = (i) => '2026-' + String(i + 1).padStart(2, '0');
   const FIN_REV_LINES = ['Subscription', 'Late-payment interest', 'Initial Fee / Vehicle Sell', 'Security Deposit Refund'];
@@ -1917,6 +1918,9 @@
   function initFinance() {
     if (finReady) return;
     finReady = true;
+    // abas de 3º nível (uma por linha de despesa) dentro de SG&A e CAC & Marketing
+    document.querySelectorAll('#sgaTabs .sub3-tab').forEach((b) => b.addEventListener('click', () => { sgaTab = b.dataset.t3; renderAdmin(); }));
+    document.querySelectorAll('#cacTabs .sub3-tab').forEach((b) => b.addEventListener('click', () => { cacTab = b.dataset.t3; renderCac(); }));
     const escH = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
     const fmtNum = (v) => Math.abs(v).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
     const fmt = (v) => (v == null) ? '' : (Math.round(v) === 0 ? '-' : (v < 0 ? '(' + fmtNum(v) + ')' : fmtNum(v)));
@@ -2370,15 +2374,26 @@
       try { const r = await fetch('/api/finance/sga', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ sga: finSga }) }); const d = await r.json().catch(() => ({})); if (d && d.sga) finSga = d.sga; } catch (e) {}
       renderAdmin(); renderPnl();
     }
+    // SG&A tem uma aba por linha de despesa: Headcount (payroll) + Rent & Utilities + Prof. Services + IT
+    const SGA_TABS = {
+      rent: { title: 'Rent & Utilities', get items() { return finSga.rent; } },
+      prof: { title: 'Professional Services', get items() { return finSga.prof; } },
+      it: { title: 'IT', get items() { return finSga.it; } },
+    };
     function renderAdmin() {
       const el = document.getElementById('finAdminWrap'); if (!el) return;
+      document.querySelectorAll('#sgaTabs .sub3-tab').forEach((b) => b.classList.toggle('active', b.dataset.t3 === sgaTab));
+      const hcWrap = document.getElementById('finHcWrap');
+      const isHc = sgaTab === 'hc';
+      if (hcWrap) hcWrap.style.display = isHc ? '' : 'none';
+      el.style.display = isHc ? 'none' : '';
+      if (isHc) { el.innerHTML = ''; return; }   // conteúdo do Headcount é pintado por renderHc()
+      const t = SGA_TABS[sgaTab] || SGA_TABS.rent;
       el.innerHTML = '';
-      el.appendChild(itemsTable('Rent & Utilities', finSga.rent, saveSga));
-      el.appendChild(itemsTable('Professional Services', finSga.prof, saveSga));
-      el.appendChild(itemsTable('IT', finSga.it, saveSga));
+      el.appendChild(itemsTable(t.title, t.items, saveSga));
       const note = document.createElement('div');
       note.className = 'fin-note';
-      note.innerHTML = 'Amounts are positive (USD) and enter the P&amp;L as costs. One table per variable, item by item.';
+      note.innerHTML = 'Amounts are positive (USD) and enter the P&amp;L as costs, item by item.';
       el.appendChild(note);
     }
 
@@ -2389,7 +2404,20 @@
     }
     function renderCac() {
       const el = document.getElementById('finCacWrap'); if (!el) return;
+      document.querySelectorAll('#cacTabs .sub3-tab').forEach((b) => b.classList.toggle('active', b.dataset.t3 === cacTab));
       el.innerHTML = '';
+      if (cacTab === 'ads') {
+        el.appendChild(itemsTable('Paid Media (Google/Meta Ads)', finCac.ads, saveCac));
+        return;
+      }
+      if (cacTab === 'inf') {
+        el.appendChild(itemsTable('Digital Influencers — active profiles × price per profile', finCac.inf, saveCac, { priceCol: true, itemLabel: 'Tier' }));
+        const n = document.createElement('div');
+        n.className = 'fin-note';
+        n.innerHTML = 'Influencer cost = active profiles in the month × price per profile.';
+        el.appendChild(n);
+        return;
+      }
       // comissão: valor por carro × entregas do mês (referenciado ao Fleet Plan, como no Excel)
       const newDelivered = new Array(FIN_MONTHS).fill(0);
       finCohorts.forEach((c) => { const cm = cohMonth(c); if (cm >= 0 && cm < FIN_MONTHS) newDelivered[cm] += c.qty; });
@@ -2408,11 +2436,9 @@
       el.appendChild(head);
       const pu = head.querySelector('#cacPerUnit');
       if (pu && isAdmin) pu.addEventListener('change', () => { finCac.perUnit = Math.max(0, Number(pu.value) || 0); saveCac(); });
-      el.appendChild(itemsTable('Paid Media (Google/Meta Ads)', finCac.ads, saveCac));
-      el.appendChild(itemsTable('Digital Influencers — active profiles × price per profile', finCac.inf, saveCac, { priceCol: true, itemLabel: 'Tier' }));
       const note = document.createElement('div');
       note.className = 'fin-note';
-      note.innerHTML = 'Influencer cost = active profiles in the month × price per profile.';
+      note.innerHTML = 'Commission is referenced to the Fleet Plan: USD per vehicle × vehicles delivered in the month.';
       el.appendChild(note);
     }
 

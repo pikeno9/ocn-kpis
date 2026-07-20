@@ -1901,7 +1901,7 @@
   // e Vehicle Purchase NÃO entram no COGS (ficam em OPEX/capex).
   let finReady = false, finCohorts = [], finModels = [], finModelVals = {}, finCfg = {};
   let finHc = { roles: [], people: [], plan: {} }, finSga = { rent: [], prof: [], it: [] }, finCac = { perUnit: 0, ads: [], inf: [] };
-  let hcEdit = false; // Headcount edit/lock toggle — starts read-only
+  let finEdit = false; // "Edit mode" do Finance (compartilhado por todas as abas) — começa somente leitura
   let sgaTab = 'hc', cacTab = 'comm'; // abas de 3º nível dentro de SG&A e CAC & Marketing
   const FIN_MONTHS = 12; // 2026-01 .. 2026-12
   const FIN_ML = (i) => '2026-' + String(i + 1).padStart(2, '0');
@@ -1928,6 +1928,50 @@
     const parseInput = (raw) => { raw = String(raw).trim(); if (raw === '') return null; raw = raw.replace(/[R$\s]/gi, '').replace(/\./g, '').replace(',', '.'); const n = Number(raw); return isFinite(n) ? n : null; };
     const isAdmin = !!(OCN._meta && OCN._meta.user && (OCN._meta.user.role === 'admin' || OCN._meta.user.role === 'giga_admin'));
     const finPar = (k) => { const v = finCfg[k + '@@0']; if (v != null) return Number(v); const d = FIN_ASSUMP.find((a) => a.k === k); return d ? d.def : 0; };
+    // ---- padrões compartilhados por TODAS as abas do Finance ----
+    const FIN_MON3 = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+    const monthLbl = (m) => { const p = String(FIN_ML(m)).split('-'); const mo = parseInt(p[1], 10) - 1; return (FIN_MON3[mo] || p[1]) + '-' + (p[0] || '').slice(2); }; // 2026-02 -> feb-26
+    const canEditNow = () => isAdmin && finEdit;
+    // toggle "Edit mode" (mesmo componente em todas as abas do Finance)
+    const editBar = (note) => (isAdmin ? `<div class="fin-editbar${finEdit ? ' on' : ''}"><label class="fin-switch"><input type="checkbox" class="fin-edit-cb"${finEdit ? ' checked' : ''}><span class="fin-slider"></span></label><span class="fin-switch-lbl">Edit mode</span>${note ? `<span class="fin-editnote">${note}</span>` : ''}</div>` : '');
+    function wireEditBar(root) {
+      if (!root) return;
+      root.querySelectorAll('.fin-edit-cb').forEach((cb) => cb.addEventListener('change', () => { finEdit = cb.checked; renderFinanceAll(); }));
+    }
+    function renderFinanceAll() { renderFleetPlan(); renderHc(); renderAdmin(); renderCac(); renderAssump(); renderPnl(); }
+    // tabela totalizadora (uma linha por despesa) — visual diferenciado, usada em SG&A e CAC
+    function totalsTable(rows, firstCol) {
+      let h = `<div class="ue-table-wrap"><table class="ue-table fin-totals"><thead><tr><th class="ue-rowlabel">${escH(firstCol || 'Cost line')}</th>`;
+      for (let m = 0; m < FIN_MONTHS; m++) h += `<th>${monthLbl(m)}</th>`;
+      h += '<th class="ue-totalcol">FY-26E</th></tr></thead><tbody>';
+      const tot = new Array(FIN_MONTHS).fill(0);
+      rows.forEach((r) => {
+        let fy = 0;
+        h += `<tr class="ue-row"><td class="ue-rowlabel">${escH(r.label)}</td>`;
+        for (let m = 0; m < FIN_MONTHS; m++) { const v = Number(r.arr[m]) || 0; tot[m] += v; fy += v; h += `<td class="ue-cell">${v ? fmtNum(v) : '-'}</td>`; }
+        h += `<td class="ue-cell ue-totalcol">${fy ? fmtNum(fy) : '-'}</td></tr>`;
+      });
+      const fyT = tot.reduce((a, b) => a + b, 0);
+      h += '<tr class="hc-total"><td class="ue-rowlabel">Total</td>';
+      for (let m = 0; m < FIN_MONTHS; m++) h += `<td class="ue-cell">${tot[m] ? fmtNum(tot[m]) : '-'}</td>`;
+      return h + `<td class="ue-cell ue-totalcol">${fyT ? fmtNum(fyT) : '-'}</td></tr></tbody></table></div>`;
+    }
+    // custo total de folha por mês (mesma fórmula do P&L e do resumo do Headcount)
+    function hcMonthlyCost() {
+      hcEnsurePeople(); hcSyncPlan();
+      const th13f = finPar('__fin_13th__') || 1.3333;
+      const plan = finHc.plan || {};
+      const out = new Array(FIN_MONTHS).fill(0);
+      for (let m = 0; m < FIN_MONTHS; m++) {
+        (finHc.roles || []).forEach((r) => {
+          const n = plan[r.id] ? Number(plan[r.id][m]) || 0 : 0; if (!n) return;
+          out[m] += n * ((r.salary || 0) + (r.meal || 0) + (r.health || 0) + (r.salary || 0) * ((r.taxPct || 0) / 100));
+          if (m === FIN_MONTHS - 1) out[m] += n * ((r.salary || 0) * th13f + (r.bonus || 0));
+        });
+      }
+      return out;
+    }
+    const sumItems = (list) => { const o = new Array(FIN_MONTHS).fill(0); (list || []).forEach((it) => { for (let m = 0; m < FIN_MONTHS; m++) o[m] += Number((it.v || [])[m]) || 0; }); return o; };
     const lineOf = (label) => UET_LINES.find((l) => l.label === label);
 
     // ---------- cálculo do P&L a partir das coortes + UE do Theoric (mecânica do Excel) ----------
@@ -2045,7 +2089,7 @@
         return h;
       };
       let html = '<thead><tr><th class="ue-rowlabel">P&amp;L (USD)</th>';
-      for (let m = 0; m < FIN_MONTHS; m++) html += `<th>${FIN_ML(m)}</th>`;
+      for (let m = 0; m < FIN_MONTHS; m++) html += `<th>${monthLbl(m)}</th>`;
       html += '<th class="ue-totalcol">FY-26E</th></tr></thead><tbody>';
       html += row('Total delivered fleet', P.delivered, 'ue-leaf', true);
       html += row('Total active fleet', P.active, 'ue-leaf', true);
@@ -2128,14 +2172,14 @@
       }
       cal += '</div>';
       let editor = '';
-      if (finSelDay && isAdmin) {
+      if (finSelDay && canEditNow()) {
         editor = `<div class="fin-dayedit"><div class="sub2-title">${finSelDay} — vehicles received</div><div class="fin-dayrow">`;
         finModels.forEach((m) => {
           const q = (byDay[finSelDay] && byDay[finSelDay][m.id]) || 0;
           editor += `<label class="fin-dm"><span class="uet-dot" style="background:${m.color || '#5A00F8'}"></span>${escH(m.name)}<input class="fin-dq" type="number" min="0" step="1" data-model="${escH(m.id)}" value="${q || ''}" placeholder="0"></label>`;
         });
         editor += '</div><div class="fin-note">How many of each model arrive on this day (0 removes). A cohort = a batch on a day; F-numbers follow arrival order.</div></div>';
-      } else if (isAdmin) {
+      } else if (canEditNow()) {
         editor = '<div class="fin-note">Click a day on the calendar to add or remove vehicles.</div>';
       }
       const sorted = finCohorts.slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
@@ -2147,8 +2191,9 @@
       const totQ = finCohorts.reduce((s, c) => s + c.qty, 0);
       list += `<tr><td colspan="3" style="font-weight:700">Total</td><td class="ue-cell ue-totalcol" style="font-weight:700">${totQ}</td></tr></tbody></table></div>`;
       if (!finCohorts.length) list = '<div class="fin-note">No cohorts yet — click a day to add vehicles.</div>';
-      el.innerHTML = cal + editor + list;
-      if (!isAdmin) return;
+      el.innerHTML = editBar() + cal + editor + list;
+      wireEditBar(el);
+      if (!canEditNow()) return;
       el.querySelectorAll('.fc-day[data-iso]').forEach((d) => d.addEventListener('click', () => { finSelDay = (finSelDay === d.dataset.iso ? null : d.dataset.iso); renderFleetPlan(); }));
       el.querySelectorAll('.fin-dq').forEach((inp) => inp.addEventListener('change', () => {
         const model = inp.dataset.model, qty = Math.max(0, Math.round(Number(inp.value) || 0));
@@ -2163,13 +2208,16 @@
     // ---------- Assumptions ----------
     function renderAssump() {
       const el = document.getElementById('finAssumpWrap'); if (!el) return;
-      let h = '<table class="rh-table fin-table" style="max-width:560px"><thead><tr><th>Assumption</th><th>Value</th></tr></thead><tbody>';
+      const canEdit = canEditNow();
+      let h = editBar();
+      h += '<table class="rh-table fin-table" style="max-width:560px"><thead><tr><th>Assumption</th><th>Value</th></tr></thead><tbody>';
       FIN_ASSUMP.forEach((a) => {
-        h += `<tr><td>${escH(a.label)}</td><td><input class="fin-ass" data-k="${a.k}" type="text" inputmode="decimal" value="${finPar(a.k)}"${isAdmin ? '' : ' disabled'}></td></tr>`;
+        h += `<tr><td>${escH(a.label)}</td><td><input class="fin-ass" data-k="${a.k}" type="text" inputmode="decimal" value="${finPar(a.k)}"${canEdit ? '' : ' disabled'}></td></tr>`;
       });
       h += '</tbody></table><div class="fin-note">These drive the P&amp;L. Per-vehicle costs/revenue come from each model\'s Unit Economics Theoric.</div>';
       el.innerHTML = h;
-      if (!isAdmin) return;
+      wireEditBar(el);
+      if (!canEdit) return;
       el.querySelectorAll('.fin-ass').forEach((inp) => inp.addEventListener('change', async () => {
         const k = inp.dataset.k, num = parseInput(inp.value);
         try {
@@ -2184,7 +2232,7 @@
     async function saveHc() {
       hcSyncPlan();
       try { const r = await fetch('/api/finance/hc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ hc: finHc }) }); const d = await r.json().catch(() => ({})); if (d && d.hc) finHc = d.hc; } catch (e) {}
-      renderHc(); renderPnl();
+      renderHc(); renderAdmin(); renderPnl();   // renderAdmin: atualiza o totalizador de SG&A
     }
     // HC model: `people` (1 row per employee, active timeline of 0 / 0.5 / 1) is the source of truth;
     // `plan` (aggregate headcount per role per month) is DERIVED from it and drives the P&L + summary.
@@ -2218,7 +2266,7 @@
     }
     function renderHc() {
       const el = document.getElementById('finHcWrap'); if (!el) return;
-      const canEdit = isAdmin && hcEdit;
+      const canEdit = canEditNow();
       const dis = canEdit ? '' : ' disabled';
       hcEnsurePeople(); hcSyncPlan();
       const roles = finHc.roles || [];
@@ -2226,10 +2274,8 @@
       const th13f = finPar('__fin_13th__') || 1.3333;
       const hcOf = (r, m) => (plan[r.id] ? Number(plan[r.id][m]) || 0 : 0);
       const zeros = () => new Array(FIN_MONTHS).fill(0);
-      const HC_MON3 = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-      const monthLbl = (m) => { const parts = String(FIN_ML(m)).split('-'); const mo = parseInt(parts[1], 10) - 1; const yy = (parts[0] || '').slice(2); return (HC_MON3[mo] || parts[1]) + '-' + yy; }; // 2026-02 -> feb-26
       const monthCols = () => { let s = ''; for (let m = 0; m < FIN_MONTHS; m++) s += `<th>${monthLbl(m)}</th>`; return s; };
-      let h = isAdmin ? `<div class="hc-editbar"><button id="hcEditToggle" class="hc-lockbtn${hcEdit ? ' on' : ''}">${hcEdit ? '🔒 Lock editing' : '✎ Edit'}</button><span class="hc-editnote">${hcEdit ? 'Editing — changes save automatically.' : 'Read-only. Click Edit to make changes.'}</span></div>` : '';
+      let h = editBar();
 
       // ---- Cost summary (spend per period, per cost type) — mirrors the P&L HC payroll lines ----
       const cSal = zeros(), cMeal = zeros(), cHealth = zeros(), cTax = zeros(), c13 = zeros(), cBonus = zeros(), head = zeros();
@@ -2290,8 +2336,7 @@
       if (canEdit) h += '<button class="ue-fleet-btn uet-add" id="finAddRole" style="margin-top:10px">+ Add role</button>';
       h += '<div class="fin-note">One row per employee — click a month to toggle presence: <b>off → active → ½ → off</b>. A ½ charges half the cost that month; it fills the <b>right</b> half at the start of a contract (mid-month hire) and the <b>left</b> half at the end (mid-month exit). Costs per person come from the support table (USD). 13th + vacation and the annual bonus hit December.</div>';
       el.innerHTML = h;
-      const tog = document.getElementById('hcEditToggle');
-      if (tog) tog.addEventListener('click', () => { hcEdit = !hcEdit; renderHc(); });
+      wireEditBar(el);
       if (!canEdit) return;
       // support table: role name + cost fields
       el.querySelectorAll('.hc-f').forEach((inp) => inp.addEventListener('change', () => {
@@ -2326,11 +2371,12 @@
     // itens editáveis (rótulo + valores mensais positivos), com FY, remover e adicionar — como no Excel.
     function itemsTable(title, items, onChange, opts) {
       opts = opts || {};
-      const dis = isAdmin ? '' : ' disabled';
+      const canEdit = canEditNow();
+      const dis = canEdit ? '' : ' disabled';
       let h = `<div class="sub2-title" style="margin-top:18px">${escH(title)}</div>`;
       h += '<div class="ue-table-wrap"><table class="ue-table"><thead><tr><th class="ue-rowlabel">' + escH(opts.itemLabel || 'Item') + '</th>';
       if (opts.priceCol) h += '<th>Price/mo</th>';
-      for (let m = 0; m < FIN_MONTHS; m++) h += `<th>${FIN_ML(m)}</th>`;
+      for (let m = 0; m < FIN_MONTHS; m++) h += `<th>${monthLbl(m)}</th>`;
       h += '<th class="ue-totalcol">FY-26E</th><th></th></tr></thead><tbody>';
       items.forEach((it, i) => {
         let tot = 0;
@@ -2343,13 +2389,13 @@
           h += `<td class="ue-cell"><input class="hc-f hc-n itx-v" type="number" min="0" step="any" data-i="${i}" data-m="${m}" value="${n || ''}" placeholder="-"${dis}></td>`;
         }
         h += `<td class="ue-cell ue-totalcol">${tot ? fmtNum(tot) : '-'}</td>`;
-        h += `<td class="ue-cell">${isAdmin ? `<button class="fin-del itx-del" data-i="${i}">✕</button>` : ''}</td></tr>`;
+        h += `<td class="ue-cell">${canEdit ? `<button class="fin-del itx-del" data-i="${i}">✕</button>` : ''}</td></tr>`;
       });
       h += '</tbody></table></div>';
-      if (isAdmin) h += `<button class="ue-fleet-btn uet-add itx-add" style="margin-top:8px">+ Add item</button>`;
+      if (canEdit) h += `<button class="ue-fleet-btn uet-add itx-add" style="margin-top:8px">+ Add item</button>`;
       const box = document.createElement('div');
       box.innerHTML = h;
-      if (isAdmin) {
+      if (canEdit) {
         box.querySelectorAll('.itx-label').forEach((inp) => inp.addEventListener('change', () => { const it = items[+inp.dataset.i]; if (it) { it.label = inp.value; onChange(); } }));
         box.querySelectorAll('.itx-price').forEach((inp) => inp.addEventListener('change', () => { const it = items[+inp.dataset.i]; if (it) { it.price = Math.max(0, Number(inp.value) || 0); onChange(); } }));
         box.querySelectorAll('.itx-v').forEach((inp) => inp.addEventListener('change', () => {
@@ -2382,6 +2428,14 @@
     };
     function renderAdmin() {
       const el = document.getElementById('finAdminWrap'); if (!el) return;
+      // totalizador de SG&A (uma linha por despesa) acima das abas
+      const tot = document.getElementById('sgaTotals');
+      if (tot) tot.innerHTML = totalsTable([
+        { label: 'Headcount', arr: hcMonthlyCost() },
+        { label: 'Rent & Utilities', arr: sumItems(finSga.rent) },
+        { label: 'Professional Services', arr: sumItems(finSga.prof) },
+        { label: 'IT', arr: sumItems(finSga.it) },
+      ], 'SG&A cost line');
       document.querySelectorAll('#sgaTabs .sub3-tab').forEach((b) => b.classList.toggle('active', b.dataset.t3 === sgaTab));
       const hcWrap = document.getElementById('finHcWrap');
       const isHc = sgaTab === 'hc';
@@ -2389,12 +2443,13 @@
       el.style.display = isHc ? 'none' : '';
       if (isHc) { el.innerHTML = ''; return; }   // conteúdo do Headcount é pintado por renderHc()
       const t = SGA_TABS[sgaTab] || SGA_TABS.rent;
-      el.innerHTML = '';
+      el.innerHTML = editBar();
       el.appendChild(itemsTable(t.title, t.items, saveSga));
       const note = document.createElement('div');
       note.className = 'fin-note';
       note.innerHTML = 'Amounts are positive (USD) and enter the P&amp;L as costs, item by item.';
       el.appendChild(note);
+      wireEditBar(el);
     }
 
     // ---------- CAC & Marketing: comissão (referenciada) + Ads + influenciadores ----------
@@ -2404,10 +2459,24 @@
     }
     function renderCac() {
       const el = document.getElementById('finCacWrap'); if (!el) return;
+      // comissão: valor por carro × entregas do mês (referenciado ao Fleet Plan, como no Excel)
+      const newDelivered = new Array(FIN_MONTHS).fill(0);
+      finCohorts.forEach((c) => { const cm = cohMonth(c); if (cm >= 0 && cm < FIN_MONTHS) newDelivered[cm] += c.qty; });
+      const per = finCac.perUnit || 0;
+      const infTot = new Array(FIN_MONTHS).fill(0);
+      (finCac.inf || []).forEach((it) => { for (let m = 0; m < FIN_MONTHS; m++) infTot[m] += (Number((it.profiles || [])[m]) || 0) * (it.price || 0); });
+      // totalizador de CAC (uma linha por custo) acima das abas
+      const tot = document.getElementById('cacTotals');
+      if (tot) tot.innerHTML = totalsTable([
+        { label: 'Sales Commission', arr: newDelivered.map((n) => n * per) },
+        { label: 'Paid Media', arr: sumItems(finCac.ads) },
+        { label: 'Digital Influencers', arr: infTot },
+      ], 'CAC cost line');
       document.querySelectorAll('#cacTabs .sub3-tab').forEach((b) => b.classList.toggle('active', b.dataset.t3 === cacTab));
-      el.innerHTML = '';
+      el.innerHTML = editBar();
       if (cacTab === 'ads') {
         el.appendChild(itemsTable('Paid Media (Google/Meta Ads)', finCac.ads, saveCac));
+        wireEditBar(el);
         return;
       }
       if (cacTab === 'inf') {
@@ -2416,17 +2485,14 @@
         n.className = 'fin-note';
         n.innerHTML = 'Influencer cost = active profiles in the month × price per profile.';
         el.appendChild(n);
+        wireEditBar(el);
         return;
       }
-      // comissão: valor por carro × entregas do mês (referenciado ao Fleet Plan, como no Excel)
-      const newDelivered = new Array(FIN_MONTHS).fill(0);
-      finCohorts.forEach((c) => { const cm = cohMonth(c); if (cm >= 0 && cm < FIN_MONTHS) newDelivered[cm] += c.qty; });
-      const per = finCac.perUnit || 0;
       const head = document.createElement('div');
       let h = `<div class="sub2-title">Sales Commission</div>` +
-        `<div class="fin-note" style="margin:6px 0 10px">USD per delivered vehicle: <input class="hc-f hc-n" id="cacPerUnit" type="number" min="0" step="any" value="${per}"${isAdmin ? '' : ' disabled'}> × vehicles delivered in the month (from the Fleet Plan)</div>`;
+        `<div class="fin-note" style="margin:6px 0 10px">USD per delivered vehicle: <input class="hc-f hc-n" id="cacPerUnit" type="number" min="0" step="any" value="${per}"${canEditNow() ? '' : ' disabled'}> × vehicles delivered in the month (from the Fleet Plan)</div>`;
       h += '<div class="ue-table-wrap"><table class="ue-table"><thead><tr><th class="ue-rowlabel">Line</th>';
-      for (let m = 0; m < FIN_MONTHS; m++) h += `<th>${FIN_ML(m)}</th>`;
+      for (let m = 0; m < FIN_MONTHS; m++) h += `<th>${monthLbl(m)}</th>`;
       h += '<th class="ue-totalcol">FY-26E</th></tr></thead><tbody>';
       const rowH = (label, arr) => { let s = `<tr class="ue-row ue-leaf"><td class="ue-rowlabel">${label}</td>`; let t = 0; for (let m = 0; m < FIN_MONTHS; m++) { t += arr[m]; s += `<td class="ue-cell">${arr[m] ? fmtNum(arr[m]) : '-'}</td>`; } return s + `<td class="ue-cell ue-totalcol">${t ? fmtNum(t) : '-'}</td></tr>`; };
       h += rowH('Vehicles delivered', newDelivered);
@@ -2435,11 +2501,12 @@
       head.innerHTML = h;
       el.appendChild(head);
       const pu = head.querySelector('#cacPerUnit');
-      if (pu && isAdmin) pu.addEventListener('change', () => { finCac.perUnit = Math.max(0, Number(pu.value) || 0); saveCac(); });
+      if (pu && canEditNow()) pu.addEventListener('change', () => { finCac.perUnit = Math.max(0, Number(pu.value) || 0); saveCac(); });
       const note = document.createElement('div');
       note.className = 'fin-note';
       note.innerHTML = 'Commission is referenced to the Fleet Plan: USD per vehicle × vehicles delivered in the month.';
       el.appendChild(note);
+      wireEditBar(el);
     }
 
     (async () => {

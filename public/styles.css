@@ -319,6 +319,18 @@ button { font-family: inherit; cursor: pointer; }
 .ue-table.hc-summary tbody .ue-rowlabel { font-weight: 500; }
 .ue-table tr.hc-total td { font-weight: 700; border-top: 1.5px solid var(--border-2); background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .ue-table .hc-rolelbl { color: var(--text-2); font-size: 12px; }
+/* padronização das tabelas do Finance (usa o Headcount como referência):
+   sem o tracinho de leaf à esquerda e com o mesmo respiro entre linhas */
+#sec-finance .ue-table .ue-leaf .ue-rowlabel { padding-left: 6px; }
+#sec-finance .ue-table .ue-leaf .ue-rowlabel::before { display: none; }
+#sec-finance .ue-table th, #sec-finance .ue-table td { padding-top: 5px; padding-bottom: 5px; }
+/* tabela totalizadora (SG&A / CAC): cabeçalho em tom de destaque p/ diferenciar das de detalhe */
+.ue-table.fin-totals thead th { background: var(--accent); color: #fff; }
+.ue-table.fin-totals thead th.ue-rowlabel { background: var(--accent); }
+.ue-table.fin-totals thead th.ue-totalcol { background: #3a00a0; border-left-color: #fff6; }
+.ue-table.fin-totals tbody .ue-rowlabel { font-weight: 600; color: var(--text); }
+.ue-table.fin-totals { margin-bottom: 4px; }
+#sgaTotals, #cacTotals { margin-bottom: 20px; }
 /* people table: role dropdown + name + presence bar (1 row per employee) */
 .ue-table .hc-role { font: inherit; font-size: 11.5px; padding: 4px 6px; border: 1px solid var(--border-2); border-radius: 5px; background: var(--surface); color: var(--text); max-width: 210px; cursor: pointer; }
 .ue-table .hc-role:hover { border-color: var(--accent); }
@@ -349,12 +361,18 @@ button { font-family: inherit; cursor: pointer; }
 .ue-table.hc-people td.hc-segcell, .ue-table.hc-people th.hc-segcell { padding-left: 4px; padding-right: 4px; }
 .ue-table.hc-people .hc-seg { min-width: 34px; height: 22px; }
 .ue-table.hc-people .ue-rowlabel { box-shadow: 1px 0 0 var(--border-2); } /* clean edge between the sticky role col and Name */
-/* edit / lock toggle for the Headcount section */
-.hc-editbar { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
-.hc-lockbtn { font: inherit; font-size: 12.5px; font-weight: 600; padding: 6px 14px; border: 1px solid var(--accent); border-radius: 7px; background: var(--surface); color: var(--accent); cursor: pointer; transition: background .12s, color .12s; }
-.hc-lockbtn:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
-.hc-lockbtn.on { background: var(--accent); color: #fff; }
-.hc-editnote { font-size: 12px; color: var(--text-2); }
+/* "Edit mode" — toggle switch usado em TODAS as abas do Finance */
+.fin-editbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.fin-switch { position: relative; display: inline-block; width: 38px; height: 21px; flex: none; }
+.fin-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.fin-slider { position: absolute; inset: 0; background: #cbd5e1; border-radius: 999px; cursor: pointer; transition: background .16s; }
+.fin-slider::before { content: ''; position: absolute; width: 17px; height: 17px; left: 2px; top: 2px; background: #fff; border-radius: 50%; box-shadow: 0 1px 3px #00000038; transition: transform .16s; }
+.fin-switch input:checked + .fin-slider { background: var(--accent); }
+.fin-switch input:checked + .fin-slider::before { transform: translateX(17px); }
+.fin-switch input:focus-visible + .fin-slider { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fin-switch-lbl { font-size: 13px; font-weight: 500; color: var(--text-2); }
+.fin-editbar.on .fin-switch-lbl { color: var(--text); font-weight: 600; }
+.fin-editbar .fin-editnote { font-size: 12px; color: var(--text-2); }
 /* read-only (locked) view: render editable fields as plain text, no input chrome */
 .ue-table .hc-f:disabled, .ue-table .hc-role:disabled, .ue-table .hc-pname:disabled { border-color: transparent; background: transparent; color: var(--text); opacity: 1; -webkit-text-fill-color: var(--text); cursor: default; -webkit-appearance: none; appearance: none; }
 .ue-table .hc-role:disabled { padding-left: 6px; }
@@ -429,7 +447,8 @@ button { font-family: inherit; cursor: pointer; }
   transition: background .12s, color .12s;
 }
 .sub3-tab:hover { color: var(--accent); background: #ffffffb3; }
-.sub3-tab.active { background: var(--surface); color: var(--accent); box-shadow: 0 1px 3px #0000001f; }
+.sub3-tab.active { background: var(--accent); color: #fff; box-shadow: 0 1px 4px #0000002e; }
+.sub3-tab.active:hover { background: var(--accent); color: #fff; }
 .subsection { display: none; }
 .subsection.active { display: block; }
 /* Commercial Funnel: os 3 gráficos lado a lado (empilha em telas estreitas) */

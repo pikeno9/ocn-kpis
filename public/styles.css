@@ -324,6 +324,22 @@ button { font-family: inherit; cursor: pointer; }
 #sec-finance .ue-table .ue-leaf .ue-rowlabel { padding-left: 6px; }
 #sec-finance .ue-table .ue-leaf .ue-rowlabel::before { display: none; }
 #sec-finance .ue-table th, #sec-finance .ue-table td { padding-top: 5px; padding-bottom: 5px; }
+/* Geometria FIXA das tabelas do Finance: mesmas larguras de coluna em todas as abas,
+   para nada "sambar" ao alternar e para o FY-26E não sobrepor dezembro.
+   min-width + o overflow-x do .ue-table-wrap => rola em vez de espremer/sobrepor. */
+#sec-finance .ue-table.fin-grid { table-layout: fixed; width: 100%; min-width: 1060px; }
+#sec-finance .fin-grid th.ue-rowlabel, #sec-finance .fin-grid td.ue-rowlabel { width: 196px; min-width: 196px; }
+#sec-finance .fin-grid th.fin-pricecol, #sec-finance .fin-grid td.fin-pricecol { width: 84px; }
+#sec-finance .fin-grid th.ue-totalcol, #sec-finance .fin-grid td.ue-totalcol { width: 84px; }
+#sec-finance .fin-grid th.fin-actcol, #sec-finance .fin-grid td.fin-actcol { width: 34px; padding-left: 2px; padding-right: 2px; }
+#sec-finance .fin-grid td.ue-cell { overflow: hidden; text-overflow: ellipsis; }
+/* inputs preenchem a célula em vez de estourar a largura fixa da coluna */
+#sec-finance .fin-grid .itx-label, #sec-finance .fin-grid td.ue-cell .hc-n { width: 100%; min-width: 0; }
+/* alturas mínimas: evita o "samba" vertical ao trocar de aba (tabelas com nº de linhas diferente) */
+#finAdminWrap, #finCacWrap { min-height: 360px; }
+#sgaTotals, #cacTotals { min-height: 172px; }
+/* barra de rolagem sempre reservada: sem deslocamento horizontal ao trocar de seção */
+html { scrollbar-gutter: stable; }
 /* tabela totalizadora (SG&A / CAC): cabeçalho em tom de destaque p/ diferenciar das de detalhe */
 .ue-table.fin-totals thead th { background: var(--accent); color: #fff; }
 .ue-table.fin-totals thead th.ue-rowlabel { background: var(--accent); }

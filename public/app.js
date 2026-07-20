@@ -1941,7 +1941,7 @@
     function renderFinanceAll() { renderFleetPlan(); renderHc(); renderAdmin(); renderCac(); renderAssump(); renderPnl(); }
     // tabela totalizadora (uma linha por despesa) — visual diferenciado, usada em SG&A e CAC
     function totalsTable(rows, firstCol) {
-      let h = `<div class="ue-table-wrap"><table class="ue-table fin-totals"><thead><tr><th class="ue-rowlabel">${escH(firstCol || 'Cost line')}</th>`;
+      let h = `<div class="ue-table-wrap"><table class="ue-table fin-grid fin-totals"><thead><tr><th class="ue-rowlabel">${escH(firstCol || 'Cost line')}</th>`;
       for (let m = 0; m < FIN_MONTHS; m++) h += `<th>${monthLbl(m)}</th>`;
       h += '<th class="ue-totalcol">FY-26E</th></tr></thead><tbody>';
       const tot = new Array(FIN_MONTHS).fill(0);
@@ -2374,22 +2374,23 @@
       const canEdit = canEditNow();
       const dis = canEdit ? '' : ' disabled';
       let h = `<div class="sub2-title" style="margin-top:18px">${escH(title)}</div>`;
-      h += '<div class="ue-table-wrap"><table class="ue-table"><thead><tr><th class="ue-rowlabel">' + escH(opts.itemLabel || 'Item') + '</th>';
-      if (opts.priceCol) h += '<th>Price/mo</th>';
+      h += '<div class="ue-table-wrap"><table class="ue-table fin-grid"><thead><tr><th class="ue-rowlabel">' + escH(opts.itemLabel || 'Item') + '</th>';
+      if (opts.priceCol) h += '<th class="fin-pricecol">Price/mo</th>';
       for (let m = 0; m < FIN_MONTHS; m++) h += `<th>${monthLbl(m)}</th>`;
-      h += '<th class="ue-totalcol">FY-26E</th><th></th></tr></thead><tbody>';
+      // a coluna de ação só existe em modo de edição — senão sobra uma coluna vazia na ponta
+      h += '<th class="ue-totalcol">FY-26E</th>' + (canEdit ? '<th class="fin-actcol"></th>' : '') + '</tr></thead><tbody>';
       items.forEach((it, i) => {
         let tot = 0;
         const vals = opts.priceCol ? it.profiles : it.v;
-        h += `<tr class="ue-row ue-leaf"><td class="ue-rowlabel"><input class="hc-f itx-label" data-i="${i}" value="${escH(it.label)}"${dis} style="width:150px"></td>`;
-        if (opts.priceCol) h += `<td class="ue-cell"><input class="hc-f hc-n itx-price" type="number" min="0" step="any" data-i="${i}" value="${it.price}"${dis}></td>`;
+        h += `<tr class="ue-row ue-leaf"><td class="ue-rowlabel"><input class="hc-f itx-label" data-i="${i}" value="${escH(it.label)}"${dis}></td>`;
+        if (opts.priceCol) h += `<td class="ue-cell fin-pricecol"><input class="hc-f hc-n itx-price" type="number" min="0" step="any" data-i="${i}" value="${it.price}"${dis}></td>`;
         for (let m = 0; m < FIN_MONTHS; m++) {
           const n = Number((vals || [])[m]) || 0;
           tot += opts.priceCol ? n * (it.price || 0) : n;
           h += `<td class="ue-cell"><input class="hc-f hc-n itx-v" type="number" min="0" step="any" data-i="${i}" data-m="${m}" value="${n || ''}" placeholder="-"${dis}></td>`;
         }
         h += `<td class="ue-cell ue-totalcol">${tot ? fmtNum(tot) : '-'}</td>`;
-        h += `<td class="ue-cell">${canEdit ? `<button class="fin-del itx-del" data-i="${i}">✕</button>` : ''}</td></tr>`;
+        h += (canEdit ? `<td class="ue-cell fin-actcol"><button class="fin-del itx-del" data-i="${i}">✕</button></td>` : '') + '</tr>';
       });
       h += '</tbody></table></div>';
       if (canEdit) h += `<button class="ue-fleet-btn uet-add itx-add" style="margin-top:8px">+ Add item</button>`;
@@ -2491,7 +2492,7 @@
       const head = document.createElement('div');
       let h = `<div class="sub2-title">Sales Commission</div>` +
         `<div class="fin-note" style="margin:6px 0 10px">USD per delivered vehicle: <input class="hc-f hc-n" id="cacPerUnit" type="number" min="0" step="any" value="${per}"${canEditNow() ? '' : ' disabled'}> × vehicles delivered in the month (from the Fleet Plan)</div>`;
-      h += '<div class="ue-table-wrap"><table class="ue-table"><thead><tr><th class="ue-rowlabel">Line</th>';
+      h += '<div class="ue-table-wrap"><table class="ue-table fin-grid"><thead><tr><th class="ue-rowlabel">Line</th>';
       for (let m = 0; m < FIN_MONTHS; m++) h += `<th>${monthLbl(m)}</th>`;
       h += '<th class="ue-totalcol">FY-26E</th></tr></thead><tbody>';
       const rowH = (label, arr) => { let s = `<tr class="ue-row ue-leaf"><td class="ue-rowlabel">${label}</td>`; let t = 0; for (let m = 0; m < FIN_MONTHS; m++) { t += arr[m]; s += `<td class="ue-cell">${arr[m] ? fmtNum(arr[m]) : '-'}</td>`; } return s + `<td class="ue-cell ue-totalcol">${t ? fmtNum(t) : '-'}</td></tr>`; };

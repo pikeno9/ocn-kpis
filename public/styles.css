@@ -327,11 +327,13 @@ button { font-family: inherit; cursor: pointer; }
 /* Geometria FIXA das tabelas do Finance: mesmas larguras de coluna em todas as abas,
    para nada "sambar" ao alternar e para o FY-26E não sobrepor dezembro.
    min-width + o overflow-x do .ue-table-wrap => rola em vez de espremer/sobrepor. */
-#sec-finance .ue-table.fin-grid { table-layout: fixed; width: 100%; min-width: 1060px; }
-#sec-finance .fin-grid th.ue-rowlabel, #sec-finance .fin-grid td.ue-rowlabel { width: 196px; min-width: 196px; }
-#sec-finance .fin-grid th.fin-pricecol, #sec-finance .fin-grid td.fin-pricecol { width: 84px; }
-#sec-finance .fin-grid th.ue-totalcol, #sec-finance .fin-grid td.ue-totalcol { width: 84px; }
-#sec-finance .fin-grid th.fin-actcol, #sec-finance .fin-grid td.fin-actcol { width: 34px; padding-left: 2px; padding-right: 2px; }
+#sec-finance .ue-table.fin-grid { table-layout: fixed; width: 100%; min-width: 940px; }
+#sec-finance .fin-grid th.ue-rowlabel, #sec-finance .fin-grid td.ue-rowlabel { width: 170px; min-width: 170px; }
+#sec-finance .fin-grid th.fin-pricecol, #sec-finance .fin-grid td.fin-pricecol { width: 70px; }
+#sec-finance .fin-grid th.ue-totalcol, #sec-finance .fin-grid td.ue-totalcol { width: 74px; }
+#sec-finance .fin-grid th.fin-actcol, #sec-finance .fin-grid td.fin-actcol { width: 26px; padding-left: 2px; padding-right: 2px; }
+#sec-finance .fin-grid td.fin-actcol .fin-del { padding: 2px 4px; font-size: 11px; line-height: 1; }
+#sec-finance .fin-grid th, #sec-finance .fin-grid td { padding-left: 3px; padding-right: 3px; }
 #sec-finance .fin-grid td.ue-cell { overflow: hidden; text-overflow: ellipsis; }
 /* inputs preenchem a célula em vez de estourar a largura fixa da coluna */
 #sec-finance .fin-grid .itx-label, #sec-finance .fin-grid td.ue-cell .hc-n { width: 100%; min-width: 0; }

@@ -17,6 +17,7 @@ const TABS = {
   funil: 'funil',
   leadsInDrive: 'Leads inDrive',
   perfInDrive: 'Performance inDrive',
+  perfInDriveData: 'import_indrive(dados)', // nova base tidy da inDrive (tabela semanal cols 15-19)
   carrosEsperados: 'CarrosEsperados',
 };
 

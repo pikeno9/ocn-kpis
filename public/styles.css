@@ -436,6 +436,13 @@ html { scrollbar-gutter: stable; }
 .ue-table .hc-f:disabled, .ue-table .hc-role:disabled, .ue-table .hc-pname:disabled { border-color: transparent; background: transparent; color: var(--text); opacity: 1; -webkit-text-fill-color: var(--text); cursor: default; -webkit-appearance: none; appearance: none; }
 .ue-table .hc-role:disabled { padding-left: 6px; }
 #uetTable .uet-in { width: 100%; border: 0; background: #fff; text-align: right; font-family: inherit; font-size: 10.5px; padding: 1px 2px; box-sizing: border-box; color: var(--text); outline: 1px solid var(--accent); border-radius: 3px; }
+/* barra do contrato da frota: início ——[decorrido]—— início + 52 semanas */
+.ue-contract { display: flex; align-items: center; gap: 10px; margin: 12px 0 4px; }
+.ue-contract-date { font-size: 11.5px; font-weight: 600; color: var(--text-2); white-space: nowrap; }
+.ue-contract-track { position: relative; flex: 1; height: 18px; background: var(--surface-2, #eef1f5); border: 1px solid var(--border-2); border-radius: 999px; overflow: hidden; min-width: 120px; }
+.ue-contract-fill { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 70%, #fff) 0%, var(--accent) 100%); border-radius: 999px; transition: width .25s; }
+.ue-contract-fill.done { background: #16a34a; }
+.ue-contract-lbl { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 700; color: var(--text); mix-blend-mode: luminosity; letter-spacing: .02em; }
 #uetControls { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
 .uet-ctrl { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--text-2); }
 .uet-ctrl label { font-weight: 600; }

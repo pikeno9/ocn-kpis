@@ -3443,6 +3443,25 @@
       const subInfo = ini
         ? `start ${fmtDate(f.inicio)} · today ${fmtDate(U.hoje)} · ${elapsed.toFixed(1)} months elapsed`
         : 'no start date in the base';
+      // barra do contrato: início ——[quanto já correu]—— início + 52 semanas (só com data de início;
+      // em "All fleets" cada frota tem um começo diferente, então a barra não aparece)
+      let contractBar = '';
+      if (ini && !allMode) {
+        const totalWeeks = U.periods * SEMANAS_MES;                      // 12 × 4,3333 = 52
+        const wkNow = Math.max(0, (hoje - ini) / (7 * 86400000));
+        const pct = Math.max(0, Math.min(100, (wkNow / totalWeeks) * 100));
+        const endIso = new Date(ini.getTime() + totalWeeks * 7 * 86400000).toISOString().slice(0, 10);
+        const done = pct >= 100;
+        contractBar =
+          `<div class="ue-contract">` +
+            `<span class="ue-contract-date">${fmtDate(f.inicio)}</span>` +
+            `<div class="ue-contract-track" title="${Math.floor(wkNow)} of ${Math.round(totalWeeks)} weeks elapsed">` +
+              `<div class="ue-contract-fill${done ? ' done' : ''}" style="width:${pct.toFixed(1)}%"></div>` +
+              `<span class="ue-contract-lbl">week ${Math.min(Math.floor(wkNow), Math.round(totalWeeks))} of ${Math.round(totalWeeks)} · ${Math.round(pct)}%</span>` +
+            `</div>` +
+            `<span class="ue-contract-date">${fmtDate(endIso)}</span>` +
+          `</div>`;
+      }
       document.getElementById('ueHead').innerHTML =
         `<div class="ue-headrow">` +
           `<div class="ue-fleet-head">` +
@@ -3460,6 +3479,7 @@
             `<button class="ue-refresh-btn" id="ueRefresh" title="Re-fetches the spreadsheet data">↻ Refresh data</button>` +
           `</div>` +
         `</div>` +
+        contractBar +
         `<div class="ue-sliders">` +
           slider('ueCotacao', 'future FX (R$/US$)', 3, 8, 0.05, cotacao) +
           slider('ueInad', 'delinquency rate (%)', 0, 50, 1, inadimplencia) +

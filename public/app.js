@@ -2097,37 +2097,38 @@
       // árvore de linhas (grupos colapsáveis) — #1
       const N = [];
       const push = (label, arr, cls, o) => N.push(Object.assign({ label, arr, cls: cls || 'ue-leaf', ancestors: [] }, o || {}));
-      push('Total delivered fleet', P.delivered, 'ue-leaf', { isQty: true });
-      push('Total active fleet', P.active, 'ue-leaf', { isQty: true });
-      push('Gross Revenue', P.grossRev, 'ue-totalInflow ue-calc');
-      push('(-) Taxes on sales', P.taxes, 'ue-leaf', { group: 'tax' });
-      push('(-) Federal taxes', P.fed, 'ue-leaf', { ancestors: ['tax'] });
-      push('(+) Tax input credit', P.cred, 'ue-leaf', { ancestors: ['tax'] });
-      push('Net Revenue', P.netRev, 'ue-totalInflow ue-calc');
-      push('(-) COGS', P.cogsTot, 'ue-totalOutflow ue-calc', { group: 'cogs' });
-      FIN_COGS_LINES.forEach((L) => push('(-) ' + L, P.cogs[L], 'ue-leaf', { ancestors: ['cogs'] }));
-      push('(-) Sub-rental security deposit', P.secDep, 'ue-leaf', { ancestors: ['cogs'] }); // #2
-      push('(-) Payment processing', P.payProc, 'ue-leaf');
-      push('Gross Margin', P.gm, 'ue-net ue-calc');
-      push('Gross Margin (%)', gmPct, 'ue-net ue-calc', { isPct: true });
-      push('(-) OPEX', P.opex, 'ue-totalOutflow ue-calc', { group: 'opex' });
-      push('(-) CAC', P.cacTot, 'ue-leaf', { group: 'cac', ancestors: ['opex'] });
-      push('(-) Sales commission', P.commission, 'ue-leaf', { ancestors: ['opex', 'cac'] });
-      push('(-) Google/Meta Ads', P.adsTot, 'ue-leaf', { ancestors: ['opex', 'cac'] });
-      push('(-) Digital Influencers', P.infTot, 'ue-leaf', { ancestors: ['opex', 'cac'] });
-      push('(-) SG&A', P.sga, 'ue-leaf', { group: 'sga', ancestors: ['opex'] });
-      push('(-) HC Payroll', P.hcTot, 'ue-leaf', { group: 'hc', ancestors: ['opex', 'sga'] });
-      push('(-) Base salary', P.base, 'ue-leaf', { ancestors: ['opex', 'sga', 'hc'] });
-      push('(-) Meal voucher', P.meal, 'ue-leaf', { ancestors: ['opex', 'sga', 'hc'] });
-      push('(-) Healthplan', P.health, 'ue-leaf', { ancestors: ['opex', 'sga', 'hc'] });
-      push('(-) Payroll taxes', P.ptax, 'ue-leaf', { ancestors: ['opex', 'sga', 'hc'] });
-      push('(-) 13th + vacation', P.th13, 'ue-leaf', { ancestors: ['opex', 'sga', 'hc'] });
-      push('(-) Annual bonus', P.bonus, 'ue-leaf', { ancestors: ['opex', 'sga', 'hc'] });
-      push('(-) Rent & Utilities', P.rentTot, 'ue-leaf', { ancestors: ['opex', 'sga'] });
-      push('(-) Professional Services', P.profTot, 'ue-leaf', { ancestors: ['opex', 'sga'] });
-      push('(-) IT', P.itTot, 'ue-leaf', { ancestors: ['opex', 'sga'] });
-      push('Net cashflow', P.netCf, 'ue-net ue-calc');
-      push('Acc. Net cashflow', P.accCf, 'ue-acc ue-calc', { isAcc: true });
+      // Color code por NÍVEL: L1 = resultados (Gross/Net Revenue, Gross Margin, Net cashflow),
+      // L2 = blocos (COGS, Payment processing, OPEX), L3 = componentes, L4 = detalhe dentro de um L3.
+      push('Total delivered fleet', P.delivered, 'pnl-qty', { isQty: true });
+      push('Total active fleet', P.active, 'pnl-qty', { isQty: true });
+      push('Gross Revenue', P.grossRev, 'pnl-l1');
+      push('(-) Taxes on sales', P.taxes, 'pnl-l2', { group: 'tax' });
+      push('(-) Federal taxes', P.fed, 'pnl-l3', { ancestors: ['tax'] });
+      push('(+) Tax input credit', P.cred, 'pnl-l3', { ancestors: ['tax'] });
+      push('Net Revenue', P.netRev, 'pnl-l1');
+      push('(-) COGS', P.cogsTot, 'pnl-l2', { group: 'cogs' });
+      FIN_COGS_LINES.forEach((L) => push('(-) ' + L, P.cogs[L], 'pnl-l3', { ancestors: ['cogs'] }));
+      push('(-) Sub-rental security deposit', P.secDep, 'pnl-l3', { ancestors: ['cogs'] }); // #2
+      push('(-) Payment processing', P.payProc, 'pnl-l2');
+      push('Gross Margin', P.gm, 'pnl-l1', { pct: gmPct, pctTot: sum(P.grossRev) ? (sum(P.gm) / sum(P.grossRev)) * 100 : null });
+      push('(-) OPEX', P.opex, 'pnl-l2', { group: 'opex' });
+      push('(-) CAC', P.cacTot, 'pnl-l3', { group: 'cac', ancestors: ['opex'] });
+      push('(-) Sales commission', P.commission, 'pnl-l3', { ancestors: ['opex', 'cac'] });
+      push('(-) Google/Meta Ads', P.adsTot, 'pnl-l3', { ancestors: ['opex', 'cac'] });
+      push('(-) Digital Influencers', P.infTot, 'pnl-l3', { ancestors: ['opex', 'cac'] });
+      push('(-) SG&A', P.sga, 'pnl-l3', { group: 'sga', ancestors: ['opex'] });
+      push('(-) HC Payroll', P.hcTot, 'pnl-l3', { group: 'hc', ancestors: ['opex', 'sga'] });
+      push('(-) Base salary', P.base, 'pnl-l4', { ancestors: ['opex', 'sga', 'hc'] });
+      push('(-) Meal voucher', P.meal, 'pnl-l4', { ancestors: ['opex', 'sga', 'hc'] });
+      push('(-) Healthplan', P.health, 'pnl-l4', { ancestors: ['opex', 'sga', 'hc'] });
+      push('(-) Payroll taxes', P.ptax, 'pnl-l4', { ancestors: ['opex', 'sga', 'hc'] });
+      push('(-) 13th + vacation', P.th13, 'pnl-l4', { ancestors: ['opex', 'sga', 'hc'] });
+      push('(-) Annual bonus', P.bonus, 'pnl-l4', { ancestors: ['opex', 'sga', 'hc'] });
+      push('(-) Rent & Utilities', P.rentTot, 'pnl-l3', { ancestors: ['opex', 'sga'] });
+      push('(-) Professional Services', P.profTot, 'pnl-l3', { ancestors: ['opex', 'sga'] });
+      push('(-) IT', P.itTot, 'pnl-l3', { ancestors: ['opex', 'sga'] });
+      push('Net cashflow', P.netCf, 'pnl-l1');
+      push('Acc. Net cashflow', P.accCf, 'pnl-l1 pnl-acc', { isAcc: true });
 
       let html = '<thead><tr><th class="ue-rowlabel">P&amp;L (USD)</th>';
       for (let m = 0; m < FIN_MONTHS; m++) html += `<th>${monthLbl(m)}</th>`;
@@ -2139,14 +2140,11 @@
         const chev = isParent ? `<span class="pnl-chev">${collapsed ? '▸' : '▾'}</span>` : (n.ancestors.length ? '<span class="pnl-chev-sp"></span>' : '');
         let tr = `<tr class="ue-row ${n.cls}${isParent ? ' pnl-parent' : ''}"${isParent ? ` data-g="${n.group}"` : ''}>`;
         tr += `<td class="ue-rowlabel" style="padding-left:${pad}px">${chev}${escH(n.label)}</td>`;
-        if (n.isPct) {
-          for (let m = 0; m < FIN_MONTHS; m++) tr += `<td class="ue-cell">${n.arr[m] == null ? '-' : Math.round(n.arr[m]) + '%'}</td>`;
-          tr += `<td class="ue-cell ue-totalcol">${sum(P.grossRev) ? Math.round((sum(P.gm) / sum(P.grossRev)) * 100) + '%' : '-'}</td>`;
-        } else {
-          for (let m = 0; m < FIN_MONTHS; m++) tr += `<td class="ue-cell">${n.isQty ? fmtQty(n.arr[m]) : fmt(n.arr[m])}</td>`;
-          const tot = (n.isQty || n.isAcc) ? n.arr[FIN_MONTHS - 1] : sum(n.arr);
-          tr += `<td class="ue-cell ue-totalcol">${n.isQty ? fmtQty(tot) : fmt(tot)}</td>`;
-        }
+        // #2: o % vai como um número pequeno em cinza SOB o valor (sem linha própria)
+        const sub = (v) => (n.pct && v != null) ? `<span class="pnl-sub">${Math.round(v)}%</span>` : '';
+        for (let m = 0; m < FIN_MONTHS; m++) tr += `<td class="ue-cell">${n.isQty ? fmtQty(n.arr[m]) : fmt(n.arr[m])}${sub(n.pct ? n.pct[m] : null)}</td>`;
+        const tot = (n.isQty || n.isAcc) ? n.arr[FIN_MONTHS - 1] : sum(n.arr);
+        tr += `<td class="ue-cell ue-totalcol">${n.isQty ? fmtQty(tot) : fmt(tot)}${sub(n.pctTot)}</td>`;
         html += tr + '</tr>';
       });
       html += '</tbody>';

@@ -358,6 +358,24 @@ html { scrollbar-gutter: stable; }
 .pnl-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .pnl-btn.pnl-del:hover { border-color: #a11414; color: #a11414; }
 .pnl-frozen { font-size: 12px; font-weight: 600; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 999px; padding: 3px 10px; }
+/* ---- P&L color code por NÍVEL hierárquico (escuro = resultado, clareia conforme desce) ----
+   L1 resultados · L2 blocos (COGS/Payment/OPEX/Taxes) · L3 componentes · L4 detalhe dentro de um L3.
+   Regras com #pnlTable vencem o .ue-rowlabel sticky (que é opaco e precisa da cor do nível). */
+#pnlTable tbody tr.pnl-l1 td { background: #3A00A0; color: #fff; font-weight: 700; border-top: 2px solid var(--surface); }
+#pnlTable tbody tr.pnl-l1 td.ue-totalcol { background: #2C0079; }
+#pnlTable tbody tr.pnl-acc td { background: #2C0079; }
+#pnlTable tbody tr.pnl-acc td.ue-totalcol { background: #1F0057; }
+#pnlTable tbody tr.pnl-l2 td { background: #C4B5FD; color: var(--text); font-weight: 600; }
+#pnlTable tbody tr.pnl-l2 td.ue-totalcol { background: #B3A1F7; }
+#pnlTable tbody tr.pnl-l3 td { background: #EDE9FE; color: var(--text); font-weight: 500; }
+#pnlTable tbody tr.pnl-l3 td.ue-totalcol { background: #DFD8FB; }
+#pnlTable tbody tr.pnl-l4 td { background: #FBFAFF; color: var(--text-2); font-weight: 400; }
+#pnlTable tbody tr.pnl-l4 td.ue-totalcol { background: #F1EFFA; }
+#pnlTable tbody tr.pnl-qty td { background: var(--surface); color: var(--text-2); }
+#pnlTable tbody tr.pnl-qty td.ue-totalcol { background: #e8e8ec; }
+#pnlTable tbody tr.pnl-l1 .pnl-chev, #pnlTable tbody tr.pnl-l1:hover .ue-rowlabel { color: #fff; }
+/* % pequeno e apagado sob o valor (Gross Margin) — herda a cor da linha p/ ler no claro e no escuro */
+.pnl-sub { display: block; font-size: 9px; font-weight: 600; color: currentColor; opacity: .6; margin-top: 1px; line-height: 1.1; }
 /* linhas-pai clicáveis */
 .ue-table tr.pnl-parent { cursor: pointer; }
 .ue-table tr.pnl-parent:hover .ue-rowlabel { color: var(--accent); }

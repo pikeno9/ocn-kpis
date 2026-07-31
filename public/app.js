@@ -2882,8 +2882,10 @@
       'Security Deposit': [{ k: '__num_alugueis__', label: 'Number of rentals (deposit = N × monthly Subrental)' }],
       'Vehicle Purchase': [{ k: '__vehicle__', label: 'Purchase/buyback amount (R$) — enters at M13' }],
     };
-    // rótulo de exibição ≠ chave interna (que segue a planilha)
-    const DISPLAY_LABEL = { 'Deposit Refund': 'Security Deposit Refund', 'Car Preparation (wash + delivery)': 'Car Preparation' };
+    // rótulo de exibição ≠ chave interna (que segue a planilha).
+    // 'Traffic fines (out)' é a linha de SAÍDA — chave distinta da de entrada (senão colidiriam nas
+    // entradas manuais/params), mas ambas aparecem como "Traffic fines" na tela.
+    const DISPLAY_LABEL = { 'Deposit Refund': 'Security Deposit Refund', 'Car Preparation (wash + delivery)': 'Car Preparation', 'Traffic fines (out)': 'Traffic fines' };
     const par = (k) => +params[k] || 0;
     const SEMANAS_MES = 52 / 12; // 4,3333
     const REVISAO_KM = 10000;    // revisão a cada 10.000 km
@@ -3019,6 +3021,34 @@
       if (!plateView) for (let p = 0; p <= PMAX; p++) { maintRealRS[p] /= activeCarsAt(p); maintProjRS[p] /= activeCarsAt(p); }
       maintReady = true;
     }
+    // Multas de trânsito por dados reais (endpoint de multas, por placa): receita do mês = Σ das multas
+    // PAGAS cuja data de pagamento cai no mês. Projeção = média histórica por DIA da própria frota
+    // (total recebido ÷ dias corridos desde o início) × dias que faltam na janela do mês.
+    let finesRS = [], finesPerDay = 0, finesReady = false;
+    function computeFines(f) {
+      finesRS = []; finesPerDay = 0; finesReady = false;
+      const mul = U.multas && U.multas.placas;
+      const ini = f.inicio ? new Date(f.inicio + 'T12:00:00') : null;
+      if (!mul || !ini) return;
+      const plates = plateView ? [plateView] : (f.placas || []);
+      for (let p = 0; p <= PMAX; p++) finesRS[p] = 0;
+      let total = 0;
+      plates.forEach((pl) => (mul[pl] || []).forEach((x) => {
+        const dt = new Date(x.d + 'T12:00:00');
+        let mo = Math.ceil(((dt - ini) / 86400000) / (SEMANAS_MES * 7));
+        if (mo < 1) mo = 1;
+        if (mo > U.periods) return;
+        finesRS[mo] += x.v; total += x.v;
+      }));
+      // média por dia = tudo que já foi recebido ÷ dias corridos desde o início da frota
+      const dias = Math.max(1, (hoje - ini) / 86400000);
+      finesPerDay = total / dias;
+      if (!plateView) {
+        for (let p = 0; p <= PMAX; p++) finesRS[p] /= activeCarsAt(p);
+        finesPerDay /= activeCarsAt(Math.min(PMAX, Math.max(1, Math.ceil(elapsed))));
+      }
+      finesReady = true;
+    }
     // Subscription por dados reais (matriz de pagamentos por placa): receita do mês = Σ do VALOR REAL
     // recebido (s.r, já com juros) das semanas cujo vencimento cai no mês. Fallback p/ semanalidade×(1+juros)
     // se a API não trouxer o valor. Agregado = soma ÷ nº de placas ativas; visão por placa = sem divisão.
@@ -3085,6 +3115,25 @@
         if (!curIni) return null;
         return { rs: mondaysInMonth(curIni, period) * wkJuros, perActive: true };
       }
+      // Multas (entrada): realizado = multas pagas no mês; projeção = média/dia × dias restantes da janela.
+      if (line === 'Traffic fines') {
+        if (period === 0 || period === PMAX || !finesReady) return period === 0 || period === PMAX ? { rs: 0, perActive: true } : null;
+        const dayMs = 86400000, len = SEMANAS_MES * 7;
+        const winEnd = new Date(curIni.getTime() + period * len * dayMs);
+        const winStart = new Date(curIni.getTime() + (period - 1) * len * dayMs);
+        if (periodStatus(period) === 'real') {
+          const real = finesRS[period] || 0;
+          if (period === currentMonthIdx() && curIni) {
+            const diasFalta = Math.max(0, (winEnd - hoje) / dayMs);
+            return { rs: real, rsProj: diasFalta * finesPerDay * plateCut(period), perActive: true };
+          }
+          return { rs: real, perActive: true };
+        }
+        if (!curIni) return null;
+        return { rs: ((winEnd - winStart) / dayMs) * finesPerDay * plateCut(period), perActive: true };
+      }
+      // Multas (saída) — a definir: repasse ao órgão/custo administrativo. Ainda sem cálculo.
+      if (line === 'Traffic fines (out)') return null;
       if (line === 'Subrental fee' && par('__subrental_mensal__') > 0) {
         // valor por carro ATIVO (a placa perdida sai do numerador e do denominador a partir do incidente)
         return { rs: (period >= 1 && period <= U.periods) ? -par('__subrental_mensal__') * plateCut(period) : 0, perActive: true };
@@ -3157,6 +3206,7 @@
       elapsed = c.elapsed; realizedFull = c.realizedFull; lossMonthByPlate = c.lossMonthByPlate; activeFracArr = c.activeFracArr;
       subsRS = c.subsRS || []; subsJurosRS = c.subsJurosRS || []; subsReady = !!c.subsReady;
       maintRealRS = c.maintRealRS || []; maintProjRS = c.maintProjRS || []; maintReady = !!c.maintReady;
+      finesRS = c.finesRS || []; finesPerDay = c.finesPerDay || 0; finesReady = !!c.finesReady;
     }
     // combinação "All fleets": média por veículo ponderada — linhas "por carro ativo" pesam pelos carros ativos
     // do mês; as demais (Insurance etc.) pelos carros totais. Uma célula pode sair com realizado E projetado
@@ -3452,11 +3502,22 @@
         const pct = Math.max(0, Math.min(100, (wkNow / totalWeeks) * 100));
         const endIso = new Date(ini.getTime() + totalWeeks * 7 * 86400000).toISOString().slice(0, 10);
         const done = pct >= 100;
+        // marcas de virada de mês do CALENDÁRIO ao longo da barra (1º dia de cada mês dentro do contrato)
+        const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+        const totalMs = totalWeeks * 7 * 86400000;
+        let ticks = '';
+        const cur = new Date(ini.getFullYear(), ini.getMonth() + 1, 1); // próxima virada de mês
+        while (cur.getTime() - ini.getTime() < totalMs) {
+          const at = ((cur.getTime() - ini.getTime()) / totalMs) * 100;
+          ticks += `<span class="ue-contract-tick" style="left:${at.toFixed(2)}%"><i></i><b>${MESES[cur.getMonth()]}</b></span>`;
+          cur.setMonth(cur.getMonth() + 1);
+        }
         contractBar =
           `<div class="ue-contract">` +
             `<span class="ue-contract-date">${fmtDate(f.inicio)}</span>` +
             `<div class="ue-contract-track" title="${Math.floor(wkNow)} of ${Math.round(totalWeeks)} weeks elapsed">` +
               `<div class="ue-contract-fill${done ? ' done' : ''}" style="width:${pct.toFixed(1)}%"></div>` +
+              ticks +
               `<span class="ue-contract-lbl">week ${Math.min(Math.floor(wkNow), Math.round(totalWeeks))} of ${Math.round(totalWeeks)} · ${Math.round(pct)}%</span>` +
             `</div>` +
             `<span class="ue-contract-date">${fmtDate(endIso)}</span>` +
@@ -3519,23 +3580,31 @@
       if (!orc) { tbl.innerHTML = '<tbody><tr><td>No budget for ' + f.modelLabel + '</td></tr></tbody>'; return; }
       // injeta a linha de juros de atraso logo após Subscription (entra no Total Inflow; principal fica na Subscription)
       const subIdx = orc.lines.findIndex((l) => l.label === 'Subscription');
-      const lines = subIdx < 0 ? orc.lines
-        : [...orc.lines.slice(0, subIdx + 1), { label: 'Late-payment interest', group: 'inflow', values: [] }, ...orc.lines.slice(subIdx + 1)];
+      let lines = subIdx < 0 ? orc.lines
+        : [...orc.lines.slice(0, subIdx + 1),
+           { label: 'Late-payment interest', group: 'inflow', values: [] },
+           { label: 'Traffic fines', group: 'inflow', values: [] },
+           ...orc.lines.slice(subIdx + 1)];
+      // multas também como SAÍDA (repasse/custo) — entra no fim do bloco de outflow, ainda sem cálculo
+      const lastOut = lines.map((l) => l.group).lastIndexOf('outflow');
+      if (lastOut >= 0) lines = [...lines.slice(0, lastOut + 1), { label: 'Traffic fines (out)', group: 'outflow', values: [] }, ...lines.slice(lastOut + 1)];
       // Subscription/Maintenance dependem da frota E da visão (placa/agregado); all-mode pré-computa por frota
       if (allMode && fleetCtx) {
         if (plateView) {
           const c = fleetCtx.find((x) => (x.f.placas || []).includes(plateView));
-          if (c) { applyCtx(c); computeSubs(c.f); computeMaint(c.f); }
+          if (c) { applyCtx(c); computeSubs(c.f); computeMaint(c.f); computeFines(c.f); }
         } else {
           fleetCtx.forEach((c) => {
-            applyCtx(c); computeSubs(c.f); computeMaint(c.f);
+            applyCtx(c); computeSubs(c.f); computeMaint(c.f); computeFines(c.f);
             c.subsRS = subsRS; c.subsJurosRS = subsJurosRS; c.subsReady = subsReady;
             c.maintRealRS = maintRealRS; c.maintProjRS = maintProjRS; c.maintReady = maintReady;
+            c.finesRS = finesRS; c.finesPerDay = finesPerDay; c.finesReady = finesReady;
           });
         }
       } else {
         computeSubs(f);
         computeMaint(f);
+        computeFines(f);
       }
       const T = computeTotals(lines);
       const gmap = { totalInflow: T.totalInflow, totalOutflow: T.totalOutflow, net: T.net, acc: T.acc };

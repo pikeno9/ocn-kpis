@@ -1903,6 +1903,9 @@
   let finHc = { roles: [], people: [], plan: {} }, finSga = { rent: [], prof: [], it: [] }, finCac = { perUnit: 0, ads: [], inf: [] };
   let finEdit = false; // "Edit mode" do Finance (compartilhado por todas as abas) — começa somente leitura
   let sgaTab = 'hc', cacTab = 'comm'; // abas de 3º nível dentro de SG&A e CAC & Marketing
+  let pnlNoSd = false; // P&L: excluir o sub-rental security deposit da visão
+  let pnlCollapsed = new Set(['tax', 'cogs', 'opex', 'cac', 'sga', 'hc']); // grupos recolhidos (padrão: fechados)
+  let pnlVersions = [], pnlVersion = 'live'; // versões congeladas p/ board + versão selecionada
   const FIN_MONTHS = 12; // 2026-01 .. 2026-12
   const FIN_ML = (i) => '2026-' + String(i + 1).padStart(2, '0');
   const FIN_REV_LINES = ['Subscription', 'Late-payment interest', 'Initial Fee / Vehicle Sell', 'Security Deposit Refund'];
@@ -1928,6 +1931,8 @@
     const parseInput = (raw) => { raw = String(raw).trim(); if (raw === '') return null; raw = raw.replace(/[R$\s]/gi, '').replace(/\./g, '').replace(',', '.'); const n = Number(raw); return isFinite(n) ? n : null; };
     const isAdmin = !!(OCN._meta && OCN._meta.user && (OCN._meta.user.role === 'admin' || OCN._meta.user.role === 'giga_admin'));
     const finPar = (k) => { const v = finCfg[k + '@@0']; if (v != null) return Number(v); const d = FIN_ASSUMP.find((a) => a.k === k); return d ? d.def : 0; };
+    // assumption por MÊS: override em finCfg[k@@m]; senão o valor escalar (finPar). Ex.: processing fee mês a mês.
+    const finParM = (k, m) => { const v = finCfg[k + '@@' + m]; return (v != null) ? Number(v) : finPar(k); };
     // ---- padrões compartilhados por TODAS as abas do Finance ----
     const FIN_MON3 = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
     const monthLbl = (m) => { const p = String(FIN_ML(m)).split('-'); const mo = parseInt(p[1], 10) - 1; return (FIN_MON3[mo] || p[1]) + '-' + (p[0] || '').slice(2); }; // 2026-02 -> feb-26
@@ -1986,10 +1991,11 @@
     const mondaysOnOrAfter = (mo, fromDay) => { let n = 0; const d = new Date(2026, mo, 1); while (d.getMonth() === mo) { if (d.getDay() === 1 && d.getDate() >= fromDay) n++; d.setDate(d.getDate() + 1); } return n; };
     const cohMonth = (c) => (c.date ? (parseInt(c.date.slice(5, 7), 10) - 1) : (c.month || 0));
     const cohDay = (c) => (c.date ? parseInt(c.date.slice(8, 10), 10) : 1);
-    function computePnl() {
+    function computePnl(opts) {
+      opts = opts || {};
       const fx = finPar('__fin_fx__') || 5.5;
       const taxFed = finPar('__fin_tax_fed__') / 100, taxCred = finPar('__fin_tax_credit__') / 100;
-      const payFee = finPar('__fin_payfee__') / 100, decomm = finPar('__fin_decomm__') / 100;
+      const payFeeM = (m) => finParM('__fin_payfee__', m) / 100, decomm = finPar('__fin_decomm__') / 100;
       const WEEKLY_LINES = { 'Subscription': 1, 'Late-payment interest': 1 };   // semanal × semanas pagas
       const BILLABLE_LINES = { 'Subrental fee': 1 };                            // mensal × billable ratio
       const maints = {}; finModels.forEach((m) => { maints[m.id] = uetMaint(finModelVals[m.id] || {}, m.id); });
@@ -2029,15 +2035,17 @@
           if (sd && age === 0) { const v0 = uetEff(vals, c.model, sd, 0, maint); if (v0 != null) secDep[m] += (v0 * c.qty) / fx; }
         });
       }
+      if (opts.noSd) secDep.fill(0); // visão "sem sub-rental security deposit"
       const grossRev = zeros(), cogsTot = zeros();
       for (let m = 0; m < FIN_MONTHS; m++) {
         FIN_REV_LINES.forEach((L) => grossRev[m] += rev[L][m]);
         FIN_COGS_LINES.forEach((L) => cogsTot[m] += cogs[L][m]);
+        cogsTot[m] += secDep[m]; // #2: sub-rental security deposit sobe pro COGS (como no UE)
       }
       const fed = grossRev.map((v) => -v * taxFed), cred = grossRev.map((v) => v * taxCred);
       const taxes = grossRev.map((_, m) => fed[m] + cred[m]);
       const netRev = grossRev.map((v, m) => v + taxes[m]);
-      const payProc = grossRev.map((v) => -v * payFee);
+      const payProc = grossRev.map((v, m) => -v * payFeeM(m));
       const gm = netRev.map((v, m) => v + cogsTot[m] + payProc[m]);
       // ---- OPEX: HC payroll + Admin + CAC + security deposit (todos negativos) ----
       const th13f = finPar('__fin_13th__');
@@ -2066,74 +2074,164 @@
       const sumItems = (list) => { const a = zeros(); (list || []).forEach((it) => { for (let m = 0; m < FIN_MONTHS; m++) a[m] -= Number((it.v || [])[m]) || 0; }); return a; };
       const rentTot = sumItems(finSga.rent), profTot = sumItems(finSga.prof), itTot = sumItems(finSga.it);
       const sga = zeros(); for (let m = 0; m < FIN_MONTHS; m++) sga[m] = hcTot[m] + rentTot[m] + profTot[m] + itTot[m];
-      const opex = zeros(); for (let m = 0; m < FIN_MONTHS; m++) opex[m] = secDep[m] + cacTot[m] + sga[m];
+      const opex = zeros(); for (let m = 0; m < FIN_MONTHS; m++) opex[m] = cacTot[m] + sga[m]; // #2: secDep saiu daqui (foi pro COGS)
       const netCf = gm.map((v, m) => v + opex[m]);
       const accCf = []; let a1 = 0; netCf.forEach((v) => { a1 += v; accCf.push(a1); });
-      const netCfNoSd = gm.map((v, m) => v + opex[m] - secDep[m]); // igual ao Excel: visão sem o calção
-      const accNoSd = []; let a2 = 0; netCfNoSd.forEach((v) => { a2 += v; accNoSd.push(a2); });
+      // headcount total por mês (p/ o bloco de indicadores)
+      const headcount = zeros(); for (let m = 0; m < FIN_MONTHS; m++) (finHc.roles || []).forEach((r) => { headcount[m] += hcOf(r, m); });
+      const payFeePct = new Array(FIN_MONTHS).fill(0).map((_, m) => finParM('__fin_payfee__', m));
       return { delivered, active, rev, cogs, secDep, grossRev, fed, cred, taxes, netRev, cogsTot, payProc, gm,
-        base, meal, health, ptax, th13, bonus, hcTot, commission, adsTot, infTot, cacTot, rentTot, profTot, itTot, sga, opex, netCf, accCf, netCfNoSd, accNoSd, newDelivered };
+        base, meal, health, ptax, th13, bonus, hcTot, commission, adsTot, infTot, cacTot, rentTot, profTot, itTot, sga, opex, netCf, accCf, newDelivered, headcount, payFeePct };
     }
 
     // ---------- P&L ----------
+    const PNL_GROUPS = ['tax', 'cogs', 'opex', 'cac', 'sga', 'hc'];
+    const pnlSnap = () => (pnlVersions.find((v) => v.id === pnlVersion) || {}).snapshot || null;
     function renderPnl() {
       const el = document.getElementById('pnlTable'); if (!el) return;
-      const P = computePnl();
+      const snap = (pnlVersion === 'live') ? null : pnlSnap();
+      const live = !snap;
+      const P = snap || computePnl({ noSd: pnlNoSd });
       const sum = (a) => a.reduce((s, x) => s + (x || 0), 0);
-      // isQty = contagem de frota (estoque -> total = último mês) | isAcc = acumulado (total = valor final)
-      const row = (label, arr, cls, isQty, isAcc) => {
-        let h = `<tr class="ue-row ${cls}"><td class="ue-rowlabel">${escH(label)}</td>`;
-        for (let m = 0; m < FIN_MONTHS; m++) h += `<td class="ue-cell">${isQty ? fmtQty(arr[m]) : fmt(arr[m])}</td>`;
-        const tot = (isQty || isAcc) ? arr[FIN_MONTHS - 1] : sum(arr);
-        h += `<td class="ue-cell ue-totalcol">${isQty ? fmtQty(tot) : fmt(tot)}</td></tr>`;
-        return h;
-      };
+      const gmPct = P.grossRev.map((v, m) => (v ? (P.gm[m] / v) * 100 : null));
+      // árvore de linhas (grupos colapsáveis) — #1
+      const N = [];
+      const push = (label, arr, cls, o) => N.push(Object.assign({ label, arr, cls: cls || 'ue-leaf', ancestors: [] }, o || {}));
+      push('Total delivered fleet', P.delivered, 'ue-leaf', { isQty: true });
+      push('Total active fleet', P.active, 'ue-leaf', { isQty: true });
+      push('Gross Revenue', P.grossRev, 'ue-totalInflow ue-calc');
+      push('(-) Taxes on sales', P.taxes, 'ue-leaf', { group: 'tax' });
+      push('(-) Federal taxes', P.fed, 'ue-leaf', { ancestors: ['tax'] });
+      push('(+) Tax input credit', P.cred, 'ue-leaf', { ancestors: ['tax'] });
+      push('Net Revenue', P.netRev, 'ue-totalInflow ue-calc');
+      push('(-) COGS', P.cogsTot, 'ue-totalOutflow ue-calc', { group: 'cogs' });
+      FIN_COGS_LINES.forEach((L) => push('(-) ' + L, P.cogs[L], 'ue-leaf', { ancestors: ['cogs'] }));
+      push('(-) Sub-rental security deposit', P.secDep, 'ue-leaf', { ancestors: ['cogs'] }); // #2
+      push('(-) Payment processing', P.payProc, 'ue-leaf');
+      push('Gross Margin', P.gm, 'ue-net ue-calc');
+      push('Gross Margin (%)', gmPct, 'ue-net ue-calc', { isPct: true });
+      push('(-) OPEX', P.opex, 'ue-totalOutflow ue-calc', { group: 'opex' });
+      push('(-) CAC', P.cacTot, 'ue-leaf', { group: 'cac', ancestors: ['opex'] });
+      push('(-) Sales commission', P.commission, 'ue-leaf', { ancestors: ['opex', 'cac'] });
+      push('(-) Google/Meta Ads', P.adsTot, 'ue-leaf', { ancestors: ['opex', 'cac'] });
+      push('(-) Digital Influencers', P.infTot, 'ue-leaf', { ancestors: ['opex', 'cac'] });
+      push('(-) SG&A', P.sga, 'ue-leaf', { group: 'sga', ancestors: ['opex'] });
+      push('(-) HC Payroll', P.hcTot, 'ue-leaf', { group: 'hc', ancestors: ['opex', 'sga'] });
+      push('(-) Base salary', P.base, 'ue-leaf', { ancestors: ['opex', 'sga', 'hc'] });
+      push('(-) Meal voucher', P.meal, 'ue-leaf', { ancestors: ['opex', 'sga', 'hc'] });
+      push('(-) Healthplan', P.health, 'ue-leaf', { ancestors: ['opex', 'sga', 'hc'] });
+      push('(-) Payroll taxes', P.ptax, 'ue-leaf', { ancestors: ['opex', 'sga', 'hc'] });
+      push('(-) 13th + vacation', P.th13, 'ue-leaf', { ancestors: ['opex', 'sga', 'hc'] });
+      push('(-) Annual bonus', P.bonus, 'ue-leaf', { ancestors: ['opex', 'sga', 'hc'] });
+      push('(-) Rent & Utilities', P.rentTot, 'ue-leaf', { ancestors: ['opex', 'sga'] });
+      push('(-) Professional Services', P.profTot, 'ue-leaf', { ancestors: ['opex', 'sga'] });
+      push('(-) IT', P.itTot, 'ue-leaf', { ancestors: ['opex', 'sga'] });
+      push('Net cashflow', P.netCf, 'ue-net ue-calc');
+      push('Acc. Net cashflow', P.accCf, 'ue-acc ue-calc', { isAcc: true });
+
       let html = '<thead><tr><th class="ue-rowlabel">P&amp;L (USD)</th>';
       for (let m = 0; m < FIN_MONTHS; m++) html += `<th>${monthLbl(m)}</th>`;
       html += '<th class="ue-totalcol">FY-26E</th></tr></thead><tbody>';
-      html += row('Total delivered fleet', P.delivered, 'ue-leaf', true);
-      html += row('Total active fleet', P.active, 'ue-leaf', true);
-      html += row('Gross Revenue', P.grossRev, 'ue-totalInflow ue-calc');
-      html += row('(-) Taxes on sales', P.taxes, 'ue-leaf');
-      html += row('   (-) Federal taxes', P.fed, 'ue-leaf');
-      html += row('   (+) Tax input credit', P.cred, 'ue-leaf');
-      html += row('Net Revenue', P.netRev, 'ue-totalInflow ue-calc');
-      html += row('(-) COGS', P.cogsTot, 'ue-totalOutflow ue-calc');
-      FIN_COGS_LINES.forEach((L) => { html += row('   (-) ' + L, P.cogs[L], 'ue-leaf'); });
-      html += row('(-) Payment processing', P.payProc, 'ue-leaf');
-      html += row('Gross Margin', P.gm, 'ue-net ue-calc');
-      const gmPct = P.gm.map((v, m) => (P.grossRev[m] ? (v / P.grossRev[m]) * 100 : null));
-      let hp = '<tr class="ue-row ue-net ue-calc"><td class="ue-rowlabel">Gross Margin (%)</td>';
-      for (let m = 0; m < FIN_MONTHS; m++) hp += `<td class="ue-cell">${gmPct[m] == null ? '-' : Math.round(gmPct[m]) + '%'}</td>`;
-      const gmT = sum(P.grossRev) ? Math.round((sum(P.gm) / sum(P.grossRev)) * 100) + '%' : '-';
-      hp += `<td class="ue-cell ue-totalcol">${gmT}</td></tr>`;
-      html += hp;
-      // ---- OPEX -> Net cashflow ----
-      html += row('(-) OPEX', P.opex, 'ue-totalOutflow ue-calc');
-      html += row('   (-) Sub-rental security deposit', P.secDep, 'ue-leaf');
-      html += row('   (-) CAC', P.cacTot, 'ue-leaf');
-      html += row('      (-) Sales commission', P.commission, 'ue-leaf');
-      html += row('      (-) Google/Meta Ads', P.adsTot, 'ue-leaf');
-      html += row('      (-) Digital Influencers', P.infTot, 'ue-leaf');
-      html += row('   (-) SG&A', P.sga, 'ue-leaf');
-      html += row('      (-) HC Payroll', P.hcTot, 'ue-leaf');
-      html += row('         (-) Base salary', P.base, 'ue-leaf');
-      html += row('         (-) Meal voucher', P.meal, 'ue-leaf');
-      html += row('         (-) Healthplan', P.health, 'ue-leaf');
-      html += row('         (-) Payroll taxes', P.ptax, 'ue-leaf');
-      html += row('         (-) 13th + vacation', P.th13, 'ue-leaf');
-      html += row('         (-) Annual bonus', P.bonus, 'ue-leaf');
-      html += row('      (-) Rent & Utilities', P.rentTot, 'ue-leaf');
-      html += row('      (-) Professional Services', P.profTot, 'ue-leaf');
-      html += row('      (-) IT', P.itTot, 'ue-leaf');
-      html += row('Net cashflow', P.netCf, 'ue-net ue-calc');
-      html += row('Acc. Net cashflow', P.accCf, 'ue-acc ue-calc', false, true);
-      html += row('Net cashflow w/o security deposit', P.netCfNoSd, 'ue-leaf');
-      html += row('Acc. Net cashflow w/o security deposit', P.accNoSd, 'ue-leaf', false, true);
+      N.forEach((n) => {
+        if (n.ancestors.some((a) => pnlCollapsed.has(a))) return; // dentro de grupo recolhido
+        const isParent = !!n.group, collapsed = isParent && pnlCollapsed.has(n.group);
+        const pad = 8 + n.ancestors.length * 15;
+        const chev = isParent ? `<span class="pnl-chev">${collapsed ? '▸' : '▾'}</span>` : (n.ancestors.length ? '<span class="pnl-chev-sp"></span>' : '');
+        let tr = `<tr class="ue-row ${n.cls}${isParent ? ' pnl-parent' : ''}"${isParent ? ` data-g="${n.group}"` : ''}>`;
+        tr += `<td class="ue-rowlabel" style="padding-left:${pad}px">${chev}${escH(n.label)}</td>`;
+        if (n.isPct) {
+          for (let m = 0; m < FIN_MONTHS; m++) tr += `<td class="ue-cell">${n.arr[m] == null ? '-' : Math.round(n.arr[m]) + '%'}</td>`;
+          tr += `<td class="ue-cell ue-totalcol">${sum(P.grossRev) ? Math.round((sum(P.gm) / sum(P.grossRev)) * 100) + '%' : '-'}</td>`;
+        } else {
+          for (let m = 0; m < FIN_MONTHS; m++) tr += `<td class="ue-cell">${n.isQty ? fmtQty(n.arr[m]) : fmt(n.arr[m])}</td>`;
+          const tot = (n.isQty || n.isAcc) ? n.arr[FIN_MONTHS - 1] : sum(n.arr);
+          tr += `<td class="ue-cell ue-totalcol">${n.isQty ? fmtQty(tot) : fmt(tot)}</td>`;
+        }
+        html += tr + '</tr>';
+      });
       html += '</tbody>';
       el.innerHTML = html;
-      const ctl = document.getElementById('pnlControls');
-      if (ctl) ctl.innerHTML = `<div class="fin-note">Fed by <b>${finCohorts.length}</b> cohort(s) · per-vehicle UE from <b>Unit Economics Theoric</b> · FX <b>R$ ${finPar('__fin_fx__').toFixed(2).replace('.', ',')}</b>/US$ · Security Deposit and Vehicle Purchase are not in COGS (OPEX/capex, like the Excel)</div>`;
+      el.querySelectorAll('.pnl-parent').forEach((tr) => tr.addEventListener('click', () => {
+        const g = tr.dataset.g; if (pnlCollapsed.has(g)) pnlCollapsed.delete(g); else pnlCollapsed.add(g); renderPnl();
+      }));
+      renderPnlControls(live);
+      renderPnlExtras(P, live);
+    }
+    function renderPnlControls(live) {
+      const ctl = document.getElementById('pnlControls'); if (!ctl) return;
+      const opts = ['<option value="live"' + (pnlVersion === 'live' ? ' selected' : '') + '>● Live</option>']
+        .concat(pnlVersions.map((v) => `<option value="${v.id}"${pnlVersion === v.id ? ' selected' : ''}>${escH(v.name)}</option>`)).join('');
+      let h = '<div class="pnl-bar">';
+      h += `<label class="pnl-lbl">Version <select id="pnlVer" class="pnl-sel">${opts}</select></label>`;
+      if (isAdmin && live) h += '<button id="pnlSaveVer" class="pnl-btn">＋ Save board version</button>';
+      if (isAdmin && !live) h += '<button id="pnlDelVer" class="pnl-btn pnl-del">🗑 Delete version</button>';
+      if (live) h += `<button id="pnlNoSdBtn" class="pnl-btn${pnlNoSd ? ' on' : ''}">Exclude sub-rental deposit</button>`;
+      h += `<button id="pnlExpand" class="pnl-btn">${pnlCollapsed.size ? 'Expand all' : 'Collapse all'}</button>`;
+      if (!live) { const v = pnlVersions.find((x) => x.id === pnlVersion); h += `<span class="pnl-frozen">📌 Frozen${v && v.savedAt ? ' · ' + v.savedAt.slice(0, 10) : ''}${v && v.snapshot && v.snapshot.noSd ? ' · no deposit' : ''}</span>`; }
+      h += '</div>';
+      h += `<div class="fin-note">Fed by <b>${finCohorts.length}</b> cohort(s) · per-vehicle UE from <b>Unit Economics Theoric</b> · FX <b>R$ ${finPar('__fin_fx__').toFixed(2).replace('.', ',')}</b>/US$ · Sub-rental security deposit is in COGS (like the UE).</div>`;
+      ctl.innerHTML = h;
+      const sel = document.getElementById('pnlVer'); if (sel) sel.addEventListener('change', () => { pnlVersion = sel.value; renderPnl(); });
+      const nb = document.getElementById('pnlNoSdBtn'); if (nb) nb.addEventListener('click', () => { pnlNoSd = !pnlNoSd; renderPnl(); });
+      const eb = document.getElementById('pnlExpand'); if (eb) eb.addEventListener('click', () => { if (pnlCollapsed.size) pnlCollapsed.clear(); else pnlCollapsed = new Set(PNL_GROUPS); renderPnl(); });
+      const sv = document.getElementById('pnlSaveVer'); if (sv) sv.addEventListener('click', savePnlVersion);
+      const dv = document.getElementById('pnlDelVer'); if (dv) dv.addEventListener('click', deletePnlVersion);
+    }
+    function renderPnlExtras(P, live) {
+      const ex = document.getElementById('pnlExtras'); if (!ex) return;
+      const sum = (a) => (a || []).reduce((s, x) => s + (x || 0), 0);
+      // ---- #4 indicadores complementares ----
+      const totDeliv = P.delivered[FIN_MONTHS - 1] || 0;
+      const cacUnit = totDeliv ? (-sum(P.cacTot)) / totDeliv : 0;
+      const hcDec = P.headcount ? P.headcount[FIN_MONTHS - 1] : 0;
+      const feeAvg = P.payFeePct ? (sum(P.payFeePct) / FIN_MONTHS) : 0;
+      const beIdx = P.accCf.findIndex((v) => v >= 0);
+      const gmFY = sum(P.grossRev) ? (sum(P.gm) / sum(P.grossRev)) * 100 : 0;
+      const tile = (label, val, sub) => `<div class="pnl-kpi"><div class="pnl-kpi-v">${val}</div><div class="pnl-kpi-l">${escH(label)}</div><div class="pnl-kpi-s">${escH(sub || '')}</div></div>`;
+      let h = '<div class="fin-sub">Complementary indicators</div><div class="pnl-kpis">';
+      h += tile('CAC per unit sold', 'US$ ' + fmtNum(cacUnit), totDeliv + ' delivered (FY)');
+      h += tile('Total headcount (Dec)', Math.round(hcDec), 'people on payroll');
+      h += tile('Processing fee', (Math.round(feeAvg * 100) / 100) + '%', 'avg / month');
+      h += tile('Breakeven month', beIdx >= 0 ? monthLbl(beIdx) : '—', beIdx >= 0 ? 'acc. cashflow turns +' : 'not within 2026');
+      h += tile('Gross margin', Math.round(gmFY) + '%', 'FY-26E');
+      h += tile('Net cashflow (FY)', fmt(sum(P.netCf)), 'USD');
+      h += '</div>';
+      // ---- #5 painel: processing fee por mês (só live + admin) ----
+      if (live && isAdmin) {
+        h += '<div class="fin-sub">Payment processing fee — per month (%)</div>';
+        h += '<div class="ue-table-wrap"><table class="ue-table fin-grid"><thead><tr><th class="ue-rowlabel">Assumption</th>';
+        for (let m = 0; m < FIN_MONTHS; m++) h += `<th>${monthLbl(m)}</th>`;
+        h += '<th class="ue-totalcol"></th></tr></thead><tbody><tr class="ue-row ue-leaf"><td class="ue-rowlabel">Processing fee %</td>';
+        for (let m = 0; m < FIN_MONTHS; m++) h += `<td class="ue-cell"><input class="hc-f hc-n pnl-fee" type="number" min="0" step="any" data-m="${m}" value="${finParM('__fin_payfee__', m)}"></td>`;
+        h += '<td class="ue-cell"></td></tr></tbody></table></div>';
+        h += '<div class="fin-note">Overrides the global processing fee for that month. Jan shares the value in Assumptions; empty a later month to fall back to it.</div>';
+      }
+      ex.innerHTML = h;
+      ex.querySelectorAll('.pnl-fee').forEach((inp) => inp.addEventListener('change', () => savePnlFee(+inp.dataset.m, inp.value)));
+    }
+    async function savePnlFee(m, raw) {
+      const num = parseInput(raw);
+      try {
+        if (num == null && m !== 0) { await fetch('/api/ue/value/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: '__fin_cfg__', line: '__fin_payfee__', period: m }) }); delete finCfg['__fin_payfee__@@' + m]; }
+        else { const v = num == null ? 0 : num; await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: '__fin_cfg__', line: '__fin_payfee__', period: m, value: v, kind: 'proj' }) }); finCfg['__fin_payfee__@@' + m] = v; }
+      } catch (e) {}
+      renderPnl(); renderAssump();
+    }
+    async function loadPnlVersions() {
+      try { const r = await fetch('/api/finance/pnl-versions', { credentials: 'include' }); const d = await r.json(); pnlVersions = (d && d.versions) || []; } catch (e) { pnlVersions = []; }
+    }
+    async function savePnlVersion() {
+      const name = window.prompt('Name this frozen version (e.g. the presentation date):', 'Board ' + (OCN.atualizadoEm || '').slice(0, 10));
+      if (!name) return;
+      const snap = computePnl({ noSd: pnlNoSd }); snap.noSd = pnlNoSd;
+      try { const r = await fetch('/api/finance/pnl-versions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ name, snapshot: snap }) }); const d = await r.json(); if (d && d.versions) { pnlVersions = d.versions; if (d.saved) pnlVersion = d.saved; } } catch (e) {}
+      renderPnl();
+    }
+    async function deletePnlVersion() {
+      const v = pnlVersions.find((x) => x.id === pnlVersion); if (!v) return;
+      if (!window.confirm('Delete the frozen version "' + v.name + '"?')) return;
+      try { const r = await fetch('/api/finance/pnl-versions/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: v.id }) }); const d = await r.json(); if (d && d.versions) pnlVersions = d.versions; } catch (e) {}
+      pnlVersion = 'live'; renderPnl();
     }
 
     // ---------- Fleet Plan (coortes dinâmicas) ----------
@@ -2520,6 +2618,7 @@
       try { const r = await fetch('/api/finance/sga', { credentials: 'include' }); const d = await r.json(); finSga = (d && d.sga) || finSga; } catch (e) {}
       try { const r = await fetch('/api/finance/cac', { credentials: 'include' }); const d = await r.json(); finCac = (d && d.cac) || finCac; } catch (e) {}
       for (const m of finModels) finModelVals[m.id] = await getVals('__theoric_' + m.id + '__');
+      await loadPnlVersions();
       renderFleetPlan(); renderHc(); renderAdmin(); renderCac(); renderAssump(); renderPnl();
     })();
   }

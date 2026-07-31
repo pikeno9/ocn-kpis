@@ -349,6 +349,28 @@ html { scrollbar-gutter: stable; }
 .ue-table.fin-totals tbody .ue-rowlabel { font-weight: 600; color: var(--text); }
 .ue-table.fin-totals { margin-bottom: 4px; }
 #sgaTotals, #cacTotals { margin-bottom: 20px; }
+/* ---- P&L: barra de controles, árvore colapsável, indicadores ---- */
+.pnl-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.pnl-lbl { font-size: 12.5px; color: var(--text-2); display: inline-flex; align-items: center; gap: 6px; }
+.pnl-sel { font: inherit; font-size: 12.5px; padding: 5px 8px; border: 1px solid var(--border-2); border-radius: 6px; background: var(--surface); color: var(--text); cursor: pointer; max-width: 260px; }
+.pnl-btn { font: inherit; font-size: 12.5px; font-weight: 600; padding: 6px 12px; border: 1px solid var(--border-2); border-radius: 6px; background: var(--surface); color: var(--text-2); cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
+.pnl-btn:hover { border-color: var(--accent); color: var(--accent); }
+.pnl-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.pnl-btn.pnl-del:hover { border-color: #a11414; color: #a11414; }
+.pnl-frozen { font-size: 12px; font-weight: 600; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 999px; padding: 3px 10px; }
+/* linhas-pai clicáveis */
+.ue-table tr.pnl-parent { cursor: pointer; }
+.ue-table tr.pnl-parent:hover .ue-rowlabel { color: var(--accent); }
+.pnl-chev { display: inline-block; width: 14px; font-size: 9px; color: var(--text-2); }
+.pnl-chev-sp { display: inline-block; width: 14px; }
+.ue-table tr.pnl-parent:hover .pnl-chev { color: var(--accent); }
+/* indicadores complementares (KPI tiles) */
+.pnl-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 8px; }
+.pnl-kpi { border: 1px solid var(--border-2); border-radius: 9px; padding: 12px 14px; background: var(--surface); border-left: 3px solid var(--accent); }
+.pnl-kpi-v { font-size: 19px; font-weight: 700; color: var(--text); line-height: 1.1; }
+.pnl-kpi-l { font-size: 12px; font-weight: 600; color: var(--text); margin-top: 4px; }
+.pnl-kpi-s { font-size: 11px; color: var(--text-2); margin-top: 1px; }
+#pnlExtras { margin-top: 18px; }
 /* people table: role dropdown + name + presence bar (1 row per employee) */
 .ue-table .hc-role { font: inherit; font-size: 11.5px; padding: 4px 6px; border: 1px solid var(--border-2); border-radius: 5px; background: var(--surface); color: var(--text); max-width: 210px; cursor: pointer; }
 .ue-table .hc-role:hover { border-color: var(--accent); }

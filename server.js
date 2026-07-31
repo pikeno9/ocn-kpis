@@ -395,6 +395,38 @@ app.post('/api/finance/cac', requireGiga, async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ---------- Finance: versões congeladas do P&L (apresentação p/ board) ----------
+// [{ id, name, savedAt, snapshot: {...números calculados} }] — snapshot é read-only, guardado como veio.
+app.get('/api/finance/pnl-versions', requireGiga, async (req, res) => {
+  try { const d = await store.getDoc('fin_pnl_versions'); res.json({ versions: Array.isArray(d && d.versions) ? d.versions : [] }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/finance/pnl-versions', requireGiga, async (req, res) => {
+  const b = req.body || {};
+  const name = String(b.name || '').trim().slice(0, 80);
+  if (!name || !b.snapshot || typeof b.snapshot !== 'object') return res.status(400).json({ error: 'name e snapshot obrigatórios' });
+  const snapStr = JSON.stringify(b.snapshot);
+  if (snapStr.length > 200000) return res.status(413).json({ error: 'snapshot grande demais' });
+  try {
+    const d = await store.getDoc('fin_pnl_versions');
+    const versions = Array.isArray(d && d.versions) ? d.versions : [];
+    const id = 'v' + Date.now();
+    versions.push({ id, name, savedAt: new Date().toISOString(), snapshot: JSON.parse(snapStr) });
+    if (versions.length > 40) versions.splice(0, versions.length - 40); // teto de segurança
+    await store.setDoc('fin_pnl_versions', { versions }, req.user.login);
+    res.json({ ok: true, versions, saved: id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/finance/pnl-versions/delete', requireGiga, async (req, res) => {
+  const id = String((req.body || {}).id || '');
+  try {
+    const d = await store.getDoc('fin_pnl_versions');
+    const versions = (Array.isArray(d && d.versions) ? d.versions : []).filter((v) => v.id !== id);
+    await store.setDoc('fin_pnl_versions', { versions }, req.user.login);
+    res.json({ ok: true, versions });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ---------- Finance: carregar os inputs do Excel (força o seed por seção) ----------
 app.post('/api/finance/load-excel', requireGiga, async (req, res) => {
   const which = String((req.body && req.body.which) || '');

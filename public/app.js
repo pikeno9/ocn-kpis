@@ -2868,6 +2868,7 @@
     // e o setting antigo (__cotacao_real__) é ignorado de propósito (ficou um valor fantasma no banco)
     let refundPct = 0.13;   // correção a.a. do Security Deposit Refund (campo, global)
     let inadimplencia = 0;  // taxa de inadimplência % (slider, global) — desconta a projeção do Subscription
+    let latePct = 0;        // % das semanas pagas COM atraso (slider, global) — projeta o Late-payment interest
     let curIni = null;            // início da frota selecionada (Date) — base do eixo de meses
     let lossMonthByPlate = {};    // placa → mês do UE em que deu perda total (corta Subrental/GPS dali em diante)
     let activeFracArr = [];       // fração de carros ativos (sem perda total) por mês — aplica no agregado
@@ -2942,16 +2943,20 @@
     // status do período: realizado (do início até o mês vigente, incluso — valor integral) × projetado (meses futuros)
     function periodStatus(p) { return (p === 0 || p <= realizedFull) ? 'real' : 'proj'; }
 
-    // nº de segundas-feiras (dia de pagamento) dentro da janela do mês m do UE (mês = 4,333 semanas do início)
-    function mondaysInMonth(ini, m) {
+    // nº de segundas-feiras (dia de pagamento) dentro da janela do mês m do UE (mês = 4,333 semanas do início).
+    // `from` (opcional) conta só as segundas AINDA POR VIR a partir dessa data — usado para projetar o
+    // pedaço que falta do mês vigente (o realizado já cobre as semanas vencidas).
+    function mondaysInMonth(ini, m, from) {
       const MS = 86400000, len = SEMANAS_MES * 7 * MS;
       const start = new Date(ini.getTime() + (m - 1) * len);
       const end = new Date(ini.getTime() + m * len);
       let d = new Date(start.getTime() + (((1 - start.getDay()) % 7 + 7) % 7) * MS); // primeira segunda ≥ start
       let n = 0;
-      while (d < end) { n++; d = new Date(d.getTime() + 7 * MS); }
+      while (d < end) { if (!from || d > from) n++; d = new Date(d.getTime() + 7 * MS); }
       return n;
     }
+    // mês vigente (parcial) do eixo do UE — é o que recebe realizado + projeção do que falta
+    function currentMonthIdx() { return Math.min(PMAX, Math.ceil(elapsed)); }
     // visão por placa: 0 a partir do mês do incidente (perda total); nas visões de frota o valor unitário
     // fica CHEIO — a placa perdida sai do numerador E do denominador (base = carros ativos, activeCarsAt)
     function plateCut(m) {
@@ -3050,17 +3055,35 @@
       if (line === 'Subscription' && par('__sub_semanal__') > 0) {
         // só o PRINCIPAL (esperado); o juro de atraso vai na linha "Late-payment interest"
         if (period === 0 || period === PMAX) return { rs: 0, perActive: true };
-        if (periodStatus(period) === 'real') return subsReady ? { rs: subsRS[period] || 0, perActive: true } : null;
-        // projeção: segundas-feiras (dia de pagamento) do mês × semanalidade × (1 − inadimplência do slider);
-        // placa com perda total não paga mais (plateCut); na frota o valor é por carro ATIVO (perActive)
+        // projeção de uma semana: semanalidade × (1 − inadimplência do slider); placa com perda total não paga
+        const wk = par('__sub_semanal__') * (1 - inadimplencia / 100) * plateCut(period);
+        if (periodStatus(period) === 'real') {
+          if (!subsReady) return null;
+          const real = subsRS[period] || 0;
+          // mês VIGENTE: soma o que já foi recebido + projeção das segundas que ainda faltam nesta janela
+          if (period === currentMonthIdx() && curIni) {
+            return { rs: real, rsProj: mondaysInMonth(curIni, period, hoje) * wk, perActive: true };
+          }
+          return { rs: real, perActive: true };
+        }
         if (!curIni) return null;
-        return { rs: mondaysInMonth(curIni, period) * par('__sub_semanal__') * (1 - inadimplencia / 100) * plateCut(period), perActive: true };
+        return { rs: mondaysInMonth(curIni, period) * wk, perActive: true };
       }
       if (line === 'Late-payment interest' && par('__sub_semanal__') > 0) {
-        // rendimento de juros dos pagamentos em atraso (recebido − esperado). Só realizado — não se projeta.
+        // realizado = juro efetivo (recebido − esperado). Projetado = semanas × semanalidade
+        // × % de semanas pagas em atraso (slider) × % de juros da caixinha da linha.
         if (period === 0 || period === PMAX) return { rs: 0, perActive: true };
-        if (periodStatus(period) === 'real') return subsReady ? { rs: subsJurosRS[period] || 0, perActive: true } : null;
-        return { rs: 0, perActive: true };
+        const wkJuros = par('__sub_semanal__') * (latePct / 100) * (par('__sub_juros__') / 100) * plateCut(period);
+        if (periodStatus(period) === 'real') {
+          if (!subsReady) return null;
+          const real = subsJurosRS[period] || 0;
+          if (period === currentMonthIdx() && curIni) {
+            return { rs: real, rsProj: mondaysInMonth(curIni, period, hoje) * wkJuros, perActive: true };
+          }
+          return { rs: real, perActive: true };
+        }
+        if (!curIni) return null;
+        return { rs: mondaysInMonth(curIni, period) * wkJuros, perActive: true };
       }
       if (line === 'Subrental fee' && par('__subrental_mensal__') > 0) {
         // valor por carro ATIVO (a placa perdida sai do numerador e do denominador a partir do incidente)
@@ -3120,6 +3143,10 @@
       const v = effNative(line, period);
       if (!v) return null;
       const st = periodStatus(period);
+      // célula híbrida (mês vigente): realizado no câmbio fixo + o que falta do mês no câmbio futuro
+      if (st === 'real' && v.rsProj != null) {
+        return { real: toDisplay({ rs: v.rs }, ORCADO_FX), proj: toDisplay({ rs: v.rsProj }, cotacao), status: 'real', perActive: !!v.perActive };
+      }
       return st === 'real'
         ? { real: toDisplay(v, ORCADO_FX), proj: 0, status: 'real', perActive: !!v.perActive }
         : { real: 0, proj: toDisplay(v, cotacao), status: 'proj', perActive: !!v.perActive };
@@ -3436,6 +3463,7 @@
         `<div class="ue-sliders">` +
           slider('ueCotacao', 'future FX (R$/US$)', 3, 8, 0.05, cotacao) +
           slider('ueInad', 'delinquency rate (%)', 0, 50, 1, inadimplencia) +
+          slider('ueLate', 'late-payment rate (%)', 0, 100, 1, latePct) +
           field('ueRefundPct', 'Security Deposit Refund adj. (% p.a.)', Math.round(refundPct * 10000) / 100, 1) +
         `</div>`;
       if (isAdmin) document.getElementById('ueManual').addEventListener('change', (e) => { manualMode = e.target.checked; renderTable(f); });
@@ -3459,6 +3487,7 @@
       });
       wireSlider('ueCotacao', (v) => { cotacao = v; }, () => 'R$ ' + cotacao.toFixed(2).replace('.', ','), () => cotacao, '__cotacao__', '__cfg__', f);
       wireSlider('ueInad', (v) => { inadimplencia = v; }, () => inadimplencia + '%', () => inadimplencia, '__inadimplencia__', '__cfg__', f);
+      wireSlider('ueLate', (v) => { latePct = v; }, () => latePct + '%', () => latePct, '__late_pct__', '__cfg__', f);
       wireField('ueRefundPct', (v) => { refundPct = v / 100; }, '__refund_pct__', () => refundPct, f);
       renderTable(f);
       renderPlates(f);
@@ -3570,6 +3599,7 @@
           const d = await r.json(); const get = (k) => { const x = (d.values || []).find((v) => v.line === k); return x ? x.value : undefined; };
           const c = get('__cotacao__'); if (c != null) cotacao = c;
           const ind = get('__inadimplencia__'); if (ind != null) inadimplencia = ind;
+          const lp = get('__late_pct__'); if (lp != null) latePct = lp;
           const rp = get('__refund_pct__'); if (rp != null) refundPct = rp;
         }
       } catch (e) { /* usa defaults */ }

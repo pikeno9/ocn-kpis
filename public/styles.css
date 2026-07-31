@@ -379,8 +379,9 @@ html { scrollbar-gutter: stable; }
 /* linhas-pai clicáveis */
 .ue-table tr.pnl-parent { cursor: pointer; }
 .ue-table tr.pnl-parent:hover .ue-rowlabel { color: var(--accent); }
-.pnl-chev { display: inline-block; width: 14px; font-size: 9px; color: var(--text-2); }
-.pnl-chev-sp { display: inline-block; width: 14px; }
+/* seta ancorada na borda esquerda da tabela (fora do fluxo) — não empurra o rótulo.
+   O .ue-rowlabel já é position:sticky, então serve de referência para o absolute. */
+.pnl-chev { position: absolute; left: 6px; top: 50%; transform: translateY(-50%); font-size: 9px; color: var(--text-2); line-height: 1; }
 .ue-table tr.pnl-parent:hover .pnl-chev { color: var(--accent); }
 /* indicadores complementares (KPI tiles) */
 .pnl-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 8px; }

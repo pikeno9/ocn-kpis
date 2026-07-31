@@ -2099,34 +2099,32 @@
       const push = (label, arr, cls, o) => N.push(Object.assign({ label, arr, cls: cls || 'ue-leaf', ancestors: [] }, o || {}));
       // Color code por NÍVEL: L1 = resultados (Gross/Net Revenue, Gross Margin, Net cashflow),
       // L2 = blocos (COGS, Payment processing, OPEX), L3 = componentes, L4 = detalhe dentro de um L3.
-      push('Total delivered fleet', P.delivered, 'pnl-qty', { isQty: true });
-      push('Total active fleet', P.active, 'pnl-qty', { isQty: true });
       push('Gross Revenue', P.grossRev, 'pnl-l1');
-      push('(-) Taxes on sales', P.taxes, 'pnl-l2', { group: 'tax' });
-      push('(-) Federal taxes', P.fed, 'pnl-l3', { ancestors: ['tax'] });
-      push('(+) Tax input credit', P.cred, 'pnl-l3', { ancestors: ['tax'] });
+      push('Taxes on sales', P.taxes, 'pnl-l2', { group: 'tax' });
+      push('Federal taxes', P.fed, 'pnl-l3', { ancestors: ['tax'] });
+      push('Tax input credit', P.cred, 'pnl-l3', { ancestors: ['tax'] });
       push('Net Revenue', P.netRev, 'pnl-l1');
-      push('(-) COGS', P.cogsTot, 'pnl-l2', { group: 'cogs' });
-      FIN_COGS_LINES.forEach((L) => push('(-) ' + L, P.cogs[L], 'pnl-l3', { ancestors: ['cogs'] }));
-      push('(-) Sub-rental security deposit', P.secDep, 'pnl-l3', { ancestors: ['cogs'] }); // #2
-      push('(-) Payment processing', P.payProc, 'pnl-l2');
+      push('COGS', P.cogsTot, 'pnl-l2', { group: 'cogs' });
+      FIN_COGS_LINES.forEach((L) => push(L, P.cogs[L], 'pnl-l3', { ancestors: ['cogs'] }));
+      push('Sub-rental security deposit', P.secDep, 'pnl-l3', { ancestors: ['cogs'] });
+      push('Payment processing', P.payProc, 'pnl-l2');
       push('Gross Margin', P.gm, 'pnl-l1', { pct: gmPct, pctTot: sum(P.grossRev) ? (sum(P.gm) / sum(P.grossRev)) * 100 : null });
-      push('(-) OPEX', P.opex, 'pnl-l2', { group: 'opex' });
-      push('(-) CAC', P.cacTot, 'pnl-l3', { group: 'cac', ancestors: ['opex'] });
-      push('(-) Sales commission', P.commission, 'pnl-l3', { ancestors: ['opex', 'cac'] });
-      push('(-) Google/Meta Ads', P.adsTot, 'pnl-l3', { ancestors: ['opex', 'cac'] });
-      push('(-) Digital Influencers', P.infTot, 'pnl-l3', { ancestors: ['opex', 'cac'] });
-      push('(-) SG&A', P.sga, 'pnl-l3', { group: 'sga', ancestors: ['opex'] });
-      push('(-) HC Payroll', P.hcTot, 'pnl-l3', { group: 'hc', ancestors: ['opex', 'sga'] });
-      push('(-) Base salary', P.base, 'pnl-l4', { ancestors: ['opex', 'sga', 'hc'] });
-      push('(-) Meal voucher', P.meal, 'pnl-l4', { ancestors: ['opex', 'sga', 'hc'] });
-      push('(-) Healthplan', P.health, 'pnl-l4', { ancestors: ['opex', 'sga', 'hc'] });
-      push('(-) Payroll taxes', P.ptax, 'pnl-l4', { ancestors: ['opex', 'sga', 'hc'] });
-      push('(-) 13th + vacation', P.th13, 'pnl-l4', { ancestors: ['opex', 'sga', 'hc'] });
-      push('(-) Annual bonus', P.bonus, 'pnl-l4', { ancestors: ['opex', 'sga', 'hc'] });
-      push('(-) Rent & Utilities', P.rentTot, 'pnl-l3', { ancestors: ['opex', 'sga'] });
-      push('(-) Professional Services', P.profTot, 'pnl-l3', { ancestors: ['opex', 'sga'] });
-      push('(-) IT', P.itTot, 'pnl-l3', { ancestors: ['opex', 'sga'] });
+      push('OPEX', P.opex, 'pnl-l2', { group: 'opex' });
+      push('CAC', P.cacTot, 'pnl-l3', { group: 'cac', ancestors: ['opex'] });
+      push('Sales commission', P.commission, 'pnl-l3', { ancestors: ['opex', 'cac'] });
+      push('Google/Meta Ads', P.adsTot, 'pnl-l3', { ancestors: ['opex', 'cac'] });
+      push('Digital Influencers', P.infTot, 'pnl-l3', { ancestors: ['opex', 'cac'] });
+      push('SG&A', P.sga, 'pnl-l3', { group: 'sga', ancestors: ['opex'] });
+      push('HC Payroll', P.hcTot, 'pnl-l3', { group: 'hc', ancestors: ['opex', 'sga'] });
+      push('Base salary', P.base, 'pnl-l4', { ancestors: ['opex', 'sga', 'hc'] });
+      push('Meal voucher', P.meal, 'pnl-l4', { ancestors: ['opex', 'sga', 'hc'] });
+      push('Healthplan', P.health, 'pnl-l4', { ancestors: ['opex', 'sga', 'hc'] });
+      push('Payroll taxes', P.ptax, 'pnl-l4', { ancestors: ['opex', 'sga', 'hc'] });
+      push('13th + vacation', P.th13, 'pnl-l4', { ancestors: ['opex', 'sga', 'hc'] });
+      push('Annual bonus', P.bonus, 'pnl-l4', { ancestors: ['opex', 'sga', 'hc'] });
+      push('Rent & Utilities', P.rentTot, 'pnl-l3', { ancestors: ['opex', 'sga'] });
+      push('Professional Services', P.profTot, 'pnl-l3', { ancestors: ['opex', 'sga'] });
+      push('IT', P.itTot, 'pnl-l3', { ancestors: ['opex', 'sga'] });
       push('Net cashflow', P.netCf, 'pnl-l1');
       push('Acc. Net cashflow', P.accCf, 'pnl-l1 pnl-acc', { isAcc: true });
 
@@ -2136,8 +2134,9 @@
       N.forEach((n) => {
         if (n.ancestors.some((a) => pnlCollapsed.has(a))) return; // dentro de grupo recolhido
         const isParent = !!n.group, collapsed = isParent && pnlCollapsed.has(n.group);
-        const pad = 8 + n.ancestors.length * 15;
-        const chev = isParent ? `<span class="pnl-chev">${collapsed ? '▸' : '▾'}</span>` : (n.ancestors.length ? '<span class="pnl-chev-sp"></span>' : '');
+        // seta fora do fluxo (absoluta, na borda esquerda) => rótulos do mesmo nível ficam alinhados
+        const pad = 20 + n.ancestors.length * 14;
+        const chev = isParent ? `<span class="pnl-chev">${collapsed ? '▸' : '▾'}</span>` : '';
         let tr = `<tr class="ue-row ${n.cls}${isParent ? ' pnl-parent' : ''}"${isParent ? ` data-g="${n.group}"` : ''}>`;
         tr += `<td class="ue-rowlabel" style="padding-left:${pad}px">${chev}${escH(n.label)}</td>`;
         // #2: o % vai como um número pequeno em cinza SOB o valor (sem linha própria)
@@ -2278,6 +2277,24 @@
       } else if (canEditNow()) {
         editor = '<div class="fin-note">Click a day on the calendar to add or remove vehicles.</div>';
       }
+      // evolução da frota por mês (saiu do P&L p/ cá): entregas do mês, acumulado entregue e ativos
+      // (já com o decomissionamento mensal) — mesma matemática do P&L, então os números batem.
+      const FP = computePnl();
+      let evo = '<div class="sub2-title" style="margin-top:18px">Fleet evolution</div>';
+      evo += '<div class="ue-table-wrap"><table class="ue-table fin-grid fin-totals"><thead><tr><th class="ue-rowlabel">Fleet</th>';
+      for (let m = 0; m < FIN_MONTHS; m++) evo += `<th>${monthLbl(m)}</th>`;
+      evo += '<th class="ue-totalcol">FY-26E</th></tr></thead><tbody>';
+      const evoRow = (label, arr, isStock, cls) => {
+        let s = `<tr class="ue-row${cls ? ' ' + cls : ''}"><td class="ue-rowlabel">${escH(label)}</td>`;
+        for (let m = 0; m < FIN_MONTHS; m++) s += `<td class="ue-cell">${fmtQty(arr[m])}</td>`;
+        const tot = isStock ? arr[FIN_MONTHS - 1] : arr.reduce((a, b) => a + (b || 0), 0);
+        return s + `<td class="ue-cell ue-totalcol">${fmtQty(tot)}</td></tr>`;
+      };
+      evo += evoRow('New deliveries', FP.newDelivered, false);
+      evo += evoRow('Total delivered fleet', FP.delivered, true);
+      evo += evoRow('Total active fleet', FP.active, true, 'hc-total');
+      evo += '</tbody></table></div><div class="fin-note">Active fleet already discounts the monthly decommissioning rate from Assumptions.</div>';
+
       const sorted = finCohorts.slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
       let list = '<div class="sub2-title" style="margin-top:18px">Cohorts (chronological)</div><div class="ue-table-wrap"><table class="ue-table"><thead><tr><th class="ue-rowlabel">Cohort</th><th>Date</th><th>Model</th><th class="ue-totalcol">Vehicles</th></tr></thead><tbody>';
       sorted.forEach((c, i) => {
@@ -2287,7 +2304,7 @@
       const totQ = finCohorts.reduce((s, c) => s + c.qty, 0);
       list += `<tr><td colspan="3" style="font-weight:700">Total</td><td class="ue-cell ue-totalcol" style="font-weight:700">${totQ}</td></tr></tbody></table></div>`;
       if (!finCohorts.length) list = '<div class="fin-note">No cohorts yet — click a day to add vehicles.</div>';
-      el.innerHTML = editBar() + cal + editor + list;
+      el.innerHTML = editBar() + cal + editor + evo + list;
       wireEditBar(el);
       if (!canEditNow()) return;
       el.querySelectorAll('.fc-day[data-iso]').forEach((d) => d.addEventListener('click', () => { finSelDay = (finSelDay === d.dataset.iso ? null : d.dataset.iso); renderFleetPlan(); }));

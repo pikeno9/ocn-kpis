@@ -2867,6 +2867,7 @@
     // realizados convertem R$↔US$ no câmbio nominal fixo (ORCADO_FX, 5,0) — o campo editável foi removido
     // e o setting antigo (__cotacao_real__) é ignorado de propósito (ficou um valor fantasma no banco)
     let refundPct = 0.13;   // correção a.a. do Security Deposit Refund (campo, global)
+    let cleanView = false;  // visão limpa: só o total (real+proj), sem os comparativos do orçado
     let inadimplencia = 0;  // taxa de inadimplência % (slider, global) — desconta a projeção do Subscription
     let latePct = 0;        // % das semanas pagas COM atraso (slider, global) — projeta o Late-payment interest
     let curIni = null;            // início da frota selecionada (Date) — base do eixo de meses
@@ -3050,32 +3051,50 @@
       if (!plateView) for (let p = 0; p <= PMAX; p++) { maintRealRS[p] /= activeCarsAt(p); maintProjRS[p] /= activeCarsAt(p); }
       maintReady = true;
     }
-    // Multas de trânsito por dados reais (endpoint de multas, por placa): receita do mês = Σ das multas
-    // PAGAS cuja data de pagamento cai no mês. Projeção = média histórica por DIA da própria frota
-    // (total recebido ÷ dias corridos desde o início) × dias que faltam na janela do mês.
-    let finesRS = [], finesPerDay = 0, finesReady = false;
+    // Multas de trânsito — RECEITA (o que cobramos do cliente). Espelha a linha de despesa:
+    //  - multa já PAGA -> realizada no mês do pagamento;
+    //  - multa em ABERTO -> recebível projetado em (infração + prazo médio de recebimento),
+    //    multiplicado pela taxa histórica de recebimento (medida em coortes já maduras).
+    //    Se a data estimada já passou, cai no mês vigente;
+    //  - infrações que ainda vão acontecer -> ritmo histórico por dia, só na fatia do mês que
+    //    vem de infrações POSTERIORES a hoje (as anteriores já estão na base: sem dupla contagem).
+    let finesRealRS = [], finesProjRS = [], finesReady = false;
     function computeFines(f) {
-      finesRS = []; finesPerDay = 0; finesReady = false;
+      finesRealRS = []; finesProjRS = []; finesReady = false;
       const mul = U.multas && U.multas.placas;
       const ini = f.inicio ? new Date(f.inicio + 'T12:00:00') : null;
       if (!mul || !ini) return;
+      const MS = 86400000;
+      const lag = (U.multas && U.multas.prazoRecebimentoDias) || 42;
+      const taxa = (U.multas && U.multas.taxaRecebimento) != null ? U.multas.taxaRecebimento : 0.85;
+      const moOf = (d) => { const m = Math.ceil(((d - ini) / MS) / (SEMANAS_MES * 7)); return m < 1 ? 1 : m; };
       const plates = plateView ? [plateView] : (f.placas || []);
-      for (let p = 0; p <= PMAX; p++) finesRS[p] = 0;
+      for (let p = 0; p <= PMAX; p++) { finesRealRS[p] = 0; finesProjRS[p] = 0; }
       let total = 0;
       plates.forEach((pl) => (mul[pl] || []).forEach((x) => {
+        total += x.v;
         const dt = new Date(x.d + 'T12:00:00');
-        let mo = Math.ceil(((dt - ini) / 86400000) / (SEMANAS_MES * 7));
-        if (mo < 1) mo = 1;
-        if (mo > U.periods) return;
-        finesRS[mo] += x.v; total += x.v;
+        if (x.pago) {
+          const mo = Math.min(moOf(dt), PMAX);
+          finesRealRS[mo] += x.v;
+        } else {
+          const quando = new Date(dt.getTime() + lag * MS);
+          const mo = Math.min(Math.max(quando < hoje ? currentMonthIdx() : moOf(quando), 1), PMAX);
+          finesProjRS[mo] += x.v * taxa;
+        }
       }));
-      // média por dia = tudo que já foi recebido ÷ dias corridos desde o início da frota
-      const dias = Math.max(1, (hoje - ini) / 86400000);
-      finesPerDay = total / dias;
-      if (!plateView) {
-        for (let p = 0; p <= PMAX; p++) finesRS[p] /= activeCarsAt(p);
-        finesPerDay /= activeCarsAt(Math.min(PMAX, Math.max(1, Math.ceil(elapsed))));
+      // infrações futuras: ritmo histórico (valor cobrado/dia) × taxa de recebimento
+      const dias = Math.max(1, (hoje - ini) / MS);
+      const perDay = (total / dias) * taxa;
+      for (let p = 1; p <= PMAX; p++) {
+        const winStart = new Date(ini.getTime() + (p - 1) * SEMANAS_MES * 7 * MS);
+        const winEnd = new Date(ini.getTime() + p * SEMANAS_MES * 7 * MS);
+        const infIni = new Date(winStart.getTime() - lag * MS);
+        const infFim = new Date(winEnd.getTime() - lag * MS);
+        const novos = Math.max(0, (infFim - Math.max(infIni, hoje)) / MS);
+        finesProjRS[p] += novos * perDay;
       }
+      if (!plateView) for (let p = 0; p <= PMAX; p++) { finesRealRS[p] /= activeCarsAt(p); finesProjRS[p] /= activeCarsAt(p); }
       finesReady = true;
     }
     // Multas A PAGAR (aba multas_consolidado): quanto a OCN desembolsa com a LM.
@@ -3187,26 +3206,15 @@
         if (!curIni) return null;
         return { rs: mondaysInMonth(curIni, period) * wkJuros, perActive: true };
       }
-      // Multas (entrada): realizado = multas pagas no mês; projeção = média/dia × dias restantes da janela.
+      // Multas (entrada): realizado = pagas no mês; projetado = recebível em aberto + infrações futuras.
+      // Vai até o M13 (o contrato acaba, mas ainda há multa a receber depois do último mês).
       if (line === 'Traffic fines') {
-        if (period === 0 || period === PMAX || !finesReady) return period === 0 || period === PMAX ? { rs: 0, perActive: true } : null;
-        const dayMs = 86400000, len = SEMANAS_MES * 7;
-        const winEnd = new Date(curIni.getTime() + period * len * dayMs);
-        const winStart = new Date(curIni.getTime() + (period - 1) * len * dayMs);
-        if (periodStatus(period) === 'real') {
-          const real = finesRS[period] || 0;
-          if (period === currentMonthIdx() && curIni) {
-            const diasFalta = Math.max(0, (winEnd - hoje) / dayMs);
-            return { rs: real, rsProj: diasFalta * finesPerDay * plateCut(period), perActive: true };
-          }
-          return { rs: real, perActive: true };
-        }
-        if (!curIni) return null;
-        return { rs: ((winEnd - winStart) / dayMs) * finesPerDay * plateCut(period), perActive: true };
+        if (period === 0 || !finesReady) return period === 0 ? { rs: 0, perActive: true } : null;
+        return { rs: finesRealRS[period] || 0, rsProj: (finesProjRS[period] || 0) * plateCut(period), perActive: true };
       }
       // Multas (saída): o que pagamos à LM — realizado (já venceu) + projetado (a vencer/estimado)
       if (line === 'Traffic fines (out)') {
-        if (period === 0 || period === PMAX || !finesOutReady) return (period === 0 || period === PMAX) ? { rs: 0, perActive: true } : null;
+        if (period === 0 || !finesOutReady) return period === 0 ? { rs: 0, perActive: true } : null;
         return { rs: -(finesOutRealRS[period] || 0), rsProj: -(finesOutProjRS[period] || 0), perActive: true };
       }
       if (line === 'Subrental fee' && par('__subrental_mensal__') > 0) {
@@ -3286,7 +3294,7 @@
       elapsed = c.elapsed; realizedFull = c.realizedFull; lossMonthByPlate = c.lossMonthByPlate; activeFracArr = c.activeFracArr;
       subsRS = c.subsRS || []; subsJurosRS = c.subsJurosRS || []; subsReady = !!c.subsReady;
       maintRealRS = c.maintRealRS || []; maintProjRS = c.maintProjRS || []; maintReady = !!c.maintReady;
-      finesRS = c.finesRS || []; finesPerDay = c.finesPerDay || 0; finesReady = !!c.finesReady;
+      finesRealRS = c.finesRealRS || []; finesProjRS = c.finesProjRS || []; finesReady = !!c.finesReady;
       finesOutRealRS = c.finesOutRealRS || []; finesOutProjRS = c.finesOutProjRS || []; finesOutReady = !!c.finesOutReady;
     }
     // combinação "All fleets": média por veículo ponderada — linhas "por carro ativo" pesam pelos carros ativos
@@ -3345,17 +3353,31 @@
       const orc = orcDisp(line, period);
       let s = '';
       if (e) {
+        // modo limpo: um número só (realizado + projetado somados) e, quando há mistura,
+        // uma barrinha proporcional abaixo mostrando quanto de cada — sem poluir com o orçado.
+        if (cleanView) {
+          const tot = (e.real || 0) + (e.proj || 0);
+          if (!e.real && !e.proj) return `<span class="ue-main ue-${e.status}">-</span>`;
+          const mixed = e.real && e.proj;
+          const kind = mixed ? 'mix' : (e.real ? 'real' : 'proj');
+          s += `<span class="ue-main ue-${kind}">${ueFmt(tot)}</span>`;
+          if (mixed) {
+            const pr = Math.max(0, Math.min(100, Math.abs(e.real) / (Math.abs(e.real) + Math.abs(e.proj)) * 100));
+            s += `<span class="ue-mixbar" title="realized ${ueFmt(e.real)} + projected ${ueFmt(e.proj)}"><i style="width:${pr.toFixed(1)}%"></i></span>`;
+          }
+          return s;
+        }
         if (e.real) s += `<span class="ue-main ue-real">${ueFmt(e.real)}</span>`;
         if (e.proj) s += `<span class="ue-main ue-proj">${ueFmt(e.proj)}</span>`;
         if (!e.real && !e.proj) s += `<span class="ue-main ue-${e.status}">-</span>`;
       }
-      if (orc != null) s += `<span class="ue-orc">${ueFmt(orc)}</span>`;
+      if (orc != null && !cleanView) s += `<span class="ue-orc">${ueFmt(orc)}</span>`;
       return s;
     }
     function cellVal(t) { // totalizador (computado) ou coluna Total
       let s = '';
       if (t && t.hasMain) s += `<span class="ue-main ue-${t.kind}">${ueFmt(t.eff)}</span>`;
-      if (t && t.orc != null) s += `<span class="ue-orc">${ueFmt(t.orc)}</span>`;
+      if (t && t.orc != null && !cleanView) s += `<span class="ue-orc">${ueFmt(t.orc)}</span>`;
       return s;
     }
     function sectionEff(lines, group, p) {
@@ -3617,6 +3639,7 @@
               `<button class="ue-cur-btn${currency === 'BRL' ? ' active' : ''}" data-c="BRL">R$</button>` +
               `<button class="ue-cur-btn${currency === 'USD' ? ' active' : ''}" data-c="USD">US$</button>` +
             `</div>` +
+            `<button class="ue-clean-btn${cleanView ? " on" : ""}" id="ueClean" title="Hide the budget comparison and show one combined number per month">${cleanView ? "◉" : "◎"} Clean view</button>` +
             (isAdmin ? `<label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Manual mode</span></label>` : '') +
             `<button class="ue-refresh-btn" id="ueRefresh" title="Re-fetches the spreadsheet data">↻ Refresh data</button>` +
           `</div>` +
@@ -3628,6 +3651,8 @@
           slider('ueLate', 'late-payment rate (%)', 0, 100, 1, latePct) +
           field('ueRefundPct', 'Security Deposit Refund adj. (% p.a.)', Math.round(refundPct * 10000) / 100, 1) +
         `</div>`;
+      const cleanBtn = document.getElementById('ueClean');
+      if (cleanBtn) cleanBtn.addEventListener('click', () => { cleanView = !cleanView; loadFleet(); });
       if (isAdmin) document.getElementById('ueManual').addEventListener('change', (e) => { manualMode = e.target.checked; renderTable(f); });
       // toggle da moeda de exibição (R$ principal · US$ convertido)
       document.querySelectorAll('#ueCurToggle .ue-cur-btn').forEach((b) => b.addEventListener('click', () => {
@@ -3679,7 +3704,7 @@
             applyCtx(c); computeSubs(c.f); computeMaint(c.f); computeFines(c.f); computeFinesOut(c.f);
             c.subsRS = subsRS; c.subsJurosRS = subsJurosRS; c.subsReady = subsReady;
             c.maintRealRS = maintRealRS; c.maintProjRS = maintProjRS; c.maintReady = maintReady;
-            c.finesRS = finesRS; c.finesPerDay = finesPerDay; c.finesReady = finesReady;
+            c.finesRealRS = finesRealRS; c.finesProjRS = finesProjRS; c.finesReady = finesReady;
             c.finesOutRealRS = finesOutRealRS; c.finesOutProjRS = finesOutProjRS; c.finesOutReady = finesOutReady;
           });
         }

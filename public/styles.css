@@ -436,6 +436,13 @@ html { scrollbar-gutter: stable; }
 .ue-table .hc-f:disabled, .ue-table .hc-role:disabled, .ue-table .hc-pname:disabled { border-color: transparent; background: transparent; color: var(--text); opacity: 1; -webkit-text-fill-color: var(--text); cursor: default; -webkit-appearance: none; appearance: none; }
 .ue-table .hc-role:disabled { padding-left: 6px; }
 #uetTable .uet-in { width: 100%; border: 0; background: #fff; text-align: right; font-family: inherit; font-size: 10.5px; padding: 1px 2px; box-sizing: border-box; color: var(--text); outline: 1px solid var(--accent); border-radius: 3px; }
+/* visão limpa: botão + número único (real+proj) com barrinha de composição */
+.ue-clean-btn { font: inherit; font-size: 12px; font-weight: 600; padding: 6px 12px; border: 1px solid var(--border-2); border-radius: 999px; background: var(--surface); color: var(--text-2); cursor: pointer; white-space: nowrap; transition: background .12s, color .12s, border-color .12s; }
+.ue-clean-btn:hover { border-color: var(--accent); color: var(--accent); }
+.ue-clean-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ue-table .ue-main.ue-mix { color: var(--text); font-weight: 600; }
+.ue-mixbar { display: block; height: 3px; border-radius: 2px; margin: 2px 0 0 auto; width: 34px; background: var(--accent); overflow: hidden; }
+.ue-mixbar i { display: block; height: 100%; background: var(--text); }
 /* barra do contrato da frota: início ——[decorrido]—— início + 52 semanas */
 .ue-contract { display: flex; align-items: center; gap: 10px; margin: 12px 0 18px; }
 .ue-contract-date { font-size: 11.5px; font-weight: 600; color: var(--text-2); white-space: nowrap; }

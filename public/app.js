@@ -1908,6 +1908,7 @@
   // (3) Assumptions (impostos, payment fee, active rate, FX). Igual ao Excel: Security Deposit
   // e Vehicle Purchase NÃO entram no COGS (ficam em OPEX/capex).
   let finReady = false, finCohorts = [], finModels = [], finModelVals = {}, finCfg = {};
+  let realFleetParams = {}, cfgReal = {}, refProfiles = null; // caixinhas reais por frota + perfis de referência
   let finHc = { roles: [], people: [], plan: {} }, finSga = { rent: [], prof: [], it: [] }, finCac = { perUnit: 0, ads: [], inf: [] };
   let finEdit = false; // "Edit mode" do Finance (compartilhado por todas as abas) — começa somente leitura
   let sgaTab = 'hc', cacTab = 'comm'; // abas de 3º nível dentro de SG&A e CAC & Marketing
@@ -1916,8 +1917,8 @@
   let pnlVersions = [], pnlVersion = 'live'; // versões congeladas p/ board + versão selecionada
   const FIN_MONTHS = 12; // 2026-01 .. 2026-12
   const FIN_ML = (i) => '2026-' + String(i + 1).padStart(2, '0');
-  const FIN_REV_LINES = ['Subscription', 'Late-payment interest', 'Traffic fines', 'Initial Fee / Vehicle Sell', 'Security Deposit Refund'];
-  const FIN_COGS_LINES = ['Subrental fee', 'Maintenance', 'Insurance', 'GPS', 'Car Preparation', 'Sticker', 'Traffic fines (out)'];
+  const FIN_REV_LINES = ['Subscription', 'Late-payment interest', 'Traffic fines', 'Termination fee', 'Initial Fee / Vehicle Sell', 'Security Deposit Refund'];
+  const FIN_COGS_LINES = ['Subrental fee', 'Maintenance', 'Insurance', 'GPS', 'Car Preparation', 'Sticker', 'Traffic fines (out)', 'Recovery cost', 'Repair cost', 'Part Replacement'];
   const FIN_ASSUMP = [
     { k: '__fin_tax_fed__', label: 'Federal taxes (% of gross revenue)', def: 13.36 },
     { k: '__fin_tax_credit__', label: 'Tax input credit (% of gross revenue)', def: 8.25 },
@@ -1999,6 +2000,108 @@
     const mondaysOnOrAfter = (mo, fromDay) => { let n = 0; const d = new Date(2026, mo, 1); while (d.getMonth() === mo) { if (d.getDay() === 1 && d.getDate() >= fromDay) n++; d.setDate(d.getDate() + 1); } return n; };
     const cohMonth = (c) => (c.date ? (parseInt(c.date.slice(5, 7), 10) - 1) : (c.month || 0));
     const cohDay = (c) => (c.date ? parseInt(c.date.slice(8, 10), 10) : 1);
+    // ---- PERFIS DE REFERÊNCIA: projeção com as premissas do UE REALIZADO ----
+    // Por modelo, o P&L projeta com o perfil por idade (M0..M13, R$/veículo) da frota de referência:
+    // Polo = Frota 1 (mais madura), Argo = Frota 2, Tera = Frota 6 — exceto Recovery/Repair do Tera,
+    // que vêm da Frota 1 (a 6 acabou de começar e teria peso demais nas entregas futuras, que são
+    // quase todas Tera). Caixinhas reais + ritmos históricos (R$/dia por carro) da própria frota.
+    const cpar = (k, def) => { const v = cfgReal[k + '@@0']; return v != null ? Number(v) : def; };
+    function buildProfiles() {
+      const U = OCN.ue || {};
+      const REF = { Polo: '1', Argo: '2', Tera: '6' };
+      const hojeD = new Date(((U.hoje) || new Date().toISOString().slice(0, 10)) + 'T12:00:00');
+      const MS = 86400000, MESd = UET_WPM * 7; // 30,33 dias por "mês" do UE
+      const inad = cpar('__inadimplencia__', 0) / 100;
+      const late = cpar('__late_pct__', 0) / 100;
+      const termPctF = cpar('__term_pct__', 50) / 100;
+      const refundF = cpar('__refund_pct__', 0.13); // já é fração
+      const partCfgF = {
+        pastilhas: { km: cpar('__part_pastilhas_km__', 15), rs: cpar('__part_pastilhas_rs__', 250) },
+        disco: { km: cpar('__part_disco_km__', 30), rs: cpar('__part_disco_rs__', 350) },
+        pneus: { km: cpar('__part_pneus_km__', 50), rs: cpar('__part_pneus_rs__', 700) },
+      };
+      const out = {};
+      Object.entries(REF).forEach(([model, fid]) => {
+        const f = (U.fleets || []).find((x) => x.id === fid);
+        if (!f || !f.inicio) return;
+        const P = realFleetParams[fid] || {};
+        const par = (k) => { const v = P[k + '@@0']; return v != null ? Number(v) : 0; };
+        const plates = f.placas || [];
+        const cars = Math.max(1, f.cars || plates.length || 1);
+        const dias = Math.max(30, (hojeD - new Date(f.inicio + 'T12:00:00')) / MS);
+        const sumBy = (bag, fn) => plates.reduce((s, pl) => s + ((bag && bag[pl]) || []).reduce((a, x) => a + fn(x), 0), 0);
+        // ritmos históricos R$/dia POR CARRO da frota de referência
+        const finesInDay = sumBy((U.multas || {}).placas, (x) => x.v) / dias / cars;
+        const finesOutDay = sumBy((U.multasBase || {}).placas, (x) => x.v) / dias / cars;
+        const recDay = sumBy((U.judBase || {}).placas, (x) => x.recovery || 0) / dias / cars;
+        const repDay = sumBy((U.judBase || {}).placas, (x) => x.repair || 0) / dias / cars;
+        const termDay = sumBy((U.judBase || {}).placas, (x) => x.term || 0) / dias / cars;
+        // km/dia médio (odômetros da frota de referência) — base de Maintenance e Part Replacement
+        let kmS = 0, kmN = 0;
+        plates.forEach((pl) => { const d = (U.frota || {}).placas && U.frota.placas[pl]; if (d && d.ok && d.odo > 0) { kmS += d.odo; kmN++; } });
+        const kmDia = kmN ? (kmS / kmN) / dias : 0;
+        const A = () => new Array(UET_PERIODS).fill(0);
+        const prof = {};
+        const fee = par('__sub_semanal__');
+        if (fee > 0) {
+          prof['Subscription'] = A(); prof['Late-payment interest'] = A();
+          for (let p = 1; p <= 12; p++) {
+            prof['Subscription'][p] = fee * UET_WPM * (1 - inad);
+            prof['Late-payment interest'][p] = fee * UET_WPM * late * 0.20; // entregas novas = contrato v3+ (20%)
+          }
+        }
+        if (finesInDay > 0) { prof['Traffic fines'] = A(); for (let p = 1; p <= 13; p++) prof['Traffic fines'][p] = finesInDay * MESd; }
+        if (finesOutDay > 0) { prof['Traffic fines (out)'] = A(); for (let p = 1; p <= 13; p++) prof['Traffic fines (out)'][p] = -finesOutDay * MESd; }
+        if (termDay > 0) { prof['Termination fee'] = A(); prof['Termination fee'][13] = termDay * 12 * MESd * termPctF; }
+        if (recDay > 0) { prof['Recovery cost'] = A(); for (let p = 1; p <= 12; p++) prof['Recovery cost'][p] = -recDay * MESd; }
+        if (repDay > 0) { prof['Repair cost'] = A(); for (let p = 1; p <= 12; p++) prof['Repair cost'][p] = -repDay * MESd; }
+        const subr = par('__subrental_mensal__');
+        if (subr > 0) { prof['Subrental fee'] = A(); for (let p = 2; p <= 13; p++) prof['Subrental fee'][p] = -subr; } // 12 parcelas no dia 26: M2..M13
+        const insT = par('__ins_total__'), insN = par('__ins_parcelas__');
+        if (insT > 0 && insN >= 1) { prof['Insurance'] = A(); for (let p = 1; p <= Math.min(insN, 13); p++) prof['Insurance'][p] = -insT / insN; }
+        const gps0 = par('__gps_m0__'), gpsM = par('__gps_mensal__');
+        if (gps0 > 0 || gpsM > 0) { prof['GPS'] = A(); prof['GPS'][0] = -gps0; for (let p = 1; p <= 12; p++) prof['GPS'][p] = -gpsM; }
+        prof['Car Preparation'] = A(); prof['Car Preparation'][0] = -50;
+        prof['Sticker'] = A(); prof['Sticker'][0] = -15;
+        const dep = par('__num_alugueis__') * subr;
+        if (dep > 0) {
+          prof['Security Deposit'] = A(); prof['Security Deposit'][0] = -dep;
+          prof['Security Deposit Refund'] = A(); prof['Security Deposit Refund'][13] = dep * (1 + refundF);
+        }
+        const veh = par('__vehicle__');
+        if (veh > 0) { prof['Initial Fee / Vehicle Sell'] = A(); prof['Initial Fee / Vehicle Sell'][13] = veh * 1.03; }
+        // Maintenance: revisões a cada 10.000 km no ritmo da frota, preço do site −25%, +33d de prazo
+        const prices = (U.revisoes || {})[model] || [];
+        if (kmDia > 0 && prices.length) {
+          prof['Maintenance'] = A();
+          for (let n = 1; n <= 30; n++) {
+            const pr = prices.find((x) => x.n === n); if (!pr) break;
+            const mo = Math.ceil(((n * 10000) / kmDia + 33) / MESd);
+            if (mo > 13) break;
+            prof['Maintenance'][Math.max(1, mo)] += -pr.valor * 0.75;
+          }
+        }
+        // Part Replacement: cruzamentos de km das peças no ritmo da frota
+        if (kmDia > 0) {
+          prof['Part Replacement'] = A();
+          Object.values(partCfgF).forEach((cfg) => {
+            const inter = (cfg.km || 0) * 1000; if (inter <= 0 || !(cfg.rs > 0)) return;
+            for (let k = 1; k <= 60; k++) {
+              const mo = Math.ceil((k * inter) / kmDia / MESd);
+              if (mo > 12) break;
+              prof['Part Replacement'][Math.max(1, mo)] += -cfg.rs;
+            }
+          });
+        }
+        out[model] = prof;
+      });
+      // exceção do Tera: números de recuperação/reparo ainda verdes — usa os do Polo (Frota 1)
+      if (out.Tera && out.Polo) {
+        if (out.Polo['Recovery cost']) out.Tera['Recovery cost'] = out.Polo['Recovery cost'];
+        if (out.Polo['Repair cost']) out.Tera['Repair cost'] = out.Polo['Repair cost'];
+      }
+      return Object.keys(out).length ? out : null;
+    }
     // Realizado consolidado de TODAS as placas por mês calendário de 2026 (em R$; o P&L converte).
     // sub/late = matriz de pagamentos (principal/juros pelo vencimento); finesIn = multas pagas
     // (data do pagamento); maint = notas do import_rev (vencimento); finesOut = multas_consolidado
@@ -2006,8 +2109,11 @@
     function finActuals() {
       const U = OCN.ue || {};
       const z = () => new Array(FIN_MONTHS).fill(0);
-      const out = { sub: z(), late: z(), finesIn: z(), maint: z(), finesOut: z(), any: false };
+      const out = { sub: z(), late: z(), finesIn: z(), maint: z(), finesOut: z(), subr: z(), ins: z(), gps: z(), prep: z(), stick: z(), rec: z(), rep: z(), parts: z(), any: false };
       const moOf = (iso) => (iso && String(iso).slice(0, 4) === '2026') ? parseInt(String(iso).slice(5, 7), 10) - 1 : null;
+      const hojeD = new Date(((U.hoje) || new Date().toISOString().slice(0, 10)) + 'T12:00:00');
+      const curMo = hojeD.getFullYear() === 2026 ? hojeD.getMonth() : FIN_MONTHS - 1;
+      const MS = 86400000;
       Object.values(((U.pagamentos || {}).placas) || {}).forEach((ws) => ws.forEach((s) => {
         const m = moOf(s.v); if (m == null) return;
         const esp = s.e != null ? s.e : (s.r != null ? s.r : 0);
@@ -2017,6 +2123,51 @@
       Object.values(((U.multas || {}).placas) || {}).forEach((a) => a.forEach((x) => { if (!x.pago) return; const m = moOf(x.d); if (m == null) return; out.finesIn[m] += x.v; out.any = true; }));
       Object.values(((U.revBase || {}).placas) || {}).forEach((a) => a.forEach((r) => { if (!r.valor || !r.venc) return; const m = moOf(r.venc); if (m == null) return; out.maint[m] += r.valor; out.any = true; }));
       Object.values(((U.multasBase || {}).placas) || {}).forEach((a) => a.forEach((x) => { if (!x.venc) return; const m = moOf(x.venc); if (m == null) return; out.finesOut[m] += x.v; out.any = true; }));
+      // Recuperação/Reparo (import_jud): data do evento; caso sem data cai no mês vigente
+      Object.values(((U.judBase || {}).placas) || {}).forEach((a) => a.forEach((c) => {
+        const m = c.d ? moOf(c.d) : curMo; if (m == null) return;
+        out.rec[m] += c.recovery || 0; out.rep[m] += c.repair || 0; out.any = true;
+      }));
+      // Reposição de peças: eventos do site × custo configurado (todas — a divisão natural/atípica
+      // já é aplicada no UE por placa; no consolidado do P&L mantém-se o custo cheio conservador)
+      const pc = { pastilhas: cpar('__part_pastilhas_rs__', 250), disco: cpar('__part_disco_rs__', 350), pneus: cpar('__part_pneus_rs__', 700) };
+      Object.values(((U.reposicao || {}).placas) || {}).forEach((a) => a.forEach((ev) => {
+        const m = moOf(ev.d); if (m == null) return;
+        (ev.itens || []).forEach((it) => { if (pc[it]) { out.parts[m] += pc[it]; out.any = true; } });
+      }));
+      // Linhas de AGENDA com os parâmetros REAIS de cada frota (caixinhas do UE): subrental (dia 26),
+      // seguro (parcelas), GPS (M0 + mensal), preparação e adesivo (M0) — frota a frota, mês calendário.
+      const losses = U.losses || {};
+      (U.fleets || []).forEach((f) => {
+        if (!f.inicio) return;
+        const P = realFleetParams[f.id] || {};
+        const par = (k) => { const v = P[k + '@@0']; return v != null ? Number(v) : 0; };
+        const ini = new Date(f.inicio + 'T12:00:00');
+        const cars = f.cars || (f.placas || []).length || 0;
+        if (!cars) return;
+        const lostBefore = (d) => (f.placas || []).reduce((n, pl) => n + ((losses[pl] && new Date(losses[pl] + 'T12:00:00') <= d) ? 1 : 0), 0);
+        const m0 = moOf(f.inicio);
+        if (m0 != null && ini <= hojeD) { out.prep[m0] += 50 * cars; out.stick[m0] += 15 * cars; out.any = true; }
+        const subr = par('__subrental_mensal__');
+        if (subr > 0) for (let i = 1; i <= 12; i++) {
+          const d = new Date(ini.getFullYear(), ini.getMonth() + i, 26, 12);
+          if (d > hojeD || d.getFullYear() !== 2026) continue;
+          out.subr[d.getMonth()] += subr * Math.max(0, cars - lostBefore(d)); out.any = true;
+        }
+        const insT = par('__ins_total__'), insN = par('__ins_parcelas__');
+        if (insT > 0 && insN >= 1) for (let n = 1; n <= insN; n++) {
+          const d = new Date(ini.getTime() + (n - 0.5) * UET_WPM * 7 * MS);
+          if (d > hojeD || d.getFullYear() !== 2026) continue;
+          out.ins[d.getMonth()] += (insT / insN) * cars; out.any = true; // seguro paga pelos carros TOTAIS
+        }
+        const gps0 = par('__gps_m0__'), gpsM = par('__gps_mensal__');
+        if (gps0 > 0 && m0 != null && ini <= hojeD) { out.gps[m0] += gps0 * cars; out.any = true; }
+        if (gpsM > 0) for (let n = 1; n <= 12; n++) {
+          const d = new Date(ini.getTime() + (n - 0.5) * UET_WPM * 7 * MS);
+          if (d > hojeD || d.getFullYear() !== 2026) continue;
+          out.gps[d.getMonth()] += gpsM * Math.max(0, cars - lostBefore(d)); out.any = true;
+        }
+      });
       return out;
     }
     function computePnl(opts) {
@@ -2044,23 +2195,28 @@
           const mondays = FIN_MONDAYS[m];
           const weeks = age === 0 ? mondaysOnOrAfter(cm, cohDay(c)) : mondays; // semanas pagas a partir da data
           const billable = mondays ? weeks / mondays : 0;
+          // valor por veículo na idade `age`: PERFIL DA FROTA DE REFERÊNCIA (premissas do UE real);
+          // fallback para o Theoric quando o perfil não tem a linha (ex.: caixinha ainda vazia)
+          const prof = refProfiles && refProfiles[c.model];
+          const val = (L, age_) => {
+            if (prof && prof[L]) { const pv = prof[L][age_]; return pv || null; }
+            const lo = lineOf(L); return lo ? uetEff(vals, c.model, lo, age_, maint) : null;
+          };
           const add = (L, bag) => {
-            const lo = lineOf(L); if (!lo) return;
-            let v = uetEff(vals, c.model, lo, p, maint);
+            let v = val(L, p);
             if (v != null) {
               if (WEEKLY_LINES[L]) v = (v / UET_WPM) * weeks;      // mensal -> semanal -> × semanas pagas
               else if (BILLABLE_LINES[L]) v = v * billable;        // pro-rata no mês de entrega
               bag[L][m] += (v * activeN) / fx;
             }
             if (age === 0) {                                        // one-offs do M0 caem no mês de entrega
-              const v0 = uetEff(vals, c.model, lo, 0, maint);
+              const v0 = val(L, 0);
               if (v0 != null) bag[L][m] += (v0 * c.qty) / fx;
             }
           };
           FIN_REV_LINES.forEach((L) => add(L, rev));
           FIN_COGS_LINES.forEach((L) => add(L, cogs));
-          const sd = lineOf('Security Deposit');
-          if (sd && age === 0) { const v0 = uetEff(vals, c.model, sd, 0, maint); if (v0 != null) secDep[m] += (v0 * c.qty) / fx; }
+          if (age === 0) { const v0 = val('Security Deposit', 0); if (v0 != null) secDep[m] += (v0 * c.qty) / fx; }
         });
       }
       // ---- MESES DECORRIDOS: troca o modelo pelo REALIZADO consolidado da frota inteira ----
@@ -2078,6 +2234,15 @@
           rev['Traffic fines'][m] = ACT.finesIn[m] / fx;
           cogs['Maintenance'][m] = -ACT.maint[m] / fx;
           cogs['Traffic fines (out)'][m] = -ACT.finesOut[m] / fx;
+          // linhas de agenda com os parâmetros REAIS de cada frota (item: subrental/seguro/GPS/prep/adesivo)
+          cogs['Subrental fee'][m] = -ACT.subr[m] / fx;
+          cogs['Insurance'][m] = -ACT.ins[m] / fx;
+          cogs['GPS'][m] = -ACT.gps[m] / fx;
+          cogs['Car Preparation'][m] = -ACT.prep[m] / fx;
+          cogs['Sticker'][m] = -ACT.stick[m] / fx;
+          cogs['Recovery cost'][m] = -ACT.rec[m] / fx;
+          cogs['Repair cost'][m] = -ACT.rep[m] / fx;
+          cogs['Part Replacement'][m] = -ACT.parts[m] / fx;
         }
         const days = Math.max(1, (new Date(hojeIso + 'T12:00:00') - new Date('2026-04-01T12:00:00')) / 86400000);
         if (days > 30) {
@@ -2091,7 +2256,9 @@
         }
         actualsThrough = curM;
       }
-      if (opts.noSd) secDep.fill(0); // visão "sem sub-rental security deposit"
+      // visão "sem sub-rental security deposit": zera o calção E a devolução dele (refund) — os dois
+      // lados da mesma moeda; deixar só um distorceria o cashflow
+      if (opts.noSd) { secDep.fill(0); if (rev['Security Deposit Refund']) rev['Security Deposit Refund'].fill(0); }
       const grossRev = zeros(), cogsTot = zeros();
       for (let m = 0; m < FIN_MONTHS; m++) {
         FIN_REV_LINES.forEach((L) => grossRev[m] += rev[L][m]);
@@ -2225,8 +2392,9 @@
       h += `<button id="pnlExpand" class="pnl-btn">${pnlCollapsed.size ? 'Expand all' : 'Collapse all'}</button>`;
       if (!live) { const v = pnlVersions.find((x) => x.id === pnlVersion); h += `<span class="pnl-frozen">📌 Frozen${v && v.savedAt ? ' · ' + v.savedAt.slice(0, 10) : ''}${v && v.snapshot && v.snapshot.noSd ? ' · no deposit' : ''}</span>`; }
       h += '</div>';
-      const actNote = pnlActualsThrough != null ? ` · <b>Actuals through ${monthLbl(pnlActualsThrough)}</b> (payments matrix, fines, import_rev) — later months follow the Theoric model` : '';
-      h += `<div class="fin-note">Fed by <b>${finCohorts.length}</b> cohort(s) · per-vehicle UE from <b>Unit Economics Theoric</b> · FX <b>R$ ${finPar('__fin_fx__').toFixed(2).replace('.', ',')}</b>/US$ · Sub-rental security deposit is in COGS (like the UE)${actNote}.</div>`;
+      const actNote = pnlActualsThrough != null ? ` · <b>Actuals through ${monthLbl(pnlActualsThrough)}</b> (payments matrix, fines, import_rev, real fleet params)` : '';
+      const projNote = refProfiles ? ' · projections from <b>reference fleets</b> (Polo=F1, Argo=F2, Tera=F6; Tera repair/recovery from F1)' : ' · per-vehicle UE from <b>Unit Economics Theoric</b>';
+      h += `<div class="fin-note">Fed by <b>${finCohorts.length}</b> cohort(s)${projNote} · FX <b>R$ ${finPar('__fin_fx__').toFixed(2).replace('.', ',')}</b>/US$ · Sub-rental security deposit is in COGS (like the UE)${actNote}.</div>`;
       ctl.innerHTML = h;
       const sel = document.getElementById('pnlVer'); if (sel) sel.addEventListener('change', () => { pnlVersion = sel.value; renderPnl(); });
       const nb = document.getElementById('pnlNoSdBtn'); if (nb) nb.addEventListener('click', () => { pnlNoSd = !pnlNoSd; renderPnl(); });
@@ -2693,6 +2861,11 @@
       try { const r = await fetch('/api/finance/sga', { credentials: 'include' }); const d = await r.json(); finSga = (d && d.sga) || finSga; } catch (e) {}
       try { const r = await fetch('/api/finance/cac', { credentials: 'include' }); const d = await r.json(); finCac = (d && d.cac) || finCac; } catch (e) {}
       for (const m of finModels) finModelVals[m.id] = await getVals('__theoric_' + m.id + '__');
+      // caixinhas reais das frotas + config global do UE — base dos perfis de referência e dos realizados
+      cfgReal = await getVals('__cfg__');
+      const realFleets = ((OCN.ue || {}).fleets) || [];
+      await Promise.all(realFleets.map(async (f) => { realFleetParams[f.id] = await getVals(f.id); }));
+      refProfiles = buildProfiles();
       await loadPnlVersions();
       renderFleetPlan(); renderHc(); renderAdmin(); renderCac(); renderAssump(); renderPnl();
     })();

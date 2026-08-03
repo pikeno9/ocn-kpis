@@ -482,10 +482,10 @@ html { scrollbar-gutter: stable; }
 /* lacuna que não se aplica ao período = zero visual */
 .ue-table .ue-main.ue-empty { color: var(--text-2); opacity: .55; }
 
-/* ---- Cabeçalho das tabelas de UE (real + teórico): gradiente roxo, cantos suaves ---- */
-#ueTable thead th, #uetTable thead th { background: linear-gradient(180deg, #32006e, #23004e); color: #fff; font-size: 9.5px; letter-spacing: .5px; padding-top: 7px; padding-bottom: 7px; border-bottom: 2px solid #5A00F8; }
-#ueTable thead th.ue-rowlabel, #uetTable thead th.ue-rowlabel { background: linear-gradient(180deg, #32006e, #23004e); border-top-left-radius: 8px; }
-#ueTable thead th.ue-totalcol, #uetTable thead th.ue-totalcol { background: linear-gradient(180deg, #5A00F8, #4700c4); border-top-right-radius: 8px; }
+/* ---- Cabeçalho das tabelas de UE (real + teórico) e do P&L: gradiente roxo, cantos suaves ---- */
+#ueTable thead th, #uetTable thead th, #pnlTable thead th { background: linear-gradient(180deg, #32006e, #23004e); color: #fff; font-size: 9.5px; letter-spacing: .5px; padding-top: 7px; padding-bottom: 7px; border-bottom: 2px solid #5A00F8; }
+#ueTable thead th.ue-rowlabel, #uetTable thead th.ue-rowlabel, #pnlTable thead th.ue-rowlabel { background: linear-gradient(180deg, #32006e, #23004e); border-top-left-radius: 8px; }
+#ueTable thead th.ue-totalcol, #uetTable thead th.ue-totalcol, #pnlTable thead th.ue-totalcol { background: linear-gradient(180deg, #5A00F8, #4700c4); border-top-right-radius: 8px; }
 
 /* ---- Modal de peças: um cartão por peça, campos com unidade ---- */
 .ue-modal-parts { max-width: 430px; }

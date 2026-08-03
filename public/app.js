@@ -1826,6 +1826,8 @@
   const UET_LINES = [
     { label: 'Subscription', group: 'inflow' },
     { label: 'Late-payment interest', group: 'inflow' },
+    { label: 'Traffic fines', group: 'inflow' },            // espelho do UE real (sem cálculo teórico ainda)
+    { label: 'Termination fee', group: 'inflow' },
     { label: 'Initial Fee / Vehicle Sell', group: 'inflow' },
     { label: 'Security Deposit Refund', group: 'inflow' },
     { label: 'Total Inflow', group: 'totalInflow' },
@@ -1837,10 +1839,16 @@
     { label: 'Sticker', group: 'outflow' },
     { label: 'Security Deposit', group: 'outflow' },
     { label: 'Vehicle Purchase', group: 'outflow' },
+    { label: 'Traffic fines (out)', group: 'outflow' },     // espelho do UE real
+    { label: 'Recovery cost', group: 'outflow' },
+    { label: 'Repair cost', group: 'outflow' },
+    { label: 'Part Replacement', group: 'outflow' },
     { label: 'Total Outflow', group: 'totalOutflow' },
     { label: 'Net monthly cashflow', group: 'net' },
     { label: 'Acc Cashflow', group: 'acc' },
   ];
+  // rótulo de exibição — a chave interna da saída de multas é distinta p/ não colidir com a entrada
+  const UET_DISPLAY = { 'Traffic fines (out)': 'Traffic fines' };
   // parâmetros por linha (a "caixinha" do lápis) — mesma ideia do UE real; cada linha tem sua regra
   const UET_PARAMS = {
     'Subscription': [{ k: '__sub_semanal__', label: 'Weekly subscription fee (R$)' }, { k: '__sub_juros__', label: 'Late-payment interest (%)' }],
@@ -1904,12 +1912,12 @@
   let finEdit = false; // "Edit mode" do Finance (compartilhado por todas as abas) — começa somente leitura
   let sgaTab = 'hc', cacTab = 'comm'; // abas de 3º nível dentro de SG&A e CAC & Marketing
   let pnlNoSd = false; // P&L: excluir o sub-rental security deposit da visão
-  let pnlCollapsed = new Set(['tax', 'cogs', 'opex', 'cac', 'sga', 'hc']); // grupos recolhidos (padrão: fechados)
+  let pnlCollapsed = new Set(['grev', 'tax', 'cogs', 'opex', 'cac', 'sga', 'hc']); // grupos recolhidos (padrão: fechados)
   let pnlVersions = [], pnlVersion = 'live'; // versões congeladas p/ board + versão selecionada
   const FIN_MONTHS = 12; // 2026-01 .. 2026-12
   const FIN_ML = (i) => '2026-' + String(i + 1).padStart(2, '0');
-  const FIN_REV_LINES = ['Subscription', 'Late-payment interest', 'Initial Fee / Vehicle Sell', 'Security Deposit Refund'];
-  const FIN_COGS_LINES = ['Subrental fee', 'Maintenance', 'Insurance', 'GPS', 'Car Preparation', 'Sticker'];
+  const FIN_REV_LINES = ['Subscription', 'Late-payment interest', 'Traffic fines', 'Initial Fee / Vehicle Sell', 'Security Deposit Refund'];
+  const FIN_COGS_LINES = ['Subrental fee', 'Maintenance', 'Insurance', 'GPS', 'Car Preparation', 'Sticker', 'Traffic fines (out)'];
   const FIN_ASSUMP = [
     { k: '__fin_tax_fed__', label: 'Federal taxes (% of gross revenue)', def: 13.36 },
     { k: '__fin_tax_credit__', label: 'Tax input credit (% of gross revenue)', def: 8.25 },
@@ -1991,6 +1999,26 @@
     const mondaysOnOrAfter = (mo, fromDay) => { let n = 0; const d = new Date(2026, mo, 1); while (d.getMonth() === mo) { if (d.getDay() === 1 && d.getDate() >= fromDay) n++; d.setDate(d.getDate() + 1); } return n; };
     const cohMonth = (c) => (c.date ? (parseInt(c.date.slice(5, 7), 10) - 1) : (c.month || 0));
     const cohDay = (c) => (c.date ? parseInt(c.date.slice(8, 10), 10) : 1);
+    // Realizado consolidado de TODAS as placas por mês calendário de 2026 (em R$; o P&L converte).
+    // sub/late = matriz de pagamentos (principal/juros pelo vencimento); finesIn = multas pagas
+    // (data do pagamento); maint = notas do import_rev (vencimento); finesOut = multas_consolidado
+    // (nosso vencimento). Só o que tem data concreta entra — estimativas ficam com o modelo.
+    function finActuals() {
+      const U = OCN.ue || {};
+      const z = () => new Array(FIN_MONTHS).fill(0);
+      const out = { sub: z(), late: z(), finesIn: z(), maint: z(), finesOut: z(), any: false };
+      const moOf = (iso) => (iso && String(iso).slice(0, 4) === '2026') ? parseInt(String(iso).slice(5, 7), 10) - 1 : null;
+      Object.values(((U.pagamentos || {}).placas) || {}).forEach((ws) => ws.forEach((s) => {
+        const m = moOf(s.v); if (m == null) return;
+        const esp = s.e != null ? s.e : (s.r != null ? s.r : 0);
+        const rec = s.r != null ? s.r : esp;
+        out.sub[m] += Math.min(rec, esp); out.late[m] += Math.max(0, rec - esp); out.any = true;
+      }));
+      Object.values(((U.multas || {}).placas) || {}).forEach((a) => a.forEach((x) => { if (!x.pago) return; const m = moOf(x.d); if (m == null) return; out.finesIn[m] += x.v; out.any = true; }));
+      Object.values(((U.revBase || {}).placas) || {}).forEach((a) => a.forEach((r) => { if (!r.valor || !r.venc) return; const m = moOf(r.venc); if (m == null) return; out.maint[m] += r.valor; out.any = true; }));
+      Object.values(((U.multasBase || {}).placas) || {}).forEach((a) => a.forEach((x) => { if (!x.venc) return; const m = moOf(x.venc); if (m == null) return; out.finesOut[m] += x.v; out.any = true; }));
+      return out;
+    }
     function computePnl(opts) {
       opts = opts || {};
       const fx = finPar('__fin_fx__') || 5.5;
@@ -2034,6 +2062,34 @@
           const sd = lineOf('Security Deposit');
           if (sd && age === 0) { const v0 = uetEff(vals, c.model, sd, 0, maint); if (v0 != null) secDep[m] += (v0 * c.qty) / fx; }
         });
+      }
+      // ---- MESES DECORRIDOS: troca o modelo pelo REALIZADO consolidado da frota inteira ----
+      // Mesmas fontes do UE real (matriz de pagamentos, multas, import_rev, multas_consolidado),
+      // agregadas por mês CALENDÁRIO. Futuro continua vindo do Theoric; multas (que o Theoric não
+      // modela) seguem no ritmo histórico R$/dia.
+      const hojeIso = (OCN.ue && OCN.ue.hoje) || new Date().toISOString().slice(0, 10);
+      const curM = hojeIso.slice(0, 4) === '2026' ? parseInt(hojeIso.slice(5, 7), 10) - 1 : FIN_MONTHS - 1;
+      const ACT = finActuals();
+      let actualsThrough = null;
+      if (ACT.any) {
+        for (let m = 0; m <= curM && m < FIN_MONTHS; m++) {
+          rev['Subscription'][m] = ACT.sub[m] / fx;
+          rev['Late-payment interest'][m] = ACT.late[m] / fx;
+          rev['Traffic fines'][m] = ACT.finesIn[m] / fx;
+          cogs['Maintenance'][m] = -ACT.maint[m] / fx;
+          cogs['Traffic fines (out)'][m] = -ACT.finesOut[m] / fx;
+        }
+        const days = Math.max(1, (new Date(hojeIso + 'T12:00:00') - new Date('2026-04-01T12:00:00')) / 86400000);
+        if (days > 30) {
+          const inDay = ACT.finesIn.reduce((a, b) => a + b, 0) / days;
+          const outDay = ACT.finesOut.reduce((a, b) => a + b, 0) / days;
+          const dim = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+          for (let m = curM + 1; m < FIN_MONTHS; m++) {
+            rev['Traffic fines'][m] = (inDay * dim[m]) / fx;
+            cogs['Traffic fines (out)'][m] = -(outDay * dim[m]) / fx;
+          }
+        }
+        actualsThrough = curM;
       }
       if (opts.noSd) secDep.fill(0); // visão "sem sub-rental security deposit"
       const grossRev = zeros(), cogsTot = zeros();
@@ -2081,12 +2137,13 @@
       const headcount = zeros(); for (let m = 0; m < FIN_MONTHS; m++) (finHc.roles || []).forEach((r) => { headcount[m] += hcOf(r, m); });
       const payFeePct = new Array(FIN_MONTHS).fill(0).map((_, m) => finParM('__fin_payfee__', m));
       return { delivered, active, rev, cogs, secDep, grossRev, fed, cred, taxes, netRev, cogsTot, payProc, gm,
-        base, meal, health, ptax, th13, bonus, hcTot, commission, adsTot, infTot, cacTot, rentTot, profTot, itTot, sga, opex, netCf, accCf, newDelivered, headcount, payFeePct };
+        base, meal, health, ptax, th13, bonus, hcTot, commission, adsTot, infTot, cacTot, rentTot, profTot, itTot, sga, opex, netCf, accCf, newDelivered, headcount, payFeePct, actualsThrough };
     }
 
     // ---------- P&L ----------
-    const PNL_GROUPS = ['tax', 'cogs', 'opex', 'cac', 'sga', 'hc'];
+    const PNL_GROUPS = ['grev', 'tax', 'cogs', 'opex', 'cac', 'sga', 'hc'];
     const pnlSnap = () => (pnlVersions.find((v) => v.id === pnlVersion) || {}).snapshot || null;
+    let pnlActualsThrough = null; // último mês calendário coberto por dados realizados
     function renderPnl() {
       const el = document.getElementById('pnlTable'); if (!el) return;
       const snap = (pnlVersion === 'live') ? null : pnlSnap();
@@ -2099,13 +2156,14 @@
       const push = (label, arr, cls, o) => N.push(Object.assign({ label, arr, cls: cls || 'ue-leaf', ancestors: [] }, o || {}));
       // Color code por NÍVEL: L1 = resultados (Gross/Net Revenue, Gross Margin, Net cashflow),
       // L2 = blocos (COGS, Payment processing, OPEX), L3 = componentes, L4 = detalhe dentro de um L3.
-      push('Gross Revenue', P.grossRev, 'pnl-l1');
+      push('Gross Revenue', P.grossRev, 'pnl-l1', { group: 'grev' });
+      FIN_REV_LINES.forEach((L) => push(L === 'Traffic fines (out)' ? 'Traffic fines' : L, P.rev[L] || [], 'pnl-l3', { ancestors: ['grev'] }));
       push('Taxes on sales', P.taxes, 'pnl-l2', { group: 'tax' });
       push('Federal taxes', P.fed, 'pnl-l3', { ancestors: ['tax'] });
       push('Tax input credit', P.cred, 'pnl-l3', { ancestors: ['tax'] });
       push('Net Revenue', P.netRev, 'pnl-l1');
       push('COGS', P.cogsTot, 'pnl-l2', { group: 'cogs' });
-      FIN_COGS_LINES.forEach((L) => push(L, P.cogs[L], 'pnl-l3', { ancestors: ['cogs'] }));
+      FIN_COGS_LINES.forEach((L) => push(L === 'Traffic fines (out)' ? 'Traffic fines' : L, P.cogs[L] || [], 'pnl-l3', { ancestors: ['cogs'] }));
       push('Sub-rental security deposit', P.secDep, 'pnl-l3', { ancestors: ['cogs'] });
       push('Payment processing', P.payProc, 'pnl-l2');
       push('Gross Margin', P.gm, 'pnl-l1', { pct: gmPct, pctTot: sum(P.grossRev) ? (sum(P.gm) / sum(P.grossRev)) * 100 : null });
@@ -2151,6 +2209,7 @@
       el.querySelectorAll('.pnl-parent').forEach((tr) => tr.addEventListener('click', () => {
         const g = tr.dataset.g; if (pnlCollapsed.has(g)) pnlCollapsed.delete(g); else pnlCollapsed.add(g); renderPnl();
       }));
+      pnlActualsThrough = (P.actualsThrough != null) ? P.actualsThrough : null;
       renderPnlControls(live);
       renderPnlExtras(P, live);
     }
@@ -2166,7 +2225,8 @@
       h += `<button id="pnlExpand" class="pnl-btn">${pnlCollapsed.size ? 'Expand all' : 'Collapse all'}</button>`;
       if (!live) { const v = pnlVersions.find((x) => x.id === pnlVersion); h += `<span class="pnl-frozen">📌 Frozen${v && v.savedAt ? ' · ' + v.savedAt.slice(0, 10) : ''}${v && v.snapshot && v.snapshot.noSd ? ' · no deposit' : ''}</span>`; }
       h += '</div>';
-      h += `<div class="fin-note">Fed by <b>${finCohorts.length}</b> cohort(s) · per-vehicle UE from <b>Unit Economics Theoric</b> · FX <b>R$ ${finPar('__fin_fx__').toFixed(2).replace('.', ',')}</b>/US$ · Sub-rental security deposit is in COGS (like the UE).</div>`;
+      const actNote = pnlActualsThrough != null ? ` · <b>Actuals through ${monthLbl(pnlActualsThrough)}</b> (payments matrix, fines, import_rev) — later months follow the Theoric model` : '';
+      h += `<div class="fin-note">Fed by <b>${finCohorts.length}</b> cohort(s) · per-vehicle UE from <b>Unit Economics Theoric</b> · FX <b>R$ ${finPar('__fin_fx__').toFixed(2).replace('.', ',')}</b>/US$ · Sub-rental security deposit is in COGS (like the UE)${actNote}.</div>`;
       ctl.innerHTML = h;
       const sel = document.getElementById('pnlVer'); if (sel) sel.addEventListener('change', () => { pnlVersion = sel.value; renderPnl(); });
       const nb = document.getElementById('pnlNoSdBtn'); if (nb) nb.addEventListener('click', () => { pnlNoSd = !pnlNoSd; renderPnl(); });
@@ -2771,7 +2831,8 @@
       UET_LINES.forEach((l) => {
         const leaf = isLeaf(l.group);
         const pencil = leaf && UET_PARAMS[l.label] && uetManual && isAdmin;
-        const label = pencil ? `<span class="ue-param-label" data-pline="${escH(l.label)}">${escH(l.label)} <span class="ue-pencil">✎</span></span>` : escH(l.label);
+        const disp = UET_DISPLAY[l.label] || l.label;
+        const label = pencil ? `<span class="ue-param-label" data-pline="${escH(l.label)}">${escH(disp)} <span class="ue-pencil">✎</span></span>` : escH(disp);
         html += `<tr class="ue-row ue-${l.group} ${leaf ? 'ue-leaf' : 'ue-calc'}"><td class="ue-rowlabel">${label}</td>`;
         let rowTot = 0;
         for (let p = 0; p < UET_PERIODS; p++) {
@@ -3597,9 +3658,8 @@
     }
 
     function slider(id, label, min, max, step, val) {
-      return `<div class="ue-slider"><label>${label}</label>` +
-        `<input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"${isAdmin ? '' : ' disabled'}/>` +
-        `<span class="ue-sl-val" id="${id}Val"></span></div>`;
+      return `<div class="ue-slider"><div class="ue-sl-top"><label>${label}</label><span class="ue-sl-val" id="${id}Val"></span></div>` +
+        `<input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"${isAdmin ? '' : ' disabled'}/></div>`;
     }
     function wireSlider(id, setter, fmtLabel, getter, line, fleetKey, f) {
       const inp = document.getElementById(id), lab = document.getElementById(id + 'Val');
@@ -3660,6 +3720,40 @@
         close();
         renderTable(f);
       });
+    }
+
+    // "?" — origem e atualização de cada linha (referência rápida p/ quem consome a tabela)
+    function openInfoModal() {
+      const ROWS = [
+        ['Subscription', 'Payments matrix (billing panel API) + weekly fee (✎ box)', 'Auto, daily'],
+        ['Late-payment interest', 'Same matrix (actual interest) + contract version (v1/v2 5% · v3+ 20%) + late % slider', 'Auto, daily'],
+        ['Traffic fines (inflow)', 'Fines API (billing panel) — what clients pay us', 'Auto, daily'],
+        ['Termination fee', 'Sheet import_jud (total charge − fines/tolls) + recovery % slider · lands in M13', 'Auto, daily'],
+        ['Initial Fee / Vehicle Sell', '✎ box (103% of purchase) · M13', 'Manual'],
+        ['Security Deposit Refund', 'Derived: deposit × (1 + % p.a. field) · M13', 'Manual'],
+        ['Subrental fee', '✎ monthly amount; 12 installments always on the 26th (M2–M13)', 'Manual'],
+        ['Insurance', '✎ boxes (total / installments)', 'Manual'],
+        ['Car Preparation / Sticker', 'Fixed at M0 (−50 / −15 R$)', 'Static'],
+        ['Maintenance', 'Sheet import_rev (real invoices by due date) + revisions site prices −25% + fleet API odometer', 'Auto, daily'],
+        ['GPS / Security Deposit / Vehicle Purchase', '✎ boxes', 'Manual'],
+        ['Traffic fines (outflow)', 'Sheet multas_consolidado (amount we pay LM, by our due date)', 'Auto, daily'],
+        ['Recovery / Repair cost', 'Sheet import_jud (towing+recovery / damages+cleaning+others, by event date)', 'Auto, daily'],
+        ['Part Replacement', 'Fleet site events (natural wear only) + ⚙ Parts panel (intervals & costs)', 'Auto, daily / panel'],
+      ];
+      const ov = document.createElement('div');
+      ov.className = 'ue-modal-overlay';
+      ov.innerHTML =
+        `<div class="ue-modal ue-modal-info"><div class="ue-modal-title">Where each line comes from</div>` +
+        `<div class="ue-modal-sub">Automatic sources refresh <b>daily at 05:00 (São Paulo)</b>, on every deploy, and via the ↻ Refresh button. Manual boxes/sliders save instantly to the database.</div>` +
+        `<table class="ue-info-table"><thead><tr><th>Line</th><th>Source</th><th>Updates</th></tr></thead><tbody>` +
+        ROWS.map(([l, o, u]) => `<tr><td>${l}</td><td>${o}</td><td>${u}</td></tr>`).join('') +
+        `</tbody></table>` +
+        `<div class="ue-modal-hint">Realized values render in black (fixed FX), projections in purple (future FX slider), budget in grey. The current month combines realized + the remaining projection.</div>` +
+        `<div class="ue-modal-actions"><button type="button" class="ue-modal-cancel">Close</button></div></div>`;
+      document.body.appendChild(ov);
+      const close = () => ov.remove();
+      ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+      ov.querySelector('.ue-modal-cancel').addEventListener('click', close);
     }
 
     // painel ⚙ Parts: a cada quantos MIL km trocar cada peça + custo por troca (global, persiste em __cfg__)
@@ -3838,12 +3932,13 @@
           `</div>` +
           `<div class="ue-head-actions">` +
             `<div class="ue-cur-toggle" id="ueCurToggle">` +
-              `<button class="ue-cur-btn${currency === 'BRL' ? ' active' : ''}" data-c="BRL">R$</button>` +
-              `<button class="ue-cur-btn${currency === 'USD' ? ' active' : ''}" data-c="USD">US$</button>` +
+              `<button class="ue-cur-btn${currency === 'BRL' ? ' active' : ''}" data-c="BRL" title="Reais (R$)"><svg viewBox="0 0 20 14" class="ue-flag"><rect width="20" height="14" rx="2" fill="#009C3B"/><path d="M10 2.2 17.5 7 10 11.8 2.5 7Z" fill="#FFDF00"/><circle cx="10" cy="7" r="2.7" fill="#002776"/></svg></button>` +
+              `<button class="ue-cur-btn${currency === 'USD' ? ' active' : ''}" data-c="USD" title="US Dollars (US$)"><svg viewBox="0 0 20 14" class="ue-flag"><rect width="20" height="14" rx="2" fill="#fff"/><g fill="#B22234"><rect y="0" width="20" height="2"/><rect y="4" width="20" height="2"/><rect y="8" width="20" height="2"/><rect y="12" width="20" height="2"/></g><rect width="9" height="6" fill="#3C3B6E"/></svg></button>` +
             `</div>` +
             `<button class="ue-tool-btn" id="ueParts" title="Replacement intervals and cost per part">⚙ Parts</button>` +
             (isAdmin ? `<label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Manual mode</span></label>` : '') +
             `<button class="ue-tool-btn" id="ueRefresh" title="Re-fetches the spreadsheet data">↻ Refresh</button>` +
+            `<button class="ue-tool-btn ue-info-btn" id="ueInfo" title="Where each line comes from and how it updates">?</button>` +
           `</div>` +
         `</div>` +
         contractBar +
@@ -3856,9 +3951,10 @@
         `</div>` +
         // barra própria do modo de visualização, separada das ferramentas
         `<div class="ue-viewbar">` +
-          `<span class="ue-viewbar-hint">${cleanView ? 'Showing combined totals — budget comparison hidden' : 'Showing realized · projected · budget'}</span>` +
           `<button class="ue-clean2${cleanView ? ' on' : ''}" id="ueClean" title="Hide the budget comparison and show one combined number per month">✨ Clean view</button>` +
         `</div>`;
+      const infoBtn = document.getElementById('ueInfo');
+      if (infoBtn) infoBtn.addEventListener('click', openInfoModal);
       const partsBtn = document.getElementById('ueParts');
       if (partsBtn) partsBtn.addEventListener('click', () => openPartsModal(f));
       const cleanBtn = document.getElementById('ueClean');

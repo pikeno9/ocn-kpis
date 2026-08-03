@@ -147,12 +147,31 @@ button { font-family: inherit; cursor: pointer; }
 .ue-refresh-btn { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-display); font-size: 12px; font-weight: 600; color: #fff; background: var(--accent); border: none; border-radius: 8px; padding: 8px 14px; cursor: pointer; transition: filter .15s, opacity .15s; white-space: nowrap; }
 .ue-refresh-btn:hover { filter: brightness(1.08); }
 .ue-refresh-btn:disabled { opacity: .6; cursor: default; }
-.ue-sliders { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-end; margin: 14px 0 4px; padding: 12px 16px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; }
-.ue-slider { display: flex; flex-direction: column; gap: 5px; }
-.ue-slider label { font-size: 11px; color: var(--text-2); font-weight: 500; }
-.ue-slider input[type=range] { width: 220px; accent-color: var(--accent); cursor: pointer; }
+/* painel de premissas: um cartão por controle, valor em chip no canto */
+.ue-sliders { display: flex; gap: 12px; flex-wrap: wrap; align-items: stretch; margin: 14px 0 4px; }
+.ue-slider { display: flex; flex-direction: column; gap: 8px; padding: 11px 14px 12px; background: var(--surface); border: 1px solid var(--border-2); border-radius: 11px; box-shadow: 0 1px 3px #0000000a; transition: border-color .12s, box-shadow .12s; }
+.ue-slider:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border-2)); box-shadow: 0 2px 8px #7c3aed14; }
+.ue-sl-top { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.ue-slider label { font-size: 10.5px; color: var(--text-2); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.ue-slider input[type=range] { width: 210px; accent-color: var(--accent); cursor: pointer; }
 .ue-slider input[type=range]:disabled { cursor: default; opacity: .7; }
-.ue-sl-val { font-size: 13px; font-weight: 700; color: var(--text); }
+.ue-sl-val { font-size: 12px; font-weight: 700; color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); border-radius: 999px; padding: 2px 10px; white-space: nowrap; }
+/* toggle de moeda com bandeirinhas */
+.ue-cur-btn { display: inline-flex; align-items: center; justify-content: center; padding: 7px 12px; }
+.ue-flag { width: 21px; height: 15px; display: block; border-radius: 2px; box-shadow: 0 0 0 1px #00000018; }
+.ue-cur-btn.active .ue-flag { box-shadow: 0 0 0 1.5px #ffffffcc; }
+/* botão "?" */
+.ue-info-btn { width: 32px; padding: 7px 0; text-align: center; font-weight: 800; border-radius: 50%; }
+/* tabela do modal de origem dos dados */
+.ue-modal-info { max-width: 640px; }
+.ue-info-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 6px 0 10px; }
+.ue-info-table th { text-align: left; background: linear-gradient(180deg, #32006e, #23004e); color: #fff; padding: 6px 10px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; }
+.ue-info-table th:first-child { border-top-left-radius: 7px; }
+.ue-info-table th:last-child { border-top-right-radius: 7px; }
+.ue-info-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.ue-info-table td:first-child { font-weight: 600; white-space: nowrap; }
+.ue-info-table td:last-child { white-space: nowrap; color: var(--text-2); }
+.ue-info-table tr:nth-child(even) td { background: color-mix(in srgb, var(--accent) 3%, transparent); }
 .ue-field { display: flex; flex-direction: column; gap: 5px; }
 .ue-field label { font-size: 11px; color: var(--text-2); font-weight: 500; }
 .ue-field input { width: 132px; padding: 6px 9px; border: 1px solid var(--border-2); border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--text); font-family: var(--font); background: #fff; }
@@ -463,10 +482,10 @@ html { scrollbar-gutter: stable; }
 /* lacuna que não se aplica ao período = zero visual */
 .ue-table .ue-main.ue-empty { color: var(--text-2); opacity: .55; }
 
-/* ---- Cabeçalho da tabela do UE real: gradiente roxo, cantos suaves ---- */
-#ueTable thead th { background: linear-gradient(180deg, #32006e, #23004e); color: #fff; font-size: 9.5px; letter-spacing: .5px; padding-top: 7px; padding-bottom: 7px; border-bottom: 2px solid #5A00F8; }
-#ueTable thead th.ue-rowlabel { background: linear-gradient(180deg, #32006e, #23004e); border-top-left-radius: 8px; }
-#ueTable thead th.ue-totalcol { background: linear-gradient(180deg, #5A00F8, #4700c4); border-top-right-radius: 8px; }
+/* ---- Cabeçalho das tabelas de UE (real + teórico): gradiente roxo, cantos suaves ---- */
+#ueTable thead th, #uetTable thead th { background: linear-gradient(180deg, #32006e, #23004e); color: #fff; font-size: 9.5px; letter-spacing: .5px; padding-top: 7px; padding-bottom: 7px; border-bottom: 2px solid #5A00F8; }
+#ueTable thead th.ue-rowlabel, #uetTable thead th.ue-rowlabel { background: linear-gradient(180deg, #32006e, #23004e); border-top-left-radius: 8px; }
+#ueTable thead th.ue-totalcol, #uetTable thead th.ue-totalcol { background: linear-gradient(180deg, #5A00F8, #4700c4); border-top-right-radius: 8px; }
 
 /* ---- Modal de peças: um cartão por peça, campos com unidade ---- */
 .ue-modal-parts { max-width: 430px; }

@@ -2876,7 +2876,8 @@
     const ORCADO_FX = 5.0;  // câmbio em que o orçado (USD, planilha) foi construído — só para exibi-lo em R$
     let params = {}; // parâmetros por frota: subrental, seguro, GPS, nº aluguéis, compra
     const LINE_PARAMS = {
-      'Subscription': [{ k: '__sub_semanal__', label: 'Weekly subscription fee (R$)' }, { k: '__sub_juros__', label: 'Late-payment interest (%)' }],
+      // só a semanalidade: a taxa de juros vem da VERSÃO DO CONTRATO de cada placa (5% v1/v2, 20% v3+)
+      'Subscription': [{ k: '__sub_semanal__', label: 'Weekly subscription fee (R$)' }],
       'Subrental fee': [{ k: '__subrental_mensal__', label: 'Monthly Subrental fee (R$)' }],
       'Insurance': [{ k: '__ins_total__', label: 'Total insurance for the year (R$)' }, { k: '__ins_parcelas__', label: 'Number of installments (from M1)' }],
       'GPS': [{ k: '__gps_m0__', label: 'Amount at M0 (R$)' }, { k: '__gps_mensal__', label: 'Monthly amount, from M1 (R$)' }],
@@ -2960,6 +2961,19 @@
     }
     // mês vigente (parcial) do eixo do UE — é o que recebe realizado + projeção do que falta
     function currentMonthIdx() { return Math.min(PMAX, Math.ceil(elapsed)); }
+    // Versão do contrato do motorista atual -> taxas. v1/v2: juros de atraso 5% e prêmio de multa 10%;
+    // v3 em diante: 20% nos dois. Na visão de frota usa-se a média das placas (mix de versões).
+    const VER_JUROS = (v) => (v >= 3 ? 20 : 5);
+    const VER_PREMIO = (v) => (v >= 3 ? 0.20 : 0.10);
+    function contratoPlates(f) { return plateView ? [plateView] : ((f && f.placas) || []); }
+    function avgByVersion(f, fn, fallback) {
+      const ct = U.contratos || {};
+      const pls = contratoPlates(f).filter((pl) => ct[pl]);
+      if (!pls.length) return fallback;
+      return pls.reduce((s, pl) => s + fn(ct[pl]), 0) / pls.length;
+    }
+    // taxa média de juros de atraso (%) da frota/placa em contexto — substitui o antigo campo manual
+    let jurosPct = 5;
     // Subrental: 12 parcelas no dia 26, a 1ª no mês SEGUINTE ao da retirada. Devolve quantas
     // parcelas caem no período `p` do UE (normalmente 0 ou 1) — datas reais, respeitando o calendário.
     function subrentalMonthsAt(p) {
@@ -3088,9 +3102,15 @@
           finesProjRS[mo] += x.v * taxa;
         }
       }));
-      // infrações futuras: ritmo histórico (valor cobrado/dia) × taxa de recebimento
+      // infrações futuras: ritmo histórico (valor cobrado/dia), ajustado pelo prêmio da VERSÃO DE
+      // CONTRATO vigente. O histórico embute o prêmio antigo (10% na maioria); as placas que já
+      // migraram para a v3+ cobram 20%, então escala-se pela razão entre o prêmio médio de hoje e
+      // o histórico. Aproximação: o prêmio incide sobre o bruto e a base aqui é o total cobrado.
       const dias = Math.max(1, (hoje - ini) / MS);
-      const perDay = (total / dias) * taxa;
+      const premioHoje = avgByVersion(f, VER_PREMIO, 0.10);
+      const premioHist = (U.multas && U.multas.premioMedioHist) || 0.10;
+      const escala = premioHist > 0 ? (1 + premioHoje) / (1 + premioHist) : 1;
+      const perDay = (total / dias) * taxa * escala;
       for (let p = 1; p <= PMAX; p++) {
         const winStart = new Date(ini.getTime() + (p - 1) * SEMANAS_MES * 7 * MS);
         const winEnd = new Date(ini.getTime() + p * SEMANAS_MES * 7 * MS);
@@ -3155,7 +3175,7 @@
       const pag = U.pagamentos && U.pagamentos.placas;
       const ini = f.inicio ? new Date(f.inicio + 'T12:00:00') : null;
       if (!(fee > 0) || !pag || !ini) return;
-      const juros = par('__sub_juros__') / 100;
+      jurosPct = avgByVersion(f, VER_JUROS, 5); // taxa média conforme a versão do contrato das placas
       const plates = plateView ? [plateView] : (f.placas || []);
       for (let p = 0; p <= PMAX; p++) { subsRS[p] = 0; subsJurosRS[p] = 0; }
       plates.forEach((pl) => (pag[pl] || []).forEach((s) => {
@@ -3166,7 +3186,7 @@
         // separa principal (esperado) do juro de atraso (recebido − esperado); fallback = semanalidade×(1+juros)
         let principal, jr;
         if (s.r != null) { const esp = (s.e != null ? s.e : s.r); principal = Math.min(s.r, esp); jr = Math.max(0, s.r - esp); }
-        else { principal = fee; jr = fee * (s.a ? juros : 0); }
+        else { principal = fee; jr = fee * (s.a ? jurosPct / 100 : 0); }
         subsRS[mo] += principal; subsJurosRS[mo] += jr;
       }));
       // ÷ carros ATIVOS do mês (perda total sai do denominador a partir do incidente); placa = sem divisão
@@ -3199,7 +3219,7 @@
         // realizado = juro efetivo (recebido − esperado). Projetado = semanas × semanalidade
         // × % de semanas pagas em atraso (slider) × % de juros da caixinha da linha.
         if (period === 0 || period === PMAX) return { rs: 0, perActive: true };
-        const wkJuros = par('__sub_semanal__') * (latePct / 100) * (par('__sub_juros__') / 100) * plateCut(period);
+        const wkJuros = par('__sub_semanal__') * (latePct / 100) * (jurosPct / 100) * plateCut(period);
         if (periodStatus(period) === 'real') {
           if (!subsReady) return null;
           const real = subsJurosRS[period] || 0;

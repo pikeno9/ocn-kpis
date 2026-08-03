@@ -2870,6 +2870,9 @@
     let cleanView = false;  // visão limpa: só o total (real+proj), sem os comparativos do orçado
     let inadimplencia = 0;  // taxa de inadimplência % (slider, global) — desconta a projeção do Subscription
     let latePct = 0;        // % das semanas pagas COM atraso (slider, global) — projeta o Late-payment interest
+    let termPct = 50;       // % da cobrança de rescisão (import_jud) que esperamos receber (slider, global)
+    // Reposição de peças: a cada quantos MIL km trocar + custo por troca (painel ⚙, global)
+    let partCfg = { pastilhas: { km: 15, rs: 250 }, disco: { km: 30, rs: 350 }, pneus: { km: 50, rs: 700 } };
     let curIni = null;            // início da frota selecionada (Date) — base do eixo de meses
     let lossMonthByPlate = {};    // placa → mês do UE em que deu perda total (corta Subrental/GPS dali em diante)
     let activeFracArr = [];       // fração de carros ativos (sem perda total) por mês — aplica no agregado
@@ -3165,6 +3168,93 @@
       if (!plateView) for (let p = 0; p <= PMAX; p++) { finesOutRealRS[p] /= activeCarsAt(p); finesOutProjRS[p] /= activeCarsAt(p); }
       finesOutReady = true;
     }
+    // JUDICIAL (aba import_jud): custos de recuperação (guincho+recuperação) e reparo (avarias+
+    // higienização+outros) por caso, na data do evento (col U). Caso SEM data -> mês vigente,
+    // projetado. Futuro: ritmo histórico R$/dia da frota (casos novos vão acontecer no mesmo passo).
+    // Termination fee (K−N−O) é ENTRADA no M13, × slider de % esperado de recebimento.
+    let judRecRealRS = [], judRecProjRS = [], judRepRealRS = [], judRepProjRS = [], judTermRS = 0, judReady = false;
+    function computeJud(f) {
+      judRecRealRS = []; judRecProjRS = []; judRepRealRS = []; judRepProjRS = []; judTermRS = 0; judReady = false;
+      const base = U.judBase && U.judBase.placas;
+      if (!base || !curIni) return;
+      const MS = 86400000;
+      const moOf = (d) => { const m = Math.ceil(((d - curIni) / MS) / (SEMANAS_MES * 7)); return m < 1 ? 1 : m; };
+      const plates = plateView ? [plateView] : (f.placas || []);
+      for (let p = 0; p <= PMAX; p++) { judRecRealRS[p] = 0; judRecProjRS[p] = 0; judRepRealRS[p] = 0; judRepProjRS[p] = 0; }
+      let totRec = 0, totRep = 0, totTerm = 0;
+      plates.forEach((pl) => (base[pl] || []).forEach((c) => {
+        totRec += c.recovery; totRep += c.repair; totTerm += c.term;
+        const cur = currentMonthIdx();
+        const mo = c.d ? Math.min(moOf(new Date(c.d + 'T12:00:00')), PMAX) : cur; // sem data -> mês vigente
+        const realized = !!c.d && new Date(c.d + 'T12:00:00') <= hoje;
+        if (realized) { judRecRealRS[mo] += c.recovery; judRepRealRS[mo] += c.repair; }
+        else { judRecProjRS[mo] += c.recovery; judRepProjRS[mo] += c.repair; }
+      }));
+      // casos futuros: ritmo histórico R$/dia até o fim do contrato (M1..M12; rescisões não param hoje)
+      const dias = Math.max(1, (hoje - curIni) / MS);
+      const recDay = totRec / dias, repDay = totRep / dias, termDay = totTerm / dias;
+      let futureDays = 0;
+      for (let p = 1; p <= U.periods; p++) {
+        const winStart = new Date(curIni.getTime() + (p - 1) * SEMANAS_MES * 7 * MS);
+        const winEnd = new Date(curIni.getTime() + p * SEMANAS_MES * 7 * MS);
+        const novos = Math.max(0, (winEnd - Math.max(winStart, hoje)) / MS);
+        judRecProjRS[p] += novos * recDay;
+        judRepProjRS[p] += novos * repDay;
+        futureDays += novos;
+      }
+      // rescisão: conhecidos + acúmulo futuro, tudo no M13, escalado pelo slider de recebimento
+      judTermRS = (totTerm + futureDays * termDay) * (termPct / 100);
+      if (!plateView) {
+        for (let p = 0; p <= PMAX; p++) { judRecRealRS[p] /= activeCarsAt(p); judRecProjRS[p] /= activeCarsAt(p); judRepRealRS[p] /= activeCarsAt(p); judRepProjRS[p] /= activeCarsAt(p); }
+        judTermRS /= activeCarsAt(PMAX);
+      }
+      judReady = true;
+    }
+    // REPOSIÇÃO DE PEÇAS (site ocn-frota, categoria itens_reposicao): realizado = eventos de troca
+    // (pastilhas/disco/pneus, classificados pelo texto) na data do evento × custo configurado.
+    // Projetado = próximos cruzamentos de km de cada peça, pela quilometragem média da placa.
+    let partsRealRS = [], partsProjRS = [], partsReady = false;
+    function computeParts(f) {
+      partsRealRS = []; partsProjRS = []; partsReady = false;
+      const rep = U.reposicao && U.reposicao.placas;
+      const fr = U.frota && U.frota.placas;
+      if (!curIni || elapsed <= 0) return;
+      const MS = 86400000;
+      const moOf = (d) => { const m = Math.ceil(((d - curIni) / MS) / (SEMANAS_MES * 7)); return m < 1 ? 1 : m; };
+      const plates = plateView ? [plateView] : (f.placas || []);
+      for (let p = 0; p <= PMAX; p++) { partsRealRS[p] = 0; partsProjRS[p] = 0; }
+      // km/dia médio da frota (fallback p/ placas sem odômetro confiável)
+      let kmSum = 0, kmN = 0;
+      (f.placas || []).forEach((pl) => { const d = fr && fr[pl]; if (d && d.ok && d.odo > 0) { kmSum += d.odo; kmN++; } });
+      const diasCorridos = Math.max(1, (hoje - curIni) / MS);
+      const kmDiaFrota = kmN ? (kmSum / kmN) / diasCorridos : 0;
+      plates.forEach((pl) => {
+        // realizado: eventos registrados no site
+        (rep && rep[pl] || []).forEach((ev) => {
+          const mo = Math.min(moOf(new Date(ev.d + 'T12:00:00')), PMAX);
+          ev.itens.forEach((it) => { const cfg = partCfg[it]; if (cfg) partsRealRS[mo] += cfg.rs; });
+        });
+        if (lossMonthByPlate[pl] != null) return;
+        // projetado: cruzamentos futuros de km por peça (a partir do odômetro atual)
+        const d = fr && fr[pl];
+        const odo = d && d.ok && d.odo > 0 ? d.odo : kmDiaFrota * diasCorridos; // sem odômetro: estima
+        const kmDia = d && d.ok && d.odo > 0 ? d.odo / diasCorridos : kmDiaFrota;
+        if (kmDia <= 0) return;
+        Object.values(partCfg).forEach((cfg) => {
+          const intervalo = (cfg.km || 0) * 1000;
+          if (intervalo <= 0 || !(cfg.rs > 0)) return;
+          for (let k = Math.floor(odo / intervalo) + 1; k <= 60; k++) {
+            const diasAte = (k * intervalo - odo) / kmDia;
+            const quando = new Date(hoje.getTime() + diasAte * MS);
+            const mo = moOf(quando);
+            if (mo > U.periods) break;      // dentro do contrato
+            partsProjRS[Math.max(mo, 1)] += cfg.rs;
+          }
+        });
+      });
+      if (!plateView) for (let p = 0; p <= PMAX; p++) { partsRealRS[p] /= activeCarsAt(p); partsProjRS[p] /= activeCarsAt(p); }
+      partsReady = true;
+    }
     // Subscription por dados reais (matriz de pagamentos por placa): receita do mês = Σ do VALOR REAL
     // recebido (s.r, já com juros) das semanas cujo vencimento cai no mês. Fallback p/ semanalidade×(1+juros)
     // se a API não trouxer o valor. Agregado = soma ÷ nº de placas ativas; visão por placa = sem divisão.
@@ -3241,6 +3331,23 @@
       if (line === 'Traffic fines (out)') {
         if (period === 0 || !finesOutReady) return period === 0 ? { rs: 0, perActive: true } : null;
         return { rs: -(finesOutRealRS[period] || 0), rsProj: -(finesOutProjRS[period] || 0), perActive: true };
+      }
+      // Rescisão (import_jud): entrada única no M13 = cobranças × % esperado de recebimento (slider)
+      if (line === 'Termination fee') {
+        if (!judReady) return null;
+        return period === PMAX ? { rs: 0, rsProj: judTermRS, perActive: true } : { rs: 0, perActive: true };
+      }
+      if (line === 'Recovery cost') {
+        if (period === 0 || !judReady) return period === 0 ? { rs: 0, perActive: true } : null;
+        return { rs: -(judRecRealRS[period] || 0), rsProj: -(judRecProjRS[period] || 0), perActive: true };
+      }
+      if (line === 'Repair cost') {
+        if (period === 0 || !judReady) return period === 0 ? { rs: 0, perActive: true } : null;
+        return { rs: -(judRepRealRS[period] || 0), rsProj: -(judRepProjRS[period] || 0), perActive: true };
+      }
+      if (line === 'Part Replacement') {
+        if (period === 0 || !partsReady) return period === 0 ? { rs: 0, perActive: true } : null;
+        return { rs: -(partsRealRS[period] || 0), rsProj: -(partsProjRS[period] || 0), perActive: true };
       }
       if (line === 'Subrental fee' && par('__subrental_mensal__') > 0) {
         // 12 parcelas mensais, SEMPRE no dia 26, começando no mês seguinte ao da retirada do carro.
@@ -3321,6 +3428,8 @@
       maintRealRS = c.maintRealRS || []; maintProjRS = c.maintProjRS || []; maintReady = !!c.maintReady;
       finesRealRS = c.finesRealRS || []; finesProjRS = c.finesProjRS || []; finesReady = !!c.finesReady;
       finesOutRealRS = c.finesOutRealRS || []; finesOutProjRS = c.finesOutProjRS || []; finesOutReady = !!c.finesOutReady;
+      judRecRealRS = c.judRecRealRS || []; judRecProjRS = c.judRecProjRS || []; judRepRealRS = c.judRepRealRS || []; judRepProjRS = c.judRepProjRS || []; judTermRS = c.judTermRS || 0; judReady = !!c.judReady;
+      partsRealRS = c.partsRealRS || []; partsProjRS = c.partsProjRS || []; partsReady = !!c.partsReady;
     }
     // combinação "All fleets": média por veículo ponderada — linhas "por carro ativo" pesam pelos carros ativos
     // do mês; as demais (Insurance etc.) pelos carros totais. Uma célula pode sair com realizado E projetado
@@ -3526,6 +3635,39 @@
       });
     }
 
+    // painel ⚙ Parts: a cada quantos MIL km trocar cada peça + custo por troca (global, persiste em __cfg__)
+    function openPartsModal(f) {
+      const PARTS = [['pastilhas', 'Brake pads'], ['disco', 'Brake discs'], ['pneus', 'Tires']];
+      const ov = document.createElement('div');
+      ov.className = 'ue-modal-overlay';
+      ov.innerHTML =
+        `<div class="ue-modal"><div class="ue-modal-title">Part Replacement — intervals &amp; costs</div>` +
+        PARTS.map(([k, lbl]) =>
+          `<div class="ue-modal-field"><label>${lbl} — every (thousand km)</label><input type="text" inputmode="decimal" data-k="${k}" data-f="km" value="${partCfg[k].km}"/></div>` +
+          `<div class="ue-modal-field"><label>${lbl} — cost per replacement (R$)</label><input type="text" inputmode="decimal" data-k="${k}" data-f="rs" value="${partCfg[k].rs}"/></div>`
+        ).join('') +
+        `<div class="ue-modal-hint">Realized costs come from the fleet site events; projections use each plate's average km pace and these intervals.</div>` +
+        `<div class="ue-modal-actions"><button type="button" class="ue-modal-cancel">Cancel</button><button type="button" class="ue-modal-save">Save</button></div></div>`;
+      document.body.appendChild(ov);
+      const close = () => ov.remove();
+      ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+      ov.querySelector('.ue-modal-cancel').addEventListener('click', close);
+      ov.querySelector('.ue-modal-save').addEventListener('click', async () => {
+        const ops = [];
+        ov.querySelectorAll('input[data-k]').forEach((inp) => {
+          const val = parseFloat(String(inp.value).trim().replace(/\./g, '').replace(',', '.'));
+          if (!isFinite(val) || val < 0) return;
+          partCfg[inp.dataset.k][inp.dataset.f] = val;
+          ops.push({ k: '__part_' + inp.dataset.k + '_' + inp.dataset.f + '__', value: val });
+        });
+        if (isAdmin) for (const o of ops) {
+          try { await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fleet: '__cfg__', line: o.k, period: 0, value: o.value, kind: 'real' }) }); } catch (e) {}
+        }
+        close();
+        renderTable(f);
+      });
+    }
+
     // painel de visões: Fleet (unitary) = por veículo · Fleet (aggregate) = soma de todas as placas · uma placa
     function renderPlates(f) {
       const platesEl = document.getElementById('uePlates');
@@ -3664,6 +3806,7 @@
               `<button class="ue-cur-btn${currency === 'BRL' ? ' active' : ''}" data-c="BRL">R$</button>` +
               `<button class="ue-cur-btn${currency === 'USD' ? ' active' : ''}" data-c="USD">US$</button>` +
             `</div>` +
+            `<button class="ue-clean-btn" id="ueParts" title="Replacement intervals and cost per part">⚙ Parts</button>` +
             `<button class="ue-clean-btn${cleanView ? " on" : ""}" id="ueClean" title="Hide the budget comparison and show one combined number per month">${cleanView ? "◉" : "◎"} Clean view</button>` +
             (isAdmin ? `<label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Manual mode</span></label>` : '') +
             `<button class="ue-refresh-btn" id="ueRefresh" title="Re-fetches the spreadsheet data">↻ Refresh data</button>` +
@@ -3674,8 +3817,11 @@
           slider('ueCotacao', 'future FX (R$/US$)', 3, 8, 0.05, cotacao) +
           slider('ueInad', 'delinquency rate (%)', 0, 50, 1, inadimplencia) +
           slider('ueLate', 'late-payment rate (%)', 0, 100, 1, latePct) +
+          slider('ueTermPct', 'termination fee recovery (%)', 0, 100, 1, termPct) +
           field('ueRefundPct', 'Security Deposit Refund adj. (% p.a.)', Math.round(refundPct * 10000) / 100, 1) +
         `</div>`;
+      const partsBtn = document.getElementById('ueParts');
+      if (partsBtn) partsBtn.addEventListener('click', () => openPartsModal(f));
       const cleanBtn = document.getElementById('ueClean');
       if (cleanBtn) cleanBtn.addEventListener('click', () => { cleanView = !cleanView; loadFleet(); });
       if (isAdmin) document.getElementById('ueManual').addEventListener('change', (e) => { manualMode = e.target.checked; renderTable(f); });
@@ -3700,6 +3846,7 @@
       wireSlider('ueCotacao', (v) => { cotacao = v; }, () => 'R$ ' + cotacao.toFixed(2).replace('.', ','), () => cotacao, '__cotacao__', '__cfg__', f);
       wireSlider('ueInad', (v) => { inadimplencia = v; }, () => inadimplencia + '%', () => inadimplencia, '__inadimplencia__', '__cfg__', f);
       wireSlider('ueLate', (v) => { latePct = v; }, () => latePct + '%', () => latePct, '__late_pct__', '__cfg__', f);
+      wireSlider('ueTermPct', (v) => { termPct = v; }, () => termPct + '%', () => termPct, '__term_pct__', '__cfg__', f);
       wireField('ueRefundPct', (v) => { refundPct = v / 100; }, '__refund_pct__', () => refundPct, f);
       renderTable(f);
       renderPlates(f);
@@ -3715,22 +3862,33 @@
         : [...orc.lines.slice(0, subIdx + 1),
            { label: 'Late-payment interest', group: 'inflow', values: [] },
            { label: 'Traffic fines', group: 'inflow', values: [] },
+           { label: 'Termination fee', group: 'inflow', values: [] },
            ...orc.lines.slice(subIdx + 1)];
-      // multas também como SAÍDA (repasse/custo) — entra no fim do bloco de outflow, ainda sem cálculo
+      // saídas extras no fim do bloco de outflow: multas (repasse), recuperação/reparo (import_jud)
+      // e reposição de peças (site da frota)
       const lastOut = lines.map((l) => l.group).lastIndexOf('outflow');
-      if (lastOut >= 0) lines = [...lines.slice(0, lastOut + 1), { label: 'Traffic fines (out)', group: 'outflow', values: [] }, ...lines.slice(lastOut + 1)];
+      if (lastOut >= 0) {
+        lines = [...lines.slice(0, lastOut + 1),
+          { label: 'Traffic fines (out)', group: 'outflow', values: [] },
+          { label: 'Recovery cost', group: 'outflow', values: [] },
+          { label: 'Repair cost', group: 'outflow', values: [] },
+          { label: 'Part Replacement', group: 'outflow', values: [] },
+          ...lines.slice(lastOut + 1)];
+      }
       // Subscription/Maintenance dependem da frota E da visão (placa/agregado); all-mode pré-computa por frota
       if (allMode && fleetCtx) {
         if (plateView) {
           const c = fleetCtx.find((x) => (x.f.placas || []).includes(plateView));
-          if (c) { applyCtx(c); computeSubs(c.f); computeMaint(c.f); computeFines(c.f); computeFinesOut(c.f); }
+          if (c) { applyCtx(c); computeSubs(c.f); computeMaint(c.f); computeFines(c.f); computeFinesOut(c.f); computeJud(c.f); computeParts(c.f); }
         } else {
           fleetCtx.forEach((c) => {
-            applyCtx(c); computeSubs(c.f); computeMaint(c.f); computeFines(c.f); computeFinesOut(c.f);
+            applyCtx(c); computeSubs(c.f); computeMaint(c.f); computeFines(c.f); computeFinesOut(c.f); computeJud(c.f); computeParts(c.f);
             c.subsRS = subsRS; c.subsJurosRS = subsJurosRS; c.subsReady = subsReady;
             c.maintRealRS = maintRealRS; c.maintProjRS = maintProjRS; c.maintReady = maintReady;
             c.finesRealRS = finesRealRS; c.finesProjRS = finesProjRS; c.finesReady = finesReady;
             c.finesOutRealRS = finesOutRealRS; c.finesOutProjRS = finesOutProjRS; c.finesOutReady = finesOutReady;
+            c.judRecRealRS = judRecRealRS; c.judRecProjRS = judRecProjRS; c.judRepRealRS = judRepRealRS; c.judRepProjRS = judRepProjRS; c.judTermRS = judTermRS; c.judReady = judReady;
+            c.partsRealRS = partsRealRS; c.partsProjRS = partsProjRS; c.partsReady = partsReady;
           });
         }
       } else {
@@ -3738,6 +3896,8 @@
         computeMaint(f);
         computeFines(f);
         computeFinesOut(f);
+        computeJud(f);
+        computeParts(f);
       }
       const T = computeTotals(lines);
       const gmap = { totalInflow: T.totalInflow, totalOutflow: T.totalOutflow, net: T.net, acc: T.acc };
@@ -3822,6 +3982,11 @@
           const c = get('__cotacao__'); if (c != null) cotacao = c;
           const ind = get('__inadimplencia__'); if (ind != null) inadimplencia = ind;
           const lp = get('__late_pct__'); if (lp != null) latePct = lp;
+          const tp = get('__term_pct__'); if (tp != null) termPct = tp;
+          ['pastilhas', 'disco', 'pneus'].forEach((it) => {
+            const km = get('__part_' + it + '_km__'); if (km != null) partCfg[it].km = km;
+            const rs = get('__part_' + it + '_rs__'); if (rs != null) partCfg[it].rs = rs;
+          });
           const rp = get('__refund_pct__'); if (rp != null) refundPct = rp;
         }
       } catch (e) { /* usa defaults */ }

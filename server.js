@@ -11,6 +11,7 @@ const frota = require('./lib/frota');
 const revisoes = require('./lib/revisoes');
 const utilization = require('./lib/utilization');
 const multas = require('./lib/multas');
+const reposicao = require('./lib/reposicao');
 const payments = require('./lib/payments');
 const ocorrSite = require('./lib/ocorrenciasSite');
 const store = require('./lib/store');
@@ -56,6 +57,10 @@ async function refresh(force) {
     catch (e) { console.error('[import_rev] falhou:', e.message); data.ue.revBase = null; }
     try { data.ue.multasBase = compute.parseMultasBase(sheets.multasCons); }
     catch (e) { console.error('[multas_consolidado] falhou:', e.message); data.ue.multasBase = null; }
+    try { data.ue.judBase = compute.parseJudBase(sheets.jud); }
+    catch (e) { console.error('[import_jud] falhou:', e.message); data.ue.judBase = null; }
+    try { data.ue.reposicao = await reposicao.fetchReposicao(); }
+    catch (e) { console.error('[reposicao] falhou:', e.message); data.ue.reposicao = null; }
     try { data.utilization = utilization.build(sheets.importData, data.ue.frota, refDate(), data.ue.losses); }
     catch (e) { console.error('[utilization] falhou:', e.message); data.utilization = null; }
     try {

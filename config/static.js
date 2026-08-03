@@ -18,6 +18,7 @@ const TABS = {
   leadsInDrive: 'Leads inDrive',
   perfInDrive: 'Performance inDrive',
   perfInDriveData: 'import_indrive(dados)', // nova base tidy da inDrive (tabela semanal cols 15-19)
+  rev: 'import_rev',                        // revisões realizadas por placa (valor + vencimento do pagamento)
   carrosEsperados: 'CarrosEsperados',
 };
 

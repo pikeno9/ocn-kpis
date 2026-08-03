@@ -2959,6 +2959,19 @@
     }
     // mês vigente (parcial) do eixo do UE — é o que recebe realizado + projeção do que falta
     function currentMonthIdx() { return Math.min(PMAX, Math.ceil(elapsed)); }
+    // Subrental: 12 parcelas no dia 26, a 1ª no mês SEGUINTE ao da retirada. Devolve quantas
+    // parcelas caem no período `p` do UE (normalmente 0 ou 1) — datas reais, respeitando o calendário.
+    function subrentalMonthsAt(p) {
+      if (!curIni) return 0;
+      let n = 0;
+      for (let i = 1; i <= 12; i++) {
+        const d = new Date(curIni.getFullYear(), curIni.getMonth() + i, 26, 12, 0, 0);
+        let mo = Math.ceil(((d - curIni) / 86400000) / (SEMANAS_MES * 7));
+        if (mo < 1) mo = 1;
+        if (mo === p) n++;
+      }
+      return n;
+    }
     // visão por placa: 0 a partir do mês do incidente (perda total); nas visões de frota o valor unitário
     // fica CHEIO — a placa perdida sai do numerador E do denominador (base = carros ativos, activeCarsAt)
     function plateCut(m) {
@@ -2979,42 +2992,53 @@
       maintRealRS = []; maintProjRS = []; maintReady = false;
       const fr = U.frota && U.frota.placas;
       const prices = (U.revisoes && U.revisoes[model]) || [];
-      if (!fr || !prices.length || !curIni || elapsed <= 0) return;
+      const base = U.revBase && U.revBase.placas;
+      if (!prices.length || !curIni || elapsed <= 0) return;
+      const DESC = 0.75;                                     // desconto de 25% sobre o preço de tabela do site
+      const prazo = (U.revBase && U.revBase.prazoMedioDias) || 33; // dias médios entre a revisão e o vencimento
       const priceOf = (n) => { const r = prices.find((x) => x.n === n); return r ? r.valor : 0; };
       const kmOf = (n) => { const r = prices.find((x) => x.n === n); return (r && r.km) ? r.km : n * REVISAO_KM; };
       const plates = plateView ? [plateView] : (f.placas || []);
       for (let p = 0; p <= PMAX; p++) { maintRealRS[p] = 0; maintProjRS[p] = 0; }
-      // km médio MENSAL da frota (placas com odômetro confiável) — base da projeção
+      const MS = 86400000;
+      const moOf = (date) => { let mo = Math.ceil(((date - curIni) / MS) / (SEMANAS_MES * 7)); return mo < 1 ? 1 : mo; };
+      // km/dia médio da frota — usado para estimar quando cada placa atinge a próxima revisão
       let kmSum = 0, kmN = 0;
-      (f.placas || []).forEach((pl) => { const d = fr[pl]; if (d && d.ok && d.odo > 0) { kmSum += d.odo; kmN++; } });
-      const kmMesFrota = kmN ? (kmSum / kmN) / elapsed : 0;
-      const projStart = Math.min(realizedFull + 1, PMAX); // revisão vencida cai no 1º mês projetado
+      (f.placas || []).forEach((pl) => { const d = fr && fr[pl]; if (d && d.ok && d.odo > 0) { kmSum += d.odo; kmN++; } });
+      const diasCorridos = Math.max(1, (hoje - curIni) / MS);
+      const kmDiaFrota = kmN ? (kmSum / kmN) / diasCorridos : 0;
       plates.forEach((pl) => {
-        const d = fr[pl];
-        if (!d) return;
-        const done = d.lastKm ? Math.round(d.lastKm / REVISAO_KM) : 0;
-        // realizado: revisões 1..done — mês inferido pelo ritmo de km da placa. ATENÇÃO: last_service_at é a
-        // data em que o registro foi FECHADO no site (pode atrasar semanas vs. a revisão real/agendada, que a
-        // API não expõe) — serve só de TETO: a revisão nunca ocorre depois do fechamento.
-        for (let k = 1; k <= done; k++) {
-          const pace = elapsed > 0 && d.odo > 0 ? d.odo / elapsed : 0; // km/mês da própria placa
-          let mo = pace > 0 ? Math.ceil(kmOf(k) / pace) : null;
-          if (k === done && d.lastAt) {
-            const moAt = Math.ceil(((new Date(d.lastAt) - curIni) / 86400000) / (SEMANAS_MES * 7));
-            mo = mo ? Math.min(mo, moAt) : moAt;
+        const d = fr && fr[pl];
+        const rows = (base && base[pl]) || [];
+        const feitas = {};                                    // revisões já na base (por número)
+        // 1) o que está na base: com valor+vencimento = REALIZADO (custo e data conhecidos);
+        //    sem esses dados = revisão ocorreu, mas o pagamento ainda vai sair (projetado).
+        rows.forEach((r) => {
+          feitas[r.n] = true;
+          if (r.valor && r.venc) {
+            maintRealRS[Math.min(moOf(new Date(r.venc + 'T12:00:00')), PMAX)] += r.valor;
+          } else if (r.data) {
+            const pagoEm = new Date(new Date(r.data + 'T12:00:00').getTime() + prazo * MS);
+            const mo = Math.min(moOf(pagoEm), PMAX);
+            maintProjRS[mo] += priceOf(r.n) * DESC;
           }
-          if (!mo || mo < 1) mo = 1;
-          if (mo > realizedFull) mo = realizedFull; // evento que já ocorreu fica em mês realizado
-          maintRealRS[mo] += priceOf(k);
-        }
-        // projetado: próximas revisões (done+1...) — meses até lá = km que falta ÷ km médio mensal da frota
-        if (!(d.ok && d.odo > 0) || kmMesFrota <= 0) return;
-        if (lossMonthByPlate[pl] != null) return; // perda total: sem revisões futuras
-        for (let n = done + 1; n <= 200; n++) {
-          let mo = Math.ceil(elapsed + Math.max(0, kmOf(n) - d.odo) / kmMesFrota);
-          if (mo < projStart) mo = projStart;
-          if (mo > U.periods) break; // dentro do contrato (M13 = só pontuais)
-          maintProjRS[mo] += priceOf(n);
+        });
+        if (lossMonthByPlate[pl] != null) return;             // perda total: sem revisões futuras
+        // 2) revisões que NÃO estão na base — inclusive as que já venceram (carro passou dos 10.000 km
+        //    sem registro). Estima-se a data pelo ritmo de km e soma-se o prazo médio de pagamento.
+        const odo = d && d.ok && d.odo > 0 ? d.odo : 0;
+        const kmDia = odo && diasCorridos > 0 ? odo / diasCorridos : kmDiaFrota;
+        if (kmDia <= 0) return;
+        for (let n = 1; n <= 200; n++) {
+          if (feitas[n]) continue;
+          const alvo = kmOf(n);
+          if (alvo > kmDia * (SEMANAS_MES * 7) * (U.periods + 2)) break; // além do contrato
+          // dias até bater a km da revisão (0 se já passou) + prazo médio de pagamento
+          const diasAteRev = Math.max(0, (alvo - odo) / kmDia);
+          const quando = new Date(hoje.getTime() + (diasAteRev * MS) + prazo * MS);
+          const mo = moOf(quando);
+          if (mo > PMAX) break;                               // paga depois do fim do contrato
+          maintProjRS[Math.max(mo, 1)] += priceOf(n) * DESC;
         }
       });
       // ÷ carros ATIVOS do mês (mesma regra das demais linhas por carro); placa = sem divisão
@@ -3135,14 +3159,18 @@
       // Multas (saída) — a definir: repasse ao órgão/custo administrativo. Ainda sem cálculo.
       if (line === 'Traffic fines (out)') return null;
       if (line === 'Subrental fee' && par('__subrental_mensal__') > 0) {
-        // valor por carro ATIVO (a placa perdida sai do numerador e do denominador a partir do incidente)
-        return { rs: (period >= 1 && period <= U.periods) ? -par('__subrental_mensal__') * plateCut(period) : 0, perActive: true };
+        // 12 parcelas mensais, SEMPRE no dia 26, começando no mês seguinte ao da retirada do carro.
+        // Ex.: retirada 01/04 -> 1ª parcela 26/05 (cai no M2) e a 12ª em 26/04 do ano seguinte (M13).
+        // O usuário preenche só a mensalidade; as datas saem do calendário real.
+        if (!curIni) return null;
+        const n = subrentalMonthsAt(period);
+        return { rs: n ? -par('__subrental_mensal__') * n * plateCut(period) : 0, perActive: true };
       }
       if (line === 'Maintenance' && maintReady) {
         if (period === 0 || period === PMAX) return { rs: 0, perActive: true };
-        return periodStatus(period) === 'real'
-          ? { rs: -(maintRealRS[period] || 0), perActive: true }
-          : { rs: -(maintProjRS[period] || 0), perActive: true };
+        // Realizado e projetado convivem no mesmo mês: uma nota já emitida com vencimento FUTURO é
+        // custo comprometido (realizado), enquanto as revisões ainda sem pagamento entram projetadas.
+        return { rs: -(maintRealRS[period] || 0), rsProj: -(maintProjRS[period] || 0), perActive: true };
       }
       if (line === 'Insurance' && par('__ins_total__') > 0 && par('__ins_parcelas__') >= 1) {
         // parcela = total/N; se N > 12, as parcelas além do M12 ficam fora da tabela (trunca, não reamortiza)
@@ -3192,9 +3220,10 @@
       const v = effNative(line, period);
       if (!v) return null;
       const st = periodStatus(period);
-      // célula híbrida (mês vigente): realizado no câmbio fixo + o que falta do mês no câmbio futuro
-      if (st === 'real' && v.rsProj != null) {
-        return { real: toDisplay({ rs: v.rs }, ORCADO_FX), proj: toDisplay({ rs: v.rsProj }, cotacao), status: 'real', perActive: !!v.perActive };
+      // célula híbrida: realizado (câmbio fixo) + projetado (câmbio futuro) no MESMO mês — acontece no
+      // mês vigente (semanas já pagas + as que faltam) e na Maintenance (nota emitida com venc. futuro).
+      if (v.rsProj != null) {
+        return { real: toDisplay({ rs: v.rs || 0 }, ORCADO_FX), proj: toDisplay({ rs: v.rsProj }, cotacao), status: v.rs ? 'real' : st, perActive: !!v.perActive };
       }
       return st === 'real'
         ? { real: toDisplay(v, ORCADO_FX), proj: 0, status: 'real', perActive: !!v.perActive }

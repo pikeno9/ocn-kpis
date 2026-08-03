@@ -436,13 +436,51 @@ html { scrollbar-gutter: stable; }
 .ue-table .hc-f:disabled, .ue-table .hc-role:disabled, .ue-table .hc-pname:disabled { border-color: transparent; background: transparent; color: var(--text); opacity: 1; -webkit-text-fill-color: var(--text); cursor: default; -webkit-appearance: none; appearance: none; }
 .ue-table .hc-role:disabled { padding-left: 6px; }
 #uetTable .uet-in { width: 100%; border: 0; background: #fff; text-align: right; font-family: inherit; font-size: 10.5px; padding: 1px 2px; box-sizing: border-box; color: var(--text); outline: 1px solid var(--accent); border-radius: 3px; }
-/* visão limpa: botão + número único (real+proj) com barrinha de composição */
-.ue-clean-btn { font: inherit; font-size: 12px; font-weight: 600; padding: 6px 12px; border: 1px solid var(--border-2); border-radius: 999px; background: var(--surface); color: var(--text-2); cursor: pointer; white-space: nowrap; transition: background .12s, color .12s, border-color .12s; }
+/* ---- UE: painel de ferramentas (botões uniformes, sem poluição) ---- */
+.ue-head-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ue-tool-btn { font: inherit; font-size: 12px; font-weight: 600; padding: 7px 14px; border: 1px solid var(--border-2); border-radius: 999px; background: var(--surface); color: var(--text-2); cursor: pointer; white-space: nowrap; transition: border-color .12s, color .12s, box-shadow .12s, transform .12s; }
+.ue-tool-btn:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 2px 8px #7c3aed22; transform: translateY(-1px); }
+/* compat: alguns pontos antigos ainda usam .ue-clean-btn como botão genérico */
+.ue-clean-btn { font: inherit; font-size: 12px; font-weight: 600; padding: 7px 14px; border: 1px solid var(--border-2); border-radius: 999px; background: var(--surface); color: var(--text-2); cursor: pointer; white-space: nowrap; }
 .ue-clean-btn:hover { border-color: var(--accent); color: var(--accent); }
 .ue-clean-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
-.ue-table .ue-main.ue-mix { color: var(--text); font-weight: 600; }
-.ue-mixbar { display: block; height: 3px; border-radius: 2px; margin: 2px 0 0 auto; width: 34px; background: var(--accent); overflow: hidden; }
-.ue-mixbar i { display: block; height: 100%; background: var(--text); }
+
+/* ---- Clean view: barra própria acima da tabela + botão com brilho ---- */
+.ue-viewbar { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin: 14px 0 6px; }
+.ue-viewbar-hint { font-size: 11.5px; color: var(--text-2); font-style: italic; }
+.ue-clean2 { font: inherit; font-size: 13px; font-weight: 700; padding: 8px 20px; border-radius: 999px; cursor: pointer; white-space: nowrap;
+  border: 1.5px solid #7C3AED; color: #7C3AED; background: linear-gradient(180deg, #faf7ff, #f1e9ff);
+  transition: box-shadow .15s, transform .15s, background .15s, color .15s; }
+.ue-clean2:hover { box-shadow: 0 0 12px #7c3aed55; transform: translateY(-1px); }
+.ue-clean2.on { background: linear-gradient(135deg, #7C3AED, #5A00F8); color: #fff; border-color: transparent;
+  box-shadow: 0 0 16px #7c3aed88, 0 2px 6px #5a00f844; }
+
+/* número combinado + barrinha de composição (realizado × projetado) com roxo vibrante */
+.ue-table .ue-main.ue-mix { color: var(--text); font-weight: 700; }
+.ue-mixbar { display: block; height: 4px; border-radius: 3px; margin: 3px 0 1px auto; width: 40px; overflow: hidden;
+  background: linear-gradient(90deg, #A78BFA, #C4B5FD); box-shadow: 0 0 6px #8b5cf6aa; }
+.ue-mixbar i { display: block; height: 100%; background: linear-gradient(90deg, #4C1D95, #5A00F8); box-shadow: 0 0 4px #5a00f8; }
+/* lacuna que não se aplica ao período = zero visual */
+.ue-table .ue-main.ue-empty { color: var(--text-2); opacity: .55; }
+
+/* ---- Cabeçalho da tabela do UE real: gradiente roxo, cantos suaves ---- */
+#ueTable thead th { background: linear-gradient(180deg, #32006e, #23004e); color: #fff; font-size: 9.5px; letter-spacing: .5px; padding-top: 7px; padding-bottom: 7px; border-bottom: 2px solid #5A00F8; }
+#ueTable thead th.ue-rowlabel { background: linear-gradient(180deg, #32006e, #23004e); border-top-left-radius: 8px; }
+#ueTable thead th.ue-totalcol { background: linear-gradient(180deg, #5A00F8, #4700c4); border-top-right-radius: 8px; }
+
+/* ---- Modal de peças: um cartão por peça, campos com unidade ---- */
+.ue-modal-parts { max-width: 430px; }
+.ue-modal-sub { font-size: 12px; color: var(--text-2); margin: -6px 0 14px; }
+.ue-part-group { border: 1px solid var(--border-2); border-left: 3px solid var(--accent); border-radius: 10px; padding: 10px 14px 12px; margin-bottom: 10px; background: color-mix(in srgb, var(--accent) 3%, var(--surface)); }
+.ue-part-title { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 8px; display: flex; align-items: center; gap: 7px; }
+.ue-part-ic { font-size: 15px; }
+.ue-part-row { display: flex; gap: 12px; }
+.ue-part-field { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.ue-part-lbl { font-size: 11px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: .03em; }
+.ue-part-inwrap { display: flex; align-items: center; gap: 6px; border: 1px solid var(--border-2); border-radius: 7px; background: var(--surface); padding: 6px 10px; }
+.ue-part-inwrap:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px #7c3aed33; }
+.ue-part-inwrap input { border: 0; outline: 0; background: transparent; font: inherit; font-size: 13.5px; font-weight: 600; width: 100%; min-width: 0; color: var(--text); }
+.ue-part-inwrap b { font-size: 11px; font-weight: 600; color: var(--text-2); white-space: nowrap; }
 /* barra do contrato da frota: início ——[decorrido]—— início + 52 semanas */
 .ue-contract { display: flex; align-items: center; gap: 10px; margin: 12px 0 18px; }
 .ue-contract-date { font-size: 11.5px; font-weight: 600; color: var(--text-2); white-space: nowrap; }

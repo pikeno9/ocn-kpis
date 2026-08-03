@@ -3229,10 +3229,35 @@
       const diasCorridos = Math.max(1, (hoje - curIni) / MS);
       const kmDiaFrota = kmN ? (kmSum / kmN) / diasCorridos : 0;
       plates.forEach((pl) => {
-        // realizado: eventos registrados no site
-        (rep && rep[pl] || []).forEach((ev) => {
+        // realizado: só as trocas NATURAIS entram como custo nosso — as atípicas são pagas pelo
+        // cliente. A API externa não expõe a classificação do buscador, então replica-se a MESMA
+        // regra de desgaste (km mínimo desde a troca anterior; 1ª troca = km do hodômetro),
+        // estimando o km na data do evento pelo ritmo da placa. Sem como estimar -> conta (conservador).
+        const PART_MIN = {                                     // regra do buscador (ocorrencias-tree.js)
+          pastilhas: { Polo: 15000, Tera: 15000, padrao: 20000 },
+          disco: { Polo: 45000, Tera: 45000, padrao: 60000 },
+          pneus: { padrao: 40000 },
+        };
+        const dPl = fr && fr[pl];
+        const kmDiaPl = dPl && dPl.ok && dPl.odo > 0 ? dPl.odo / diasCorridos : kmDiaFrota;
+        const evs = ((rep && rep[pl]) || []).slice().sort((a, b) => (a.d < b.d ? -1 : 1));
+        const lastKm = {};
+        evs.forEach((ev) => {
           const mo = Math.min(moOf(new Date(ev.d + 'T12:00:00')), PMAX);
-          ev.itens.forEach((it) => { const cfg = partCfg[it]; if (cfg) partsRealRS[mo] += cfg.rs; });
+          const diasEv = Math.max(0, (new Date(ev.d + 'T12:00:00') - curIni) / MS);
+          const kmEv = kmDiaPl > 0 ? kmDiaPl * diasEv : null;
+          ev.itens.forEach((it) => {
+            const cfg = partCfg[it]; if (!cfg) return;
+            const minTab = PART_MIN[it] || {};
+            const min = minTab[model] != null ? minTab[model] : minTab.padrao;
+            let natural = true;
+            if (kmEv != null && min != null) {
+              const desde = lastKm[it] != null ? kmEv - lastKm[it] : kmEv;
+              natural = desde >= min;
+            }
+            if (kmEv != null) lastKm[it] = kmEv;
+            if (natural) partsRealRS[mo] += cfg.rs;
+          });
         });
         if (lossMonthByPlate[pl] != null) return;
         // projetado: cruzamentos futuros de km por peça (a partir do odômetro atual)
@@ -3506,6 +3531,8 @@
         if (!e.real && !e.proj) s += `<span class="ue-main ue-${e.status}">-</span>`;
       }
       if (orc != null && !cleanView) s += `<span class="ue-orc">${ueFmt(orc)}</span>`;
+      // lacuna sem NADA (linha não se aplica ao período, ex.: Sticker fora do M0) vira "-" (= zero)
+      if (!s) s = '<span class="ue-main ue-empty">-</span>';
       return s;
     }
     function cellVal(t) { // totalizador (computado) ou coluna Total
@@ -3637,16 +3664,24 @@
 
     // painel ⚙ Parts: a cada quantos MIL km trocar cada peça + custo por troca (global, persiste em __cfg__)
     function openPartsModal(f) {
-      const PARTS = [['pastilhas', 'Brake pads'], ['disco', 'Brake discs'], ['pneus', 'Tires']];
+      const PARTS = [['pastilhas', 'Brake pads', '🟣'], ['disco', 'Brake discs', '⚙️'], ['pneus', 'Tires', '🛞']];
       const ov = document.createElement('div');
       ov.className = 'ue-modal-overlay';
       ov.innerHTML =
-        `<div class="ue-modal"><div class="ue-modal-title">Part Replacement — intervals &amp; costs</div>` +
-        PARTS.map(([k, lbl]) =>
-          `<div class="ue-modal-field"><label>${lbl} — every (thousand km)</label><input type="text" inputmode="decimal" data-k="${k}" data-f="km" value="${partCfg[k].km}"/></div>` +
-          `<div class="ue-modal-field"><label>${lbl} — cost per replacement (R$)</label><input type="text" inputmode="decimal" data-k="${k}" data-f="rs" value="${partCfg[k].rs}"/></div>`
+        `<div class="ue-modal ue-modal-parts"><div class="ue-modal-title">Part Replacement — intervals &amp; costs</div>` +
+        `<div class="ue-modal-sub">One card per part: how often it wears out and what one replacement costs us.</div>` +
+        PARTS.map(([k, lbl, ic]) =>
+          `<div class="ue-part-group">` +
+            `<div class="ue-part-title"><span class="ue-part-ic">${ic}</span>${lbl}</div>` +
+            `<div class="ue-part-row">` +
+              `<label class="ue-part-field"><span class="ue-part-lbl">Replace every</span>` +
+                `<span class="ue-part-inwrap"><input type="text" inputmode="decimal" data-k="${k}" data-f="km" value="${partCfg[k].km}"/><b>× 1.000 km</b></span></label>` +
+              `<label class="ue-part-field"><span class="ue-part-lbl">Cost per replacement</span>` +
+                `<span class="ue-part-inwrap"><b>R$</b><input type="text" inputmode="decimal" data-k="${k}" data-f="rs" value="${partCfg[k].rs}"/></span></label>` +
+            `</div>` +
+          `</div>`
         ).join('') +
-        `<div class="ue-modal-hint">Realized costs come from the fleet site events; projections use each plate's average km pace and these intervals.</div>` +
+        `<div class="ue-modal-hint">Realized costs come from the fleet site events (only natural wear — atypical ones are charged to the client); projections use each plate's average km pace and these intervals.</div>` +
         `<div class="ue-modal-actions"><button type="button" class="ue-modal-cancel">Cancel</button><button type="button" class="ue-modal-save">Save</button></div></div>`;
       document.body.appendChild(ov);
       const close = () => ov.remove();
@@ -3806,10 +3841,9 @@
               `<button class="ue-cur-btn${currency === 'BRL' ? ' active' : ''}" data-c="BRL">R$</button>` +
               `<button class="ue-cur-btn${currency === 'USD' ? ' active' : ''}" data-c="USD">US$</button>` +
             `</div>` +
-            `<button class="ue-clean-btn" id="ueParts" title="Replacement intervals and cost per part">⚙ Parts</button>` +
-            `<button class="ue-clean-btn${cleanView ? " on" : ""}" id="ueClean" title="Hide the budget comparison and show one combined number per month">${cleanView ? "◉" : "◎"} Clean view</button>` +
+            `<button class="ue-tool-btn" id="ueParts" title="Replacement intervals and cost per part">⚙ Parts</button>` +
             (isAdmin ? `<label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Manual mode</span></label>` : '') +
-            `<button class="ue-refresh-btn" id="ueRefresh" title="Re-fetches the spreadsheet data">↻ Refresh data</button>` +
+            `<button class="ue-tool-btn" id="ueRefresh" title="Re-fetches the spreadsheet data">↻ Refresh</button>` +
           `</div>` +
         `</div>` +
         contractBar +
@@ -3819,6 +3853,11 @@
           slider('ueLate', 'late-payment rate (%)', 0, 100, 1, latePct) +
           slider('ueTermPct', 'termination fee recovery (%)', 0, 100, 1, termPct) +
           field('ueRefundPct', 'Security Deposit Refund adj. (% p.a.)', Math.round(refundPct * 10000) / 100, 1) +
+        `</div>` +
+        // barra própria do modo de visualização, separada das ferramentas
+        `<div class="ue-viewbar">` +
+          `<span class="ue-viewbar-hint">${cleanView ? 'Showing combined totals — budget comparison hidden' : 'Showing realized · projected · budget'}</span>` +
+          `<button class="ue-clean2${cleanView ? ' on' : ''}" id="ueClean" title="Hide the budget comparison and show one combined number per month">✨ Clean view</button>` +
         `</div>`;
       const partsBtn = document.getElementById('ueParts');
       if (partsBtn) partsBtn.addEventListener('click', () => openPartsModal(f));

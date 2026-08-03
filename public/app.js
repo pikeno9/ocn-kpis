@@ -3066,7 +3066,12 @@
       if (!mul || !ini) return;
       const MS = 86400000;
       const lag = (U.multas && U.multas.prazoRecebimentoDias) || 42;
-      const taxa = (U.multas && U.multas.taxaRecebimento) != null ? U.multas.taxaRecebimento : 0.85;
+      // Sem corte de inadimplência aqui: a multa é repassada ao cliente (cobramos o líquido + 10% do
+      // bruto e pagamos o líquido + 5% à LM, margem ~7%), então o recebível é projetado INTEGRAL.
+      // Aplicar a taxa histórica de recebimento só na receita invertia o sinal do balanço — a multa
+      // não paga hoje continua devida pelo cliente, não é perda. `taxaRecebimento` segue medida no
+      // servidor (84,8% em coortes maduras) para quem quiser acompanhar o risco de cobrança.
+      const taxa = 1;
       const moOf = (d) => { const m = Math.ceil(((d - ini) / MS) / (SEMANAS_MES * 7)); return m < 1 ? 1 : m; };
       const plates = plateView ? [plateView] : (f.placas || []);
       for (let p = 0; p <= PMAX; p++) { finesRealRS[p] = 0; finesProjRS[p] = 0; }

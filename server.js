@@ -54,6 +54,8 @@ async function refresh(force) {
     catch (e) { console.error('[multas] falhou:', e.message); data.ue.multas = null; }
     try { data.ue.revBase = compute.parseRevBase(sheets.rev); }
     catch (e) { console.error('[import_rev] falhou:', e.message); data.ue.revBase = null; }
+    try { data.ue.multasBase = compute.parseMultasBase(sheets.multasCons); }
+    catch (e) { console.error('[multas_consolidado] falhou:', e.message); data.ue.multasBase = null; }
     try { data.utilization = utilization.build(sheets.importData, data.ue.frota, refDate(), data.ue.losses); }
     catch (e) { console.error('[utilization] falhou:', e.message); data.utilization = null; }
     try {

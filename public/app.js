@@ -3016,11 +3016,16 @@
         rows.forEach((r) => {
           feitas[r.n] = true;
           if (r.valor && r.venc) {
-            maintRealRS[Math.min(moOf(new Date(r.venc + 'T12:00:00')), PMAX)] += r.valor;
+            // valor conhecido: já venceu = realizado; vencimento futuro = MESMO mês, porém projetado
+            const dv = new Date(r.venc + 'T12:00:00');
+            const mo = Math.min(moOf(dv), PMAX);
+            if (dv <= hoje) maintRealRS[mo] += r.valor; else maintProjRS[mo] += r.valor;
           } else if (r.data) {
+            // revisão feita e ainda não paga: data estimada = revisão + prazo médio. Se essa data já
+            // passou (atrasada), o pagamento não cabe no passado — joga para o mês vigente + 1.
             const pagoEm = new Date(new Date(r.data + 'T12:00:00').getTime() + prazo * MS);
-            const mo = Math.min(moOf(pagoEm), PMAX);
-            maintProjRS[mo] += priceOf(r.n) * DESC;
+            const mo = pagoEm < hoje ? currentMonthIdx() + 1 : moOf(pagoEm);
+            maintProjRS[Math.min(Math.max(mo, 1), PMAX)] += priceOf(r.n) * DESC;
           }
         });
         if (lossMonthByPlate[pl] != null) return;             // perda total: sem revisões futuras
@@ -3072,6 +3077,49 @@
         finesPerDay /= activeCarsAt(Math.min(PMAX, Math.max(1, Math.ceil(elapsed))));
       }
       finesReady = true;
+    }
+    // Multas A PAGAR (aba multas_consolidado): quanto a OCN desembolsa com a LM.
+    //  - multa com vencimento (W): entra no mês do vencimento — realizada se já venceu, projetada se é futuro;
+    //  - multa sem vencimento: estimada em (chegada do e-mail + prazo médio de 44 dias). Se essa data já
+    //    passou, o pagamento vai para o MÊS VIGENTE como projetado (não dá para pagar no passado);
+    //  - multas AINDA NÃO conhecidas: as infrações continuam ocorrendo. Projeta-se pelo ritmo histórico
+    //    (R$/dia da própria frota) só para a parcela do mês que vem de infrações POSTERIORES a hoje —
+    //    as anteriores já estão na base, então não há dupla contagem.
+    let finesOutRealRS = [], finesOutProjRS = [], finesOutReady = false;
+    function computeFinesOut(f) {
+      finesOutRealRS = []; finesOutProjRS = []; finesOutReady = false;
+      const base = U.multasBase && U.multasBase.placas;
+      if (!base || !curIni) return;
+      const prazo = (U.multasBase && U.multasBase.prazoMedioDias) || 44;
+      const MS = 86400000;
+      const moOf = (d) => { const m = Math.ceil(((d - curIni) / MS) / (SEMANAS_MES * 7)); return m < 1 ? 1 : m; };
+      const plates = plateView ? [plateView] : (f.placas || []);
+      for (let p = 0; p <= PMAX; p++) { finesOutRealRS[p] = 0; finesOutProjRS[p] = 0; }
+      let total = 0;
+      plates.forEach((pl) => (base[pl] || []).forEach((x) => {
+        total += x.v;
+        let quando = null, venceu = false;
+        if (x.venc) { quando = new Date(x.venc + 'T12:00:00'); venceu = quando <= hoje; }
+        else if (x.email) { quando = new Date(new Date(x.email + 'T12:00:00').getTime() + prazo * MS); }
+        if (!quando) return;
+        let mo = quando < hoje && !venceu ? currentMonthIdx() : moOf(quando); // atrasada -> mês vigente
+        mo = Math.min(Math.max(mo, 1), PMAX);
+        if (venceu) finesOutRealRS[mo] += x.v; else finesOutProjRS[mo] += x.v;
+      }));
+      // ritmo histórico de multas (R$/dia) para projetar as infrações que ainda vão acontecer
+      const diasCorridos = Math.max(1, (hoje - curIni) / MS);
+      const perDay = total / diasCorridos;
+      for (let p = 1; p <= PMAX; p++) {
+        const winStart = new Date(curIni.getTime() + (p - 1) * SEMANAS_MES * 7 * MS);
+        const winEnd = new Date(curIni.getTime() + p * SEMANAS_MES * 7 * MS);
+        // pagamentos deste mês vêm de infrações ocorridas ~`prazo` dias antes; só conta o trecho futuro
+        const infIni = new Date(winStart.getTime() - prazo * MS);
+        const infFim = new Date(winEnd.getTime() - prazo * MS);
+        const novos = Math.max(0, (infFim - Math.max(infIni, hoje)) / MS);
+        finesOutProjRS[p] += novos * perDay;
+      }
+      if (!plateView) for (let p = 0; p <= PMAX; p++) { finesOutRealRS[p] /= activeCarsAt(p); finesOutProjRS[p] /= activeCarsAt(p); }
+      finesOutReady = true;
     }
     // Subscription por dados reais (matriz de pagamentos por placa): receita do mês = Σ do VALOR REAL
     // recebido (s.r, já com juros) das semanas cujo vencimento cai no mês. Fallback p/ semanalidade×(1+juros)
@@ -3156,8 +3204,11 @@
         if (!curIni) return null;
         return { rs: ((winEnd - winStart) / dayMs) * finesPerDay * plateCut(period), perActive: true };
       }
-      // Multas (saída) — a definir: repasse ao órgão/custo administrativo. Ainda sem cálculo.
-      if (line === 'Traffic fines (out)') return null;
+      // Multas (saída): o que pagamos à LM — realizado (já venceu) + projetado (a vencer/estimado)
+      if (line === 'Traffic fines (out)') {
+        if (period === 0 || period === PMAX || !finesOutReady) return (period === 0 || period === PMAX) ? { rs: 0, perActive: true } : null;
+        return { rs: -(finesOutRealRS[period] || 0), rsProj: -(finesOutProjRS[period] || 0), perActive: true };
+      }
       if (line === 'Subrental fee' && par('__subrental_mensal__') > 0) {
         // 12 parcelas mensais, SEMPRE no dia 26, começando no mês seguinte ao da retirada do carro.
         // Ex.: retirada 01/04 -> 1ª parcela 26/05 (cai no M2) e a 12ª em 26/04 do ano seguinte (M13).
@@ -3236,6 +3287,7 @@
       subsRS = c.subsRS || []; subsJurosRS = c.subsJurosRS || []; subsReady = !!c.subsReady;
       maintRealRS = c.maintRealRS || []; maintProjRS = c.maintProjRS || []; maintReady = !!c.maintReady;
       finesRS = c.finesRS || []; finesPerDay = c.finesPerDay || 0; finesReady = !!c.finesReady;
+      finesOutRealRS = c.finesOutRealRS || []; finesOutProjRS = c.finesOutProjRS || []; finesOutReady = !!c.finesOutReady;
     }
     // combinação "All fleets": média por veículo ponderada — linhas "por carro ativo" pesam pelos carros ativos
     // do mês; as demais (Insurance etc.) pelos carros totais. Uma célula pode sair com realizado E projetado
@@ -3621,19 +3673,21 @@
       if (allMode && fleetCtx) {
         if (plateView) {
           const c = fleetCtx.find((x) => (x.f.placas || []).includes(plateView));
-          if (c) { applyCtx(c); computeSubs(c.f); computeMaint(c.f); computeFines(c.f); }
+          if (c) { applyCtx(c); computeSubs(c.f); computeMaint(c.f); computeFines(c.f); computeFinesOut(c.f); }
         } else {
           fleetCtx.forEach((c) => {
-            applyCtx(c); computeSubs(c.f); computeMaint(c.f); computeFines(c.f);
+            applyCtx(c); computeSubs(c.f); computeMaint(c.f); computeFines(c.f); computeFinesOut(c.f);
             c.subsRS = subsRS; c.subsJurosRS = subsJurosRS; c.subsReady = subsReady;
             c.maintRealRS = maintRealRS; c.maintProjRS = maintProjRS; c.maintReady = maintReady;
             c.finesRS = finesRS; c.finesPerDay = finesPerDay; c.finesReady = finesReady;
+            c.finesOutRealRS = finesOutRealRS; c.finesOutProjRS = finesOutProjRS; c.finesOutReady = finesOutReady;
           });
         }
       } else {
         computeSubs(f);
         computeMaint(f);
         computeFines(f);
+        computeFinesOut(f);
       }
       const T = computeTotals(lines);
       const gmap = { totalInflow: T.totalInflow, totalOutflow: T.totalOutflow, net: T.net, acc: T.acc };

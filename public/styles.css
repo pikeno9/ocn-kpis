@@ -1077,16 +1077,19 @@ html { scrollbar-gutter: stable; }
 
 
 /* ============ UE: botao de esconder projecoes ============ */
-.ue-proj {
+/* NOME PROPOSITAL: .ue-projbtn, nao .ue-proj — .ue-proj ja e a classe dos NUMEROS projetados
+   da tabela (.ue-main.ue-proj). Usar o mesmo nome aqui fazia cada numero roxo virar uma
+   pilula de 34px inline e estourava a largura das colunas. */
+.ue-projbtn {
   display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px;
   font: inherit; font-size: 12px; font-weight: 600; line-height: 1; cursor: pointer; white-space: nowrap;
   border: 1px solid var(--border-2); border-radius: 999px; background: var(--surface); color: var(--text-2);
   box-shadow: 0 1px 2px #00000010; transition: border-color .12s, color .12s, box-shadow .12s, transform .12s;
 }
-.ue-proj:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); box-shadow: 0 2px 8px #7c3aed22; }
-.ue-proj-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); flex: none; }
-.ue-proj.off { border-color: #cbd5e1; color: var(--text); background: var(--surface-2, #f1f5f9); }
-.ue-proj.off .ue-proj-dot { background: transparent; border: 1.5px dashed #94a3b8; }
+.ue-projbtn:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); box-shadow: 0 2px 8px #7c3aed22; }
+.ue-projbtn-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); flex: none; }
+.ue-projbtn.off { border-color: #cbd5e1; color: var(--text); background: var(--surface-2, #f1f5f9); }
+.ue-projbtn.off .ue-projbtn-dot { background: transparent; border: 1.5px dashed #94a3b8; }
 
 /* sugestao historica embaixo do slider de inadimplencia */
 .ue-sl-hint {
@@ -1102,4 +1105,11 @@ html { scrollbar-gutter: stable; }
 .irr-panel.irr-thin { background: linear-gradient(135deg, #334155, #0f172a); box-shadow: 0 4px 18px #0f172a2e; }
 .irr-thin .irr-lbl { color: #fcd34d; opacity: 1; }
 .irr-why { max-width: 340px; font-size: 10.5px; line-height: 1.5; color: #ffffffa8; }
+
+
+/* Visao agregada do UE: a soma da frota passa de 7 digitos e, com table-layout fixed +
+   white-space nowrap, o numero transbordava para a coluna vizinha. Fonte e padding menores
+   apenas nessa visao â€” as visoes unitaria e por placa ficam como estao. */
+.ue-table.ue-agg .ue-cell { font-size: 9.5px; padding-left: 2px; padding-right: 2px; }
+.ue-table.ue-agg .ue-main { letter-spacing: -.02em; }
 

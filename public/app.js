@@ -3629,7 +3629,7 @@
     // realizados convertem R$↔US$ no câmbio nominal fixo (ORCADO_FX, 5,0) — o campo editável foi removido
     // e o setting antigo (__cotacao_real__) é ignorado de propósito (ficou um valor fantasma no banco)
     let refundPct = 0.13;   // correção a.a. do Security Deposit Refund (campo, global)
-    let cleanView = false;  // visão limpa: só o total (real+proj), sem os comparativos do orçado
+    let cleanView = true;   // visão limpa é o PADRÃO: só o total (real+proj), sem orçado nem controles
     let showProj = true;    // false = esconde os projetados (roxo) e mostra só o realizado — só visualização
     let idrOff = false;     // true = tira o benefício InDrive da conta do UE (espelha o botão do P&L)
     let inadimplencia = 0;  // taxa de inadimplência % (slider, global) — desconta a projeção do Subscription
@@ -4445,18 +4445,34 @@
         (hint || '') + `</div>`;
     }
     // Inadimplência medida no histórico: contrato encerrado por "Recuperação" = o cliente parou de
-    // pagar e o carro foi retomado. A taxa vem do servidor (recuperações ÷ contrato-meses de
-    // exposição) e é oferecida como sugestão clicável em vez de um número chutado no slider.
-    const churnRate = () => {
-      const c = U.churn;
-      return (c && c.taxaMensal > 0) ? Math.round(c.taxaMensal * 1000) / 10 : null; // % ao mês, 1 casa
+    // pagar e o carro foi retomado. A taxa é POR PAGAMENTO (recuperações ÷ cobranças semanais
+    // esperadas) — é assim que o slider é aplicado (semanalidade × (1 − inad%)). Em "All fleets"
+    // usa o consolidado; numa frota, o histórico DAQUELA frota.
+    const churnOf = () => {
+      const c = U.churn; if (!c) return null;
+      return (!allMode && c.byFleet && c.byFleet[current]) ? c.byFleet[current] : c;
     };
+    const churnRate = () => { const c = churnOf(); return (c && c.taxa > 0) ? Math.round(c.taxa * 10000) / 100 : null; }; // % por pagamento
+    // Evidência de que a recuperação veio de falta de pagamento. O import_clientes NÃO traz o
+    // submotivo, então o que dá para medir é o histórico de cobrança da placa: semanas pagas com
+    // atraso na matriz. (Semanas "em aberto" não entram: U.pagamentos só lista o que foi pago,
+    // então contá-las aqui daria sempre zero — o número em aberto vive na matriz bruta.)
+    function churnEvidence(c) {
+      const pag = (U.pagamentos || {}).placas; if (!pag || !c || !c.placas) return null;
+      const pls = [...new Set(c.placas)];
+      const comAtraso = pls.filter((pl) => (pag[pl] || []).some((s) => s.r != null && s.e != null && s.r > s.e)).length;
+      return { n: pls.length, comAtraso };
+    }
     function inadHint() {
       const r = churnRate(); if (r == null) return '';
-      const c = U.churn;
-      const same = Math.abs(inadimplencia - r) < 0.05;
-      return `<button type="button" class="ue-sl-hint${same ? ' on' : ''}" id="ueInadHist"` +
-        ` title="${c.recuperacoes} contracts repossessed over ${c.contratoMeses} contract-months of exposure — ${Math.round(c.taxaAnual * 100)}% a year at this pace">` +
+      const c = churnOf();
+      const ev = churnEvidence(c);
+      const same = Math.abs(inadimplencia - r) < 0.005;
+      const escopo = (!allMode && U.churn.byFleet && U.churn.byFleet[current]) ? 'this fleet' : 'all fleets';
+      const tip = `${c.recuperacoes} repossessions over ${c.pagamentos.toLocaleString('pt-BR')} weekly charges (${escopo}). `
+        + (ev && ev.n ? `${ev.comAtraso} of the ${ev.n} repossessed plates had late payments in the billing matrix. ` : '')
+        + 'The sheet does not record WHY each car was repossessed — "Recuperação" is a single value with no sub-reason, so all of them count as default.';
+      return `<button type="button" class="ue-sl-hint${same ? ' on' : ''}" id="ueInadHist" title="${tip.replace(/"/g, '&quot;')}">` +
         `${same ? '✓ historical' : 'use historical: ' + String(r).replace('.', ',') + '%'}</button>`;
     }
     function wireSlider(id, setter, fmtLabel, getter, line, fleetKey, f) {
@@ -4525,6 +4541,7 @@
       const ROWS = [
         ['Subscription', 'Actual: payments matrix (billing panel API). Projected: weekly fee (✎ box) × the Mondays inside EACH plate\'s own 52 weeks, counted from its delivery date — that is why the tail lands in M13', 'Auto, daily'],
         ['Late-payment interest', 'Same matrix (actual interest) + contract version (v1/v2 5% · v3+ 20%) + late % slider', 'Auto, daily'],
+        ['Delinquency slider', 'Measured, not guessed: contracts ended as "Recuperação" ÷ weekly charges expected in the period, per fleet — the chip under the slider fills it in. It is a rate PER CHARGE because that is how it is applied', 'Auto, daily'],
         ['Traffic fines (inflow)', 'Actual: fines API (what clients really paid). Projected: contract rule — GROSS fine × (1 + premium), 10% on v1/v2 and 20% from v3', 'Auto, daily'],
         ['Termination fee', 'Sheet import_jud (total charge − fines/tolls) + recovery % slider · lands in M13', 'Auto, daily'],
         ['Initial Fee / Vehicle Sell', '✎ box (103% of purchase) · M13 · plus the InDrive benefit (iD button): value per plate × plates of the batch, on the month of the batch date', 'Manual + iD panel'],
@@ -4684,10 +4701,12 @@
     function renderPlates(f) {
       const platesEl = document.getElementById('uePlates');
       if (!platesEl) return;
-      if (cleanView) { platesEl.innerHTML = ''; return; } // modo limpo: sem o grid de placas
-      const plates = f.placas || [];
+      // Modo limpo: some o GRID de placas (é ele que polui — 50 botões), mas os dois seletores de
+      // visão continuam. Como o clean view é o padrão, escondê-los deixaria as visões agregada e
+      // por placa inalcançáveis sem sair do modo limpo.
+      const plates = cleanView ? [] : (f.placas || []);
       platesEl.innerHTML =
-        `<div class="ue-plates-label">View by plate</div><div class="ue-plates-grid">` +
+        (cleanView ? '' : `<div class="ue-plates-label">View by plate</div>`) + `<div class="ue-plates-grid">` +
         `<button class="ue-plate-btn${(!plateView && !viewAgg) ? ' active' : ''}" data-view="unit">Fleet (unitary)</button>` +
         `<button class="ue-plate-btn${(!plateView && viewAgg) ? ' active' : ''}" data-view="agg">Fleet (aggregate)</button>` +
         plates.map((p) => `<button class="ue-plate-btn${plateView === p ? ' active' : ''}" data-plate="${p}">${p}</button>`).join('') +
@@ -4822,8 +4841,8 @@
             `</div>` +
             // no modo limpo some tudo que é controle — fica só moeda, clean view e o "?"
             (cleanView ? '' :
-              `<button class="ue-proj${showProj ? '' : ' off'}" id="ueProj" title="${showProj ? 'Hide the projected numbers (purple) and show actuals only' : 'Bring the projections back'}">` +
-                `<span class="ue-proj-dot"></span><span>${showProj ? 'Actuals + projection' : 'Actuals only'}</span></button>` +
+              `<button class="ue-projbtn${showProj ? '' : ' off'}" id="ueProj" title="${showProj ? 'Hide the projected numbers (purple) and show actuals only' : 'Bring the projections back'}">` +
+                `<span class="ue-projbtn-dot"></span><span>${showProj ? 'Actuals + projection' : 'Actuals only'}</span></button>` +
               `<button class="ue-tool-btn" id="ueParts" title="Replacement intervals and cost per part">⚙ Parts</button>` +
               `<button class="idr-btn${indriveOn() && !idrOff ? ' on' : (indriveOn() ? ' off' : '')}" id="ueIndrive" title="Edit the InDrive batches">` +
                 `<span class="idr-mark">iD</span><span class="idr-txt">InDrive</span>` +
@@ -4840,7 +4859,8 @@
         (cleanView ? '' :
         `<div class="ue-sliders">` +
           slider('ueCotacao', 'future FX (R$/US$)', 3, 8, 0.05, cotacao) +
-          slider('ueInad', 'delinquency rate (%)', 0, 50, 1, inadimplencia, inadHint()) +
+          // por PAGAMENTO: a faixa útil é de poucos %, então passo de 0,1 (o histórico dá ~1,1%)
+          slider('ueInad', 'delinquency rate (% per charge)', 0, 20, 0.1, inadimplencia, inadHint()) +
           slider('ueLate', 'late-payment rate (%)', 0, 100, 1, latePct) +
           slider('ueTermPct', 'termination fee recovery (%)', 0, 100, 1, termPct) +
         `</div>`);
@@ -4885,7 +4905,7 @@
         } catch (e) { btnR.textContent = '✗ failed — try again'; btnR.disabled = false; }
       });
       wireSlider('ueCotacao', (v) => { cotacao = v; }, () => 'R$ ' + cotacao.toFixed(2).replace('.', ','), () => cotacao, '__cotacao__', '__cfg__', f);
-      wireSlider('ueInad', (v) => { inadimplencia = v; }, () => inadimplencia + '%', () => inadimplencia, '__inadimplencia__', '__cfg__', f);
+      wireSlider('ueInad', (v) => { inadimplencia = v; }, () => String(Math.round(inadimplencia * 10) / 10).replace('.', ',') + '%', () => inadimplencia, '__inadimplencia__', '__cfg__', f);
       wireSlider('ueLate', (v) => { latePct = v; }, () => latePct + '%', () => latePct, '__late_pct__', '__cfg__', f);
       wireSlider('ueTermPct', (v) => { termPct = v; }, () => termPct + '%', () => termPct, '__term_pct__', '__cfg__', f);
       renderTable(f);
@@ -4966,6 +4986,9 @@
       });
       html += '</tbody>';
       tbl.innerHTML = html;
+      // agregado = soma de 50 carros: os números passam de 7 dígitos e, com table-layout fixed +
+      // nowrap, transbordavam ~7px para a coluna vizinha. Fonte/padding menores nessa visão só.
+      tbl.classList.toggle('ue-agg', !!viewAgg && !plateView);
       if (editable) {
         tbl.querySelectorAll('.ue-editable').forEach((td) => td.addEventListener('click', () => openEditor(td, f)));
         tbl.querySelectorAll('.ue-param-label').forEach((el) => el.addEventListener('click', () => openParamModal(el.dataset.pline, f)));

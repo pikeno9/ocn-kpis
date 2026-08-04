@@ -2185,7 +2185,7 @@
       const maints = {}; finModels.forEach((m) => { maints[m.id] = uetMaint(finModelVals[m.id] || {}, m.id); });
       const zeros = () => new Array(FIN_MONTHS).fill(0);
       const rev = {}, cogs = {}; FIN_REV_LINES.forEach((l) => rev[l] = zeros()); FIN_COGS_LINES.forEach((l) => cogs[l] = zeros());
-      const delivered = zeros(), active = zeros(), secDep = zeros();
+      const delivered = zeros(), active = zeros(), secDep = zeros(), vehPur = zeros();
       for (let m = 0; m < FIN_MONTHS; m++) {
         finCohorts.forEach((c) => {
           const cm = cohMonth(c);
@@ -2223,6 +2223,7 @@
           FIN_REV_LINES.forEach((L) => add(L, rev));
           FIN_COGS_LINES.forEach((L) => add(L, cogs));
           if (age === 0) { const v0 = val('Security Deposit', 0); if (v0 != null) secDep[m] += (v0 * c.qty) / fx; }
+          { const vp = val('Vehicle Purchase', p); if (vp != null) vehPur[m] += (vp * activeN) / fx; }
         });
       }
       // ---- MESES DECORRIDOS: troca o modelo pelo REALIZADO consolidado da frota inteira ----
@@ -2275,7 +2276,7 @@
       for (let m = 0; m < FIN_MONTHS; m++) {
         FIN_REV_LINES.forEach((L) => grossRev[m] += rev[L][m]);
         FIN_COGS_LINES.forEach((L) => cogsTot[m] += cogs[L][m]);
-        cogsTot[m] += secDep[m]; // #2: sub-rental security deposit sobe pro COGS (como no UE)
+        cogsTot[m] += secDep[m] + vehPur[m]; // calção e compra do veículo entram no COGS (como no UE)
       }
       const fed = grossRev.map((v) => -v * taxFed), cred = grossRev.map((v) => v * taxCred);
       const taxes = grossRev.map((_, m) => fed[m] + cred[m]);
@@ -2316,7 +2317,7 @@
       const headcount = zeros(); for (let m = 0; m < FIN_MONTHS; m++) (finHc.roles || []).forEach((r) => { headcount[m] += hcOf(r, m); });
       const payFeePct = new Array(FIN_MONTHS).fill(0).map((_, m) => finParM('__fin_payfee__', m));
       return { delivered, active, rev, cogs, secDep, grossRev, fed, cred, taxes, netRev, cogsTot, payProc, gm,
-        base, meal, health, ptax, th13, bonus, hcTot, commission, adsTot, infTot, cacTot, rentTot, profTot, itTot, sga, opex, netCf, accCf, newDelivered, headcount, payFeePct, actualsThrough };
+        base, meal, health, ptax, th13, bonus, hcTot, commission, adsTot, infTot, cacTot, rentTot, profTot, itTot, sga, opex, netCf, accCf, newDelivered, headcount, payFeePct, actualsThrough, vehPur };
     }
 
     // ---------- P&L ----------
@@ -2344,6 +2345,7 @@
       push('COGS', P.cogsTot, 'pnl-l2', { group: 'cogs' });
       FIN_COGS_LINES.forEach((L) => push(L === 'Traffic fines (out)' ? 'Traffic fines' : L, P.cogs[L] || [], 'pnl-l3', { ancestors: ['cogs'] }));
       push('Sub-rental security deposit', P.secDep, 'pnl-l3', { ancestors: ['cogs'] });
+      push('Vehicle Purchase', P.vehPur || [], 'pnl-l3', { ancestors: ['cogs'] });
       push('Payment processing', P.payProc, 'pnl-l2');
       push('Gross Margin', P.gm, 'pnl-l1', { pct: gmPct, pctTot: sum(P.grossRev) ? (sum(P.gm) / sum(P.grossRev)) * 100 : null });
       push('OPEX', P.opex, 'pnl-l2', { group: 'opex' });
@@ -2365,9 +2367,16 @@
       push('Net cashflow', P.netCf, 'pnl-l1');
       push('Acc. Net cashflow', P.accCf, 'pnl-l1 pnl-acc', { isAcc: true });
 
-      let html = '<thead><tr><th class="ue-rowlabel">P&amp;L (USD)</th>';
+      // faixa de frota acima dos meses: carros ativos e quantos chegaram no mês
+      let html = '<thead><tr class="pnl-fleetrow"><th class="ue-rowlabel">Fleet</th>';
+      for (let m = 0; m < FIN_MONTHS; m++) {
+        const act = Math.round(P.active[m] || 0), nw = Math.round((P.newDelivered || [])[m] || 0);
+        html += `<th title="${act} active cars · ${nw} delivered this month"><span class="pnl-fl-act">${act || '–'}</span>${nw ? `<span class="pnl-fl-new">+${nw}</span>` : ''}</th>`;
+      }
+      html += `<th class="ue-totalcol"><span class="pnl-fl-act">${Math.round(P.delivered[FIN_MONTHS - 1] || 0)}</span></th></tr>`;
+      html += '<tr><th class="ue-rowlabel">P&amp;L (USD)</th>';
       for (let m = 0; m < FIN_MONTHS; m++) html += `<th>${monthLbl(m)}</th>`;
-      html += '<th class="ue-totalcol">FY-26E</th></tr></thead><tbody>';
+      html += `<th class="ue-totalcol">FY-${String(finYear).slice(2)}E</th></tr></thead><tbody>`;
       N.forEach((n) => {
         if (n.ancestors.some((a) => pnlCollapsed.has(a))) return; // dentro de grupo recolhido
         const isParent = !!n.group, collapsed = isParent && pnlCollapsed.has(n.group);
@@ -2405,6 +2414,7 @@
       if (isAdmin && !live) h += '<button id="pnlDelVer" class="pnl-btn pnl-del" title="Delete this frozen version">🗑</button>';
       if (live) h += `<button id="pnlNoSdBtn" class="pnl-btn${pnlNoSd ? ' on' : ''}" title="What-if view without the sub-rental security deposit (and its refund)">No deposit</button>`;
       h += `<button id="pnlExpand" class="pnl-btn" title="${pnlCollapsed.size ? 'Expand all groups' : 'Collapse all groups'}">${pnlCollapsed.size ? '⤢' : '⤡'}</button>`;
+      h += '<button id="pnlAssump" class="pnl-btn" title="Tax rates, processing fee (global and per month), FX and other assumptions">⚙ Assumptions</button>';
       h += '<button id="pnlInfo" class="pnl-btn pnl-info" title="Where each line comes from and how it updates">?</button>';
       if (!live) { const v = pnlVersions.find((x) => x.id === pnlVersion); h += `<span class="pnl-frozen">📌 Frozen${v && v.savedAt ? ' · ' + v.savedAt.slice(0, 10) : ''}${v && v.snapshot && v.snapshot.noSd ? ' · no deposit' : ''}</span>`; }
       if (pnlActualsThrough != null) h += `<span class="pnl-act">actuals → ${monthLbl(pnlActualsThrough)}</span>`;
@@ -2413,12 +2423,47 @@
       ctl.querySelectorAll('.pnl-yr').forEach((b) => b.addEventListener('click', () => {
         finYear = +b.dataset.y; refProfiles = buildProfiles(); renderPnl(); renderFleetPlan(); renderCac();
       }));
+      const ab = document.getElementById('pnlAssump'); if (ab) ab.addEventListener('click', openAssumpModal);
       const ib = document.getElementById('pnlInfo'); if (ib) ib.addEventListener('click', openPnlInfo);
       const sel = document.getElementById('pnlVer'); if (sel) sel.addEventListener('change', () => { pnlVersion = sel.value; renderPnl(); });
       const nb = document.getElementById('pnlNoSdBtn'); if (nb) nb.addEventListener('click', () => { pnlNoSd = !pnlNoSd; renderPnl(); });
       const eb = document.getElementById('pnlExpand'); if (eb) eb.addEventListener('click', () => { if (pnlCollapsed.size) pnlCollapsed.clear(); else pnlCollapsed = new Set(PNL_GROUPS); renderPnl(); });
       const sv = document.getElementById('pnlSaveVer'); if (sv) sv.addEventListener('click', savePnlVersion);
       const dv = document.getElementById('pnlDelVer'); if (dv) dv.addEventListener('click', deletePnlVersion);
+    }
+    // ⚙ Assumptions — premissas globais + a taxa de processamento mês a mês (substitui a aba)
+    function openAssumpModal() {
+      const canEdit = isAdmin;
+      const ov = document.createElement('div');
+      ov.className = 'ue-modal-overlay';
+      ov.innerHTML =
+        `<div class="ue-modal ue-modal-assump"><div class="ue-modal-title">Assumptions</div>` +
+        `<div class="ue-modal-sub">Global drivers of the P&amp;L. Per-vehicle revenue and costs come from the reference fleets.</div>` +
+        `<div class="asm-grid">` + FIN_ASSUMP.map((a) =>
+          `<label class="asm-item"><span class="asm-lbl">${escH(a.label)}</span>` +
+          `<input class="asm-in" data-k="${a.k}" type="text" inputmode="decimal" value="${finPar(a.k)}"${canEdit ? '' : ' disabled'}></label>`
+        ).join('') + `</div>` +
+        `<div class="asm-sec">Payment processing fee — per month (%)</div>` +
+        `<div class="asm-months">` + Array.from({ length: FIN_MONTHS }, (_, m) =>
+          `<label class="asm-mo"><span>${monthLbl(m)}</span><input class="asm-fee" data-m="${m}" type="text" inputmode="decimal" value="${finParM('__fin_payfee__', m)}"${canEdit ? '' : ' disabled'}></label>`
+        ).join('') + `</div>` +
+        `<div class="ue-modal-hint">Each month falls back to the global processing fee above; clear a month to unlink it.</div>` +
+        `<div class="ue-modal-actions"><button type="button" class="ue-modal-cancel">Close</button></div></div>`;
+      document.body.appendChild(ov);
+      const close = () => ov.remove();
+      ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+      ov.querySelector('.ue-modal-cancel').addEventListener('click', close);
+      if (!canEdit) return;
+      ov.querySelectorAll('.asm-in').forEach((inp) => inp.addEventListener('change', () => saveAssump(inp.dataset.k, inp.value)));
+      ov.querySelectorAll('.asm-fee').forEach((inp) => inp.addEventListener('change', () => savePnlFee(+inp.dataset.m, inp.value)));
+    }
+    async function saveAssump(k, raw) {
+      const num = parseInput(raw);
+      try {
+        if (num == null) { await fetch('/api/ue/value/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: '__fin_cfg__', line: k, period: 0 }) }); delete finCfg[k + '@@0']; }
+        else { await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: '__fin_cfg__', line: k, period: 0, value: num, kind: 'proj' }) }); finCfg[k + '@@0'] = num; }
+      } catch (e) {}
+      renderPnl();
     }
     // "?" do P&L — de onde vem cada bloco e como se atualiza
     function openPnlInfo() {
@@ -2470,16 +2515,6 @@
       h += tile('Gross margin', Math.round(gmFY) + '%', 'FY-26E');
       h += tile('Net cashflow (FY)', fmt(sum(P.netCf)), 'USD');
       h += '</div>';
-      // ---- #5 painel: processing fee por mês (só live + admin) ----
-      if (live && isAdmin) {
-        h += '<div class="fin-sub">Payment processing fee — per month (%)</div>';
-        h += '<div class="ue-table-wrap"><table class="ue-table fin-grid"><thead><tr><th class="ue-rowlabel">Assumption</th>';
-        for (let m = 0; m < FIN_MONTHS; m++) h += `<th>${monthLbl(m)}</th>`;
-        h += '<th class="ue-totalcol"></th></tr></thead><tbody><tr class="ue-row ue-leaf"><td class="ue-rowlabel">Processing fee %</td>';
-        for (let m = 0; m < FIN_MONTHS; m++) h += `<td class="ue-cell"><input class="hc-f hc-n pnl-fee" type="number" min="0" step="any" data-m="${m}" value="${finParM('__fin_payfee__', m)}"></td>`;
-        h += '<td class="ue-cell"></td></tr></tbody></table></div>';
-        h += '<div class="fin-note">Overrides the global processing fee for that month. Jan shares the value in Assumptions; empty a later month to fall back to it.</div>';
-      }
       ex.innerHTML = h;
       ex.querySelectorAll('.pnl-fee').forEach((inp) => inp.addEventListener('change', () => savePnlFee(+inp.dataset.m, inp.value)));
     }
@@ -3169,6 +3204,7 @@
       'GPS': [{ k: '__gps_m0__', label: 'Amount at M0 (R$)' }, { k: '__gps_mensal__', label: 'Monthly amount, from M1 (R$)' }],
       'Security Deposit': [{ k: '__num_alugueis__', label: 'Number of rentals (deposit = N × monthly Subrental)' }],
       'Vehicle Purchase': [{ k: '__vehicle__', label: 'Purchase/buyback amount (R$) — enters at M13' }],
+      'Deposit Refund': [{ k: '__refund_pct__', label: 'Deposit refund adjustment (% p.a.)' }],
     };
     // rótulo de exibição ≠ chave interna (que segue a planilha).
     // 'Traffic fines (out)' é a linha de SAÍDA — chave distinta da de entrada (senão colidiriam nas
@@ -3687,7 +3723,8 @@
         ? par('__num_alugueis__') * par('__subrental_mensal__') : 0;
       if (line === 'Security Deposit' && secDepMag() > 0) return { rs: period === 0 ? -secDepMag() : 0 };
       if (line === 'Deposit Refund' && secDepMag() > 0) {
-        return { rs: period === PMAX ? secDepMag() * (1 + refundPct) : 0 }; // devolução corrigida, no M13
+        const rp = par('__refund_pct__') > 0 ? par('__refund_pct__') / 100 : refundPct; // caixinha da linha vence o global
+        return { rs: period === PMAX ? secDepMag() * (1 + rp) : 0 }; // devolução corrigida, no M13
       }
       if (line === 'Vehicle Purchase' && par('__vehicle__') > 0) return { rs: period === PMAX ? -par('__vehicle__') : 0 };
       if (line === 'Initial Fee / Vehicle Sell' && par('__vehicle__') > 0) {
@@ -4165,16 +4202,15 @@
           `</div>` +
         `</div>` +
         contractBar +
+        // Clean view fica entre a barra do contrato e as premissas; os sliders ficam colados na tabela
+        `<div class="ue-viewbar">` +
+          `<button class="ue-clean2${cleanView ? ' on' : ''}" id="ueClean" title="Hide the budget comparison and show one combined number per month">✨ Clean view</button>` +
+        `</div>` +
         `<div class="ue-sliders">` +
           slider('ueCotacao', 'future FX (R$/US$)', 3, 8, 0.05, cotacao) +
           slider('ueInad', 'delinquency rate (%)', 0, 50, 1, inadimplencia) +
           slider('ueLate', 'late-payment rate (%)', 0, 100, 1, latePct) +
           slider('ueTermPct', 'termination fee recovery (%)', 0, 100, 1, termPct) +
-          field('ueRefundPct', 'Security Deposit Refund adj. (% p.a.)', Math.round(refundPct * 10000) / 100, 1) +
-        `</div>` +
-        // barra própria do modo de visualização, separada das ferramentas
-        `<div class="ue-viewbar">` +
-          `<button class="ue-clean2${cleanView ? ' on' : ''}" id="ueClean" title="Hide the budget comparison and show one combined number per month">✨ Clean view</button>` +
         `</div>`;
       const infoBtn = document.getElementById('ueInfo');
       if (infoBtn) infoBtn.addEventListener('click', openInfoModal);
@@ -4205,7 +4241,6 @@
       wireSlider('ueInad', (v) => { inadimplencia = v; }, () => inadimplencia + '%', () => inadimplencia, '__inadimplencia__', '__cfg__', f);
       wireSlider('ueLate', (v) => { latePct = v; }, () => latePct + '%', () => latePct, '__late_pct__', '__cfg__', f);
       wireSlider('ueTermPct', (v) => { termPct = v; }, () => termPct + '%', () => termPct, '__term_pct__', '__cfg__', f);
-      wireField('ueRefundPct', (v) => { refundPct = v / 100; }, '__refund_pct__', () => refundPct, f);
       renderTable(f);
       renderPlates(f);
     }

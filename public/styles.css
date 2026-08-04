@@ -198,7 +198,7 @@ button { font-family: inherit; cursor: pointer; }
 .ue-modal-save { background: var(--accent); color: #fff; }
 .ue-modal-save:hover { background: var(--purple-deep); }
 .ue-fleet-head { display: flex; align-items: center; gap: 14px; }
-.ue-car-photo { width: 200px; height: 116px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--border); display: grid; place-items: center; overflow: hidden; flex: 0 0 auto; }
+.ue-car-photo { width: 132px; height: 78px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--border); display: grid; place-items: center; overflow: hidden; flex: 0 0 auto; }
 .ue-car-photo img { width: 100%; height: 100%; object-fit: contain; padding: 3px 5px; }
 @media (max-width: 640px) { .ue-car-photo { width: 150px; height: 88px; } }
 .ue-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
@@ -743,3 +743,32 @@ html { scrollbar-gutter: stable; }
 .org-reports .org-node { width: 128px; }
 /* respiro entre os heads (nível 2) */
 .org-tree > li > ul > li { padding-left: 8px; padding-right: 8px; }
+
+
+/* ---- ajustes de layout do cabeçalho do UE (foto menor, respiro entre barra e premissas) ---- */
+.ue-contract { margin: 10px 0 22px; }                 /* afasta a barra temporal dos controles abaixo */
+.ue-viewbar { margin: 0 0 10px; }                     /* Clean view entre a barra e as premissas */
+.ue-sliders { margin: 0 0 14px; }                     /* premissas coladas na tabela */
+.ue-fleets { margin-bottom: 10px; }
+
+/* ---- P&L: faixa de frota acima dos meses ---- */
+#pnlTable thead tr.pnl-fleetrow th { background: #1b0040; border-bottom: 0; padding-top: 6px; padding-bottom: 3px; font-size: 9px; letter-spacing: .3px; }
+#pnlTable thead tr.pnl-fleetrow th.ue-rowlabel { background: #1b0040; border-top-left-radius: 8px; }
+#pnlTable thead tr.pnl-fleetrow th.ue-totalcol { background: #4700c4; border-top-right-radius: 8px; }
+#pnlTable thead tr:not(.pnl-fleetrow) th { border-top-left-radius: 0; border-top-right-radius: 0; }
+.pnl-fl-act { font-size: 11px; font-weight: 800; color: #fff; }
+.pnl-fl-new { font-size: 9.5px; font-weight: 700; color: #b9a6ff; margin-left: 4px; }
+
+/* ---- modal de Assumptions ---- */
+.ue-modal.ue-modal-assump { width: 620px; max-width: 94vw; max-height: 88vh; overflow-y: auto; }
+.asm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 9px; margin-bottom: 16px; }
+.asm-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--border-2); border-radius: 9px; padding: 8px 12px; background: var(--surface); }
+.asm-item:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px #7c3aed26; }
+.asm-lbl { font-size: 11.5px; font-weight: 600; color: var(--text-2); }
+.asm-in { width: 78px; border: 0; outline: 0; background: transparent; font: inherit; font-size: 13.5px; font-weight: 700; text-align: right; color: var(--text); }
+.asm-sec { font-size: 11px; font-weight: 700; color: var(--text-2); text-transform: uppercase; letter-spacing: .04em; margin: 4px 0 8px; }
+.asm-months { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-bottom: 6px; }
+.asm-mo { display: flex; flex-direction: column; gap: 3px; }
+.asm-mo span { font-size: 9.5px; font-weight: 600; color: var(--text-2); text-align: center; text-transform: uppercase; }
+.asm-mo input { width: 100%; box-sizing: border-box; border: 1px solid var(--border-2); border-radius: 7px; padding: 5px 4px; font: inherit; font-size: 12.5px; font-weight: 600; text-align: center; color: var(--text); background: var(--surface); }
+.asm-mo input:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 2px #7c3aed26; }

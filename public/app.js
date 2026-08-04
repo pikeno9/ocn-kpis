@@ -2553,41 +2553,50 @@
       const K = pnlKpis(P);
       const tile = (label, val, sub, cls) => `<div class="pnl-kpi${cls ? ' ' + cls : ''}"><div class="pnl-kpi-v">${val}</div><div class="pnl-kpi-l">${escH(label)}</div><div class="pnl-kpi-s">${escH(sub || '')}</div></div>`;
       const money = (v) => (v < 0 ? '−' : '') + 'US$ ' + fmtNum(Math.abs(v));
-      let h = '';
-      // ---- só o essencial: caixa + unit economics ----
-      h += '<div class="fin-sub">Cash</div><div class="pnl-kpis">';
-      h += tile('Breakeven month', K.beIdx != null ? monthLbl(K.beIdx) : '—', K.beIdx != null ? 'acc. cashflow turns positive' : ('not within ' + finYear), K.beIdx != null ? 'pnl-good' : 'pnl-warn');
-      h += tile('Peak funding need', money(K.peak), K.peakM != null ? ('deepest at ' + monthLbl(K.peakM)) : 'no negative dip', 'pnl-warn');
-      h += tile('End-of-year cash', money(K.eoy), 'acc. net cashflow, ' + monthLbl(FIN_MONTHS - 1), K.eoy >= 0 ? 'pnl-good' : 'pnl-warn');
-      h += '</div>';
-      h += '<div class="fin-sub">Unit economics</div><div class="pnl-kpis">';
-      h += tile('Revenue / active car', money(K.arpu), 'avg per month (ARPU)');
-      h += tile('CAC per unit', money(K.cacUnit), K.totDeliv + ' cars delivered (FY)');
-      h += tile('Gross margin', Math.round(K.gmFY) + '%', 'FY, over gross revenue');
-      h += '</div>';
-      // ---- simulador de frota (só na visão live) ----
-      if (live) {
-        h += '<div class="fin-sub">Fleet simulator</div>';
-        h += `<div class="pnl-sim"><div class="pnl-sim-top"><span class="pnl-sim-lbl">Deliveries at</span>` +
-          `<input type="range" id="pnlSimScale" min="50" max="200" step="5" value="${pnlSimScale}">` +
-          `<span class="pnl-sim-val" id="pnlSimVal">${pnlSimScale}%</span>` +
-          `<label class="pnl-sim-mask"><input type="checkbox" id="pnlSimApply"${pnlSimApply ? ' checked' : ''}> apply to the table</label>` +
-          `<button class="pnl-btn" id="pnlBeSolver" title="How many extra cars to hit a target breakeven month">🎯 Breakeven target</button>` +
-          `</div><div class="pnl-kpis" id="pnlSimOut"></div></div>`;
-      }
+      // ---- painel enxuto: 1 destaque (breakeven) + métricas em faixa, sem repetir big numbers ----
+      const beOk = K.beIdx != null;
+      let h = '<div class="pnl-panel">';
+      h += '<div class="pnl-hero' + (beOk ? ' ok' : ' pend') + '">' +
+        '<span class="pnl-hero-cap">Breakeven</span>' +
+        '<span class="pnl-hero-v">' + (beOk ? monthLbl(K.beIdx) : 'not in ' + finYear) + '</span>' +
+        '<span class="pnl-hero-s">' + (beOk ? 'accumulated cash turns positive' : 'accumulated cash stays negative all year') + '</span>' +
+      '</div>';
+      const row = (lbl, val, sub, tone) => '<div class="pnl-m ' + (tone || '') + '"><span class="pnl-m-l">' + lbl + '</span><b class="pnl-m-v">' + val + '</b><span class="pnl-m-s">' + sub + '</span></div>';
+      h += '<div class="pnl-mrow">' +
+        row('Peak funding', money(K.peak), K.peakM != null ? 'deepest at ' + monthLbl(K.peakM) : 'no dip', 'warn') +
+        row('End-of-year cash', money(K.eoy), 'acc. at ' + monthLbl(FIN_MONTHS - 1), K.eoy >= 0 ? 'good' : 'warn') +
+        row('ARPU', money(K.arpu), 'per active car / month') +
+        row('CAC', money(K.cacUnit), K.totDeliv + ' cars (FY)') +
+        row('Gross margin', Math.round(K.gmFY) + '%', 'over gross revenue', K.gmFY >= 0 ? 'good' : 'warn') +
+      '</div></div>';
       ex.innerHTML = h;
+      // ---- simulador de frota: fica logo ABAIXO da tabela (container próprio) ----
+      const simEl = document.getElementById('pnlSim');
+      if (simEl) simEl.innerHTML = !live ? '' :
+        '<div class="pnl-sim">' +
+          '<div class="pnl-sim-top">' +
+            '<div class="pnl-sim-head"><span class="pnl-sim-ic">🚗</span><span class="pnl-sim-lbl">Fleet simulator</span></div>' +
+            '<input type="range" id="pnlSimScale" min="25" max="400" step="5" value="' + pnlSimScale + '">' +
+            '<span class="pnl-sim-val" id="pnlSimVal">' + pnlSimScale + '%</span>' +
+            '<label class="pnl-sim-mask"><input type="checkbox" id="pnlSimApply"' + (pnlSimApply ? ' checked' : '') + '><span>apply to the table</span></label>' +
+            '<button class="pnl-target" id="pnlBeSolver" title="How many extra cars to hit a target breakeven month">' +
+              '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="8" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="8" r="1.1" fill="currentColor"/></svg>' +
+              'Breakeven target</button>' +
+          '</div><div class="pnl-simcards" id="pnlSimOut"></div></div>';
       if (live) {
+        const money2 = money; // usado dentro do paint
         const sl = document.getElementById('pnlSimScale');
         const paint = () => {
           document.getElementById('pnlSimVal').textContent = pnlSimScale + '%';
           const S = pnlSimScale === 100 ? P : computePnl({ noSd: pnlNoSd, scale: pnlSimScale / 100 });
           const KS = pnlKpis(S);
           const d = (a, b) => (b - a);
+          const sc = (lbl, val, delta, tone) => '<div class="pnl-sc ' + (tone || '') + '"><span class="pnl-sc-l">' + lbl + '</span><b class="pnl-sc-v">' + val + '</b><span class="pnl-sc-d">' + delta + '</span></div>';
           document.getElementById('pnlSimOut').innerHTML =
-            tile('Breakeven', KS.beIdx != null ? monthLbl(KS.beIdx) : '—', K.beIdx != null && KS.beIdx != null ? (KS.beIdx === K.beIdx ? 'same as plan' : ((KS.beIdx < K.beIdx ? 'earlier' : 'later') + ' by ' + Math.abs(KS.beIdx - K.beIdx) + ' mo')) : '', KS.beIdx != null ? 'pnl-good' : 'pnl-warn') +
-            tile('Peak funding', money(KS.peak), fmt(d(K.peak, KS.peak)) + ' vs plan', 'pnl-warn') +
-            tile('End-of-year cash', money(KS.eoy), fmt(d(K.eoy, KS.eoy)) + ' vs plan', KS.eoy >= 0 ? 'pnl-good' : 'pnl-warn') +
-            tile('Cars delivered', Math.round(KS.totDeliv), (pnlSimScale >= 100 ? '+' : '') + Math.round(KS.totDeliv - K.totDeliv) + ' vs plan');
+            sc('Breakeven', KS.beIdx != null ? monthLbl(KS.beIdx) : '—', K.beIdx != null && KS.beIdx != null ? (KS.beIdx === K.beIdx ? 'same as plan' : ((KS.beIdx < K.beIdx ? '▲ ' : '▼ ') + Math.abs(KS.beIdx - K.beIdx) + ' mo ' + (KS.beIdx < K.beIdx ? 'earlier' : 'later'))) : 'vs plan', KS.beIdx != null ? 'good' : 'warn') +
+            sc('Peak funding', money(KS.peak), fmt(d(K.peak, KS.peak)) + ' vs plan', 'warn') +
+            sc('End-of-year cash', money(KS.eoy), fmt(d(K.eoy, KS.eoy)) + ' vs plan', KS.eoy >= 0 ? 'good' : 'warn') +
+            sc('Cars delivered', Math.round(KS.totDeliv), (KS.totDeliv >= K.totDeliv ? '+' : '') + Math.round(KS.totDeliv - K.totDeliv) + ' vs plan', 'neutral');
         };
         if (sl) { sl.addEventListener('input', () => { pnlSimScale = +sl.value; paint(); }); paint(); }
         const ap = document.getElementById('pnlSimApply');
@@ -3058,86 +3067,114 @@
     // ---------- DASHBOARD: realizado + projetado vs plano (gráficos) ----------
     // Paleta validada (dataviz): Actual #5A00F8 · Forecast #A78BFA · Plan #EB6834.
     // "Plan" = o mesmo motor SEM o override de realizado (o modelo puro das frotas de referência).
-    const DC = { act: '#5A00F8', for: '#A78BFA', plan: '#EB6834', grid: 'rgba(120,120,140,0.10)', txt: '#6b7280' };
+    // O "plano" tem SEMPRE a mesma cor (cinza-azulado pontilhado) em todos os gráficos — assim ele é
+    // reconhecível de imediato, independente da linha escolhida.
+    const DC = { act: '#5A00F8', for: '#A78BFA', plan: '#94A3B8', grid: 'rgba(120,120,140,0.10)', txt: '#6b7280' };
+    // color-code por FAMÍLIA da linha (receita = roxo, COGS = laranja, OPEX = azul-petróleo).
+    // Hues validados com o script da skill de dataviz (separação para daltonismo OK).
+    const DASH_FAM = {
+      rev: { name: 'Revenue', color: '#5A00F8', fill: 'rgba(90,0,248,.08)' },
+      cogs: { name: 'COGS', color: '#EB6834', fill: 'rgba(235,104,52,.10)' },
+      opex: { name: 'OPEX', color: '#0891B2', fill: 'rgba(8,145,178,.10)' },
+    };
+    const DASH_FAMILY = (n) => (FIN_REV_LINES.includes(n) ? DASH_FAM.rev : (FIN_COGS_LINES.includes(n) ? DASH_FAM.cogs : DASH_FAM.opex));
+    const DASH_LINES = [...FIN_REV_LINES, ...FIN_COGS_LINES, 'CAC', 'SG&A', 'HC Payroll', 'OPEX'];
+    const DASH_LABEL = (n) => (n === 'Traffic fines (out)' ? 'Traffic fines (cost)' : n);
+    // valores da linha no P&L (custos vêm positivos p/ o gráfico ler "quanto gastamos")
+    function dashSeries(name, PX) {
+      if (PX.rev && PX.rev[name]) return PX.rev[name];
+      if (PX.cogs && PX.cogs[name]) return PX.cogs[name].map((v) => -v);
+      if (name === 'CAC') return PX.cacTot.map((v) => -v);
+      if (name === 'SG&A') return PX.sga.map((v) => -v);
+      if (name === 'OPEX') return PX.opex.map((v) => -v);
+      if (name === 'HC Payroll') return PX.hcTot.map((v) => -v);
+      return new Array(FIN_MONTHS).fill(0);
+    }
     function renderDash() {
-      if (!document.getElementById('dashRev')) return;
+      if (!document.getElementById('dashLineCv')) return;
       const PA = computePnl({});                    // realidade: actuals + forecast
-      const PP = computePnl({ noActuals: true });   // plano: modelo puro
+      const PP = computePnl({ noActuals: true });   // plano: modelo puro (sem override do realizado)
       const curM = PA.actualsThrough != null ? PA.actualsThrough : -1;
       const labels = Array.from({ length: FIN_MONTHS }, (_, m) => monthLbl(m));
-      const seg = (arr) => ({ a: arr.map((v, m) => (m <= curM ? v : null)), f: arr.map((v, m) => (m > curM ? v : (m === curM ? v : null))) });
       const kill = (id) => { if (dashCharts[id]) { dashCharts[id].destroy(); delete dashCharts[id]; } };
-      const sparse = (arr) => { // rótulos diretos SÓ no pico e no último valor (regra da skill)
-        const idx = new Set();
-        let mx = 0, mi = -1; arr.forEach((v, i) => { if (v != null && Math.abs(v) > mx) { mx = Math.abs(v); mi = i; } });
-        if (mi >= 0) idx.add(mi);
-        for (let i = arr.length - 1; i >= 0; i--) if (arr[i] != null) { idx.add(i); break; }
-        return idx;
-      };
-      const mkBars = (id, arr, planArr) => {
-        kill(id);
-        const s = seg(arr);
-        const lb = sparse(arr);
-        dashCharts[id] = new Chart(document.getElementById(id), {
-          data: { labels, datasets: [
-            { type: 'bar', label: 'Actual', data: s.a, backgroundColor: DC.act, borderRadius: 4, maxBarThickness: 26,
-              datalabels: { display: (c) => lb.has(c.dataIndex) && c.dataset.data[c.dataIndex] != null, anchor: 'end', align: 'top', color: '#374151', font: { size: 10, weight: 700 }, formatter: (v) => fmtQty(v) } },
-            { type: 'bar', label: 'Forecast', data: s.f, backgroundColor: DC.for, borderRadius: 4, maxBarThickness: 26,
-              datalabels: { display: (c) => lb.has(c.dataIndex) && c.dataset.data[c.dataIndex] != null, anchor: 'end', align: 'top', color: '#374151', font: { size: 10, weight: 700 }, formatter: (v) => fmtQty(v) } },
-            { type: 'line', label: 'Plan', data: planArr, borderColor: DC.plan, borderWidth: 2, borderDash: [6, 4], pointRadius: 0, pointHoverRadius: 5, tension: 0.25, datalabels: { display: false } },
-          ] },
-          options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 16 } },
-            plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 10, boxHeight: 10, font: { size: 10.5 }, color: DC.txt } },
-              tooltip: { callbacks: { label: (c) => c.dataset.label + ': US$ ' + fmtQty(c.parsed.y) } } },
-            scales: { x: { stacked: true, grid: { display: false }, ticks: { color: DC.txt, font: { size: 9.5 } } },
-              y: { grid: { color: DC.grid }, ticks: { color: DC.txt, font: { size: 9.5 }, callback: (v) => fmtQty(v) } } } },
-        });
-      };
-      mkBars('dashRev', PA.grossRev, PP.grossRev);
-      mkBars('dashCogs', PA.cogsTot.map((v) => -v), PP.cogsTot.map((v) => -v));
-      mkBars('dashNet', PA.netCf, PP.netCf);
-      // acumulado: linha (sólida no realizado, tracejada no projetado) + plano; a linha do zero é o breakeven
-      kill('dashAcc');
-      dashCharts.dashAcc = new Chart(document.getElementById('dashAcc'), {
+      const fam = DASH_FAMILY(dashLine);
+      const sum = (a) => (a || []).reduce((s, x) => s + (x || 0), 0);
+      // ---- principal: LINHA. Sólida no realizado, pontilhada na projeção (mesma cor da família) e o
+      // plano sempre no MESMO cinza-azulado pontilhado, para ser reconhecível em qualquer linha.
+      const real = dashSeries(dashLine, PA).map((v, m) => (m <= curM ? v : null));
+      const proj = dashSeries(dashLine, PA).map((v, m) => (m >= curM ? v : null)); // repete o corte: sem buraco
+      const plan = dashSeries(dashLine, PP);
+      kill('dashLineCv');
+      dashCharts.dashLineCv = new Chart(document.getElementById('dashLineCv'), {
         type: 'line',
         data: { labels, datasets: [
-          { label: 'Actual + Forecast', data: PA.accCf, borderColor: DC.act, backgroundColor: DC.act, borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5, tension: 0.25,
-            segment: { borderDash: (c) => (c.p1DataIndex > curM ? [5, 4] : undefined) }, datalabels: { display: false } },
-          { label: 'Plan', data: PP.accCf, borderColor: DC.plan, borderWidth: 2, borderDash: [6, 4], pointRadius: 0, pointHoverRadius: 5, tension: 0.25, datalabels: { display: false } },
+          { label: 'Actual', data: real, borderColor: fam.color, backgroundColor: fam.fill, borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5, tension: 0.3, fill: 'origin' },
+          { label: 'Forecast', data: proj, borderColor: fam.color, borderWidth: 2.5, borderDash: [5, 4], pointRadius: 0, pointHoverRadius: 5, tension: 0.3 },
+          { label: 'Plan', data: plan, borderColor: DC.plan, borderWidth: 2, borderDash: [2, 3], pointRadius: 0, pointHoverRadius: 5, tension: 0.3 },
         ] },
-        options: { responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 10, boxHeight: 10, font: { size: 10.5 }, color: DC.txt } },
-            tooltip: { callbacks: { label: (c) => c.dataset.label + ': US$ ' + fmtQty(c.parsed.y) } } },
-          scales: { x: { grid: { display: false }, ticks: { color: DC.txt, font: { size: 9.5 } } },
-            y: { grid: { color: (c) => (c.tick.value === 0 ? '#9ca3af' : DC.grid), lineWidth: (c) => (c.tick.value === 0 ? 1.6 : 1) }, ticks: { color: DC.txt, font: { size: 9.5 }, callback: (v) => fmtQty(v) } } } },
+        options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 14, boxHeight: 2, usePointStyle: false, font: { size: 10.5 }, color: DC.txt } },
+            datalabels: { display: false },
+            tooltip: { backgroundColor: '#1b0040', padding: 10, cornerRadius: 8, titleFont: { size: 11 }, bodyFont: { size: 11.5 },
+              callbacks: { label: (c) => (c.parsed.y == null ? null : c.dataset.label + ': US$ ' + fmtQty(c.parsed.y)) } } },
+          scales: { x: { grid: { display: false }, ticks: { color: DC.txt, font: { size: 10 } } },
+            y: { grid: { color: (c) => (c.tick.value === 0 ? '#9ca3af' : DC.grid), lineWidth: (c) => (c.tick.value === 0 ? 1.4 : 1) }, ticks: { color: DC.txt, font: { size: 10 }, callback: (v) => fmtQty(v) } } } },
       });
-      // explorador de linhas: qualquer linha de receita/custo/OPEX, mesma leitura
-      const sel = document.getElementById('dashLineSel');
-      const series = (name, PX) => {
-        if (PX.rev[name]) return PX.rev[name];
-        if (PX.cogs[name]) return PX.cogs[name].map((v) => -v);
-        if (name === 'CAC') return PX.cacTot.map((v) => -v);
-        if (name === 'SG&A') return PX.sga.map((v) => -v);
-        if (name === 'OPEX') return PX.opex.map((v) => -v);
-        if (name === 'HC Payroll') return PX.hcTot.map((v) => -v);
-        return new Array(FIN_MONTHS).fill(0);
+      // cabeçalho do hero: muda com a linha escolhida
+      const actSum = sum(dashSeries(dashLine, PA).slice(0, curM + 1));
+      const fyA = sum(dashSeries(dashLine, PA)), fyP = sum(plan);
+      const diff = fyP ? ((fyA - fyP) / Math.abs(fyP)) * 100 : null;
+      const setTxt = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+      setTxt('dashHeroTitle', DASH_LABEL(dashLine));
+      setTxt('dashHeroSub', fam.name + ' · solid = actual through ' + (curM >= 0 ? monthLbl(curM) : '—') + ' · dotted = forecast · grey = plan');
+      const dot = document.getElementById('dashDot'); if (dot) { dot.style.backgroundColor = fam.color; dot.style.color = fam.color; }
+      const st = document.getElementById('dashHeroStats');
+      if (st) st.innerHTML =
+        '<div class="dash-stat"><span>Actual to date</span><b>US$ ' + fmtQty(actSum) + '</b></div>' +
+        '<div class="dash-stat"><span>Full year (A+F)</span><b>US$ ' + fmtQty(fyA) + '</b></div>' +
+        '<div class="dash-stat"><span>Plan</span><b>US$ ' + fmtQty(fyP) + '</b></div>' +
+        '<div class="dash-stat ' + (diff == null ? '' : (diff >= 0 ? 'up' : 'down')) + '"><span>vs plan</span><b>' +
+        (diff == null ? '—' : (diff >= 0 ? '+' : '') + Math.round(diff) + '%') + '</b></div>';
+      // ---- os dois gráficos de caixa ----
+      const cashChart = (id, arrA, arrP, filled) => {
+        kill(id);
+        const a = arrA.map((v, m) => (m <= curM ? v : null)), f = arrA.map((v, m) => (m >= curM ? v : null));
+        dashCharts[id] = new Chart(document.getElementById(id), {
+          type: 'line',
+          data: { labels, datasets: [
+            { label: 'Actual', data: a, borderColor: DC.act, backgroundColor: 'rgba(90,0,248,.07)', borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5, tension: 0.3, fill: filled ? 'origin' : false },
+            { label: 'Forecast', data: f, borderColor: DC.act, borderWidth: 2.5, borderDash: [5, 4], pointRadius: 0, pointHoverRadius: 5, tension: 0.3 },
+            { label: 'Plan', data: arrP, borderColor: DC.plan, borderWidth: 2, borderDash: [2, 3], pointRadius: 0, pointHoverRadius: 5, tension: 0.3 },
+          ] },
+          options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { display: false }, datalabels: { display: false },
+              tooltip: { backgroundColor: '#1b0040', padding: 9, cornerRadius: 8, bodyFont: { size: 11 },
+                callbacks: { label: (c) => (c.parsed.y == null ? null : c.dataset.label + ': US$ ' + fmtQty(c.parsed.y)) } } },
+            scales: { x: { grid: { display: false }, ticks: { color: DC.txt, font: { size: 9.5 } } },
+              y: { grid: { color: (c) => (c.tick.value === 0 ? '#9ca3af' : DC.grid), lineWidth: (c) => (c.tick.value === 0 ? 1.4 : 1) }, ticks: { color: DC.txt, font: { size: 9.5 }, callback: (v) => fmtQty(v) } } } },
+        });
       };
-      const lineNames = [...FIN_REV_LINES, ...FIN_COGS_LINES, 'CAC', 'SG&A', 'HC Payroll', 'OPEX'];
+      cashChart('dashAcc', PA.accCf, PP.accCf, true);
+      cashChart('dashNet', PA.netCf, PP.netCf, false);
+      // seletor agrupado por família
+      const sel = document.getElementById('dashLineSel');
       if (sel && !sel.options.length) {
-        sel.innerHTML = lineNames.map((n) => `<option value="${escH(n)}"${n === dashLine ? ' selected' : ''}>${escH(n === 'Traffic fines (out)' ? 'Traffic fines (cost)' : n)}</option>`).join('');
+        const groups = {};
+        DASH_LINES.forEach((n) => { const f = DASH_FAMILY(n); (groups[f.name] = groups[f.name] || []).push(n); });
+        sel.innerHTML = Object.entries(groups).map(([g, ns]) =>
+          '<optgroup label="' + g + '">' + ns.map((n) => '<option value="' + escH(n) + '"' + (n === dashLine ? ' selected' : '') + '>' + escH(DASH_LABEL(n)) + '</option>').join('') + '</optgroup>').join('');
         sel.addEventListener('change', () => { dashLine = sel.value; renderDash(); });
       }
-      mkBars('dashLineCv', series(dashLine, PA), series(dashLine, PP));
-      // filtros: ano + chip de realizado
+      // filtros: só o seletor de ano
       const ft = document.getElementById('dashFilters');
       if (ft) {
-        ft.innerHTML = '<div class="pnl-years">' + [FIN_BASE_YEAR, FIN_BASE_YEAR + 1].map((y) => `<button class="pnl-yr${finYear === y ? ' on' : ''}" data-y="${y}">${y}</button>`).join('') + '</div>' +
-          (curM >= 0 ? `<span class="pnl-act">solid/dark = actual through ${monthLbl(curM)} · light = forecast · dashed orange = plan</span>` : '');
+        ft.innerHTML = '<div class="pnl-years">' + [FIN_BASE_YEAR, FIN_BASE_YEAR + 1].map((y) => '<button class="pnl-yr' + (finYear === y ? ' on' : '') + '" data-y="' + y + '">' + y + '</button>').join('') + '</div>';
         ft.querySelectorAll('.pnl-yr').forEach((b) => b.addEventListener('click', () => {
           finYear = +b.dataset.y; finActCache = {}; refProfiles = buildProfiles(); renderDash(); renderPnl(); renderFleetPlan(); renderCac();
         }));
       }
     }
+
 
     (async () => {
       const getVals = async (fleet) => { const o = {}; try { const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(fleet), { credentials: 'include' }); const d = await r.json(); (d.values || []).forEach((v) => { o[v.line + '@@' + v.period] = v.value; }); } catch (e) {} return o; };

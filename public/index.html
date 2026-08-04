@@ -486,7 +486,7 @@
         <button class="sub-tab" data-sub="finadmin">SG&amp;A</button>
         <button class="sub-tab" data-sub="fincac">CAC &amp; Marketing</button>
         <span class="sub-sep"></span>
-        <button class="sub-tab" data-sub="findash"><i class="ti ti-chart-bar"></i> Dashboard</button>
+        <button class="sub-tab sub-tab-dash" data-sub="findash"><i class="ti ti-chart-pie-filled"></i> Dashboard</button>
       </div>
 
       <!-- ---------- P&L (consolidado) ---------- -->
@@ -498,6 +498,7 @@
         </div>
         <div class="ue-head" id="pnlControls"></div>
         <div class="ue-table-wrap"><table class="ue-table" id="pnlTable"></table></div>
+        <div id="pnlSim"></div>
         <div id="pnlExtras"></div>
       </div>
 
@@ -550,19 +551,29 @@
 
       <!-- ---------- DASHBOARD (realizado + projetado vs plano) ---------- -->
       <div class="subsection" id="sub-findash">
-        <div class="section-head">
-          <div>
-            <div class="section-title"><i class="ti ti-chart-bar"></i> Financial Dashboard</div>
-          </div>
-        </div>
         <div class="dash-filters" id="dashFilters"></div>
-        <div class="dash-grid">
-          <div class="dash-card"><div class="dash-title">Gross Revenue</div><div class="dash-legend" id="dashLegend"></div><div class="dash-box"><canvas id="dashRev"></canvas></div></div>
-          <div class="dash-card"><div class="dash-title">COGS</div><div class="dash-box"><canvas id="dashCogs"></canvas></div></div>
-          <div class="dash-card"><div class="dash-title">Net cashflow</div><div class="dash-box"><canvas id="dashNet"></canvas></div></div>
-          <div class="dash-card"><div class="dash-title">Accumulated cash</div><div class="dash-box"><canvas id="dashAcc"></canvas></div></div>
+        <!-- gráfico principal: qualquer linha do P&L, com cor por família -->
+        <div class="dash-hero" id="dashHero">
+          <div class="dash-hero-head">
+            <div class="dash-hero-t">
+              <span class="dash-dot" id="dashDot"></span>
+              <div>
+                <div class="dash-hero-title" id="dashHeroTitle">Subscription</div>
+                <div class="dash-hero-sub" id="dashHeroSub"></div>
+              </div>
+            </div>
+            <div class="dash-pick">
+              <select id="dashLineSel" class="dash-select"></select>
+              <span class="dash-pick-ic">▾</span>
+            </div>
+          </div>
+          <div class="dash-hero-stats" id="dashHeroStats"></div>
+          <div class="dash-box dash-box-hero"><canvas id="dashLineCv"></canvas></div>
         </div>
-        <div class="dash-card dash-wide"><div class="dash-title-row"><div class="dash-title">Line explorer</div><select id="dashLineSel" class="pnl-sel"></select></div><div class="dash-box"><canvas id="dashLineCv"></canvas></div></div>
+        <div class="dash-grid">
+          <div class="dash-card"><div class="dash-title">Accumulated cash</div><div class="dash-sub">breakeven = crossing the zero line</div><div class="dash-box"><canvas id="dashAcc"></canvas></div></div>
+          <div class="dash-card"><div class="dash-title">Net cashflow</div><div class="dash-sub">month by month</div><div class="dash-box"><canvas id="dashNet"></canvas></div></div>
+        </div>
       </div>
 
 </section>

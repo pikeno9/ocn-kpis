@@ -1966,7 +1966,7 @@
   let pnlVersions = [], pnlVersion = 'live';
   let pnlSimScale = 100; // simulador de frota: % das entregas do Fleet Plan
   let pnlSimApply = false; // máscara: aplica a simulação na PRÓPRIA tabela do P&L
-  let dashCharts = {}, dashLine = 'Subscription'; // gráficos do Dashboard + linha do explorador
+  let dashCharts = {}, dashLine = 'Gross Revenue'; // gráficos do Dashboard + linha do explorador
   let finActCache = {}; // cache do realizado consolidado (por ano) — o solver chama computePnl em série // versões congeladas p/ board + versão selecionada
   const FIN_MONTHS = 12; // 2026-01 .. 2026-12
   const FIN_BASE_YEAR = 2026;                 // ano-base das coortes (índice absoluto de mês)
@@ -2394,12 +2394,23 @@
       const sga = zeros(); for (let m = 0; m < FIN_MONTHS; m++) sga[m] = hcTot[m] + rentTot[m] + profTot[m] + itTot[m];
       const opex = zeros(); for (let m = 0; m < FIN_MONTHS; m++) opex[m] = cacTot[m] + sga[m]; // #2: secDep saiu daqui (foi pro COGS)
       const netCf = gm.map((v, m) => v + opex[m]);
-      const accCf = []; let a1 = 0; netCf.forEach((v) => { a1 += v; accCf.push(a1); });
+      // ---- caixa ACUMULADO: continua de onde o ano anterior parou ----
+      // 2027 não é uma operação nova, é a continuação de 2026: zerar o acumulado em janeiro
+      // mostrava a empresa "nascendo" com caixa zero e escondia o buraco que vem de trás.
+      // O ano-base (2026) começa em zero; os seguintes herdam o fechamento do anterior
+      // (recursivo, e a recursão para sozinha ao chegar no ano-base).
+      let carryIn = 0;
+      if (finYear > FIN_BASE_YEAR) {
+        const anoAtual = finYear;
+        try { finYear = anoAtual - 1; carryIn = (computePnl(opts).accCf || [])[FIN_MONTHS - 1] || 0; }
+        finally { finYear = anoAtual; }
+      }
+      const accCf = []; let a1 = carryIn; netCf.forEach((v) => { a1 += v; accCf.push(a1); });
       // headcount total por mês (p/ o bloco de indicadores)
       const headcount = zeros(); for (let m = 0; m < FIN_MONTHS; m++) (finHc.roles || []).forEach((r) => { headcount[m] += hcOf(r, m); });
       const payFeePct = new Array(FIN_MONTHS).fill(0).map((_, m) => finParM('__fin_payfee__', m));
       return { delivered, active, rev, cogs, secDep, grossRev, fed, cred, taxes, netRev, cogsTot, payProc, gm,
-        base, meal, health, ptax, th13, bonus, hcTot, commission, adsTot, infTot, cacTot, rentTot, profTot, itTot, sga, opex, netCf, accCf, newDelivered, headcount, payFeePct, actualsThrough, vehPur, indriveTot };
+        base, meal, health, ptax, th13, bonus, hcTot, commission, adsTot, infTot, cacTot, rentTot, profTot, itTot, sga, opex, netCf, accCf, newDelivered, headcount, payFeePct, actualsThrough, vehPur, indriveTot, carryIn };
     }
 
     // ---------- P&L ----------
@@ -3191,25 +3202,30 @@
       opex: { name: 'OPEX', color: '#0891B2', fill: 'rgba(8,145,178,.22)' },
       res: { name: 'Totals & results', color: '#15803D', fill: 'rgba(21,128,61,.20)' },
     };
-    // totalizadores do P&L: cada um aponta para o array já calculado no computePnl.
+    // O seletor do gráfico principal traz SÓ TOTALIZADORES. As linhas de detalhe deixaram de
+    // disputar espaço com eles: elas aparecem nos dois cartões de baixo, que mudam conforme o
+    // totalizador escolhido (mix, valor por carro, % sobre receita...). Assim escolher "COGS"
+    // responde "quanto" no gráfico grande e "de quê" e "por carro" logo abaixo.
     // `neg: true` = a linha vem negativa no motor e é invertida p/ o gráfico ler "quanto gastamos".
     const DASH_TOTALS = {
       'Gross Revenue': { k: 'grossRev', fam: 'rev' },
-      'Net Revenue': { k: 'netRev', fam: 'rev' },
-      'Total COGS': { k: 'cogsTot', fam: 'cogs', neg: true },
+      'COGS': { k: 'cogsTot', fam: 'cogs', neg: true },
       'Gross Margin': { k: 'gm', fam: 'res' },
+      'OPEX': { k: 'opex', fam: 'opex', neg: true },
+      'HC Payroll': { k: 'hcTot', fam: 'opex', neg: true },
       'Net cashflow': { k: 'netCf', fam: 'res' },
-      'Accumulated cash': { k: 'accCf', fam: 'res' },
+      'Combinations': { combo: true, fam: 'res' },
     };
-    const DASH_FAMILY = (n) => (DASH_TOTALS[n] ? DASH_FAM[DASH_TOTALS[n].fam]
-      : (FIN_REV_LINES.includes(n) ? DASH_FAM.rev : (FIN_COGS_LINES.includes(n) ? DASH_FAM.cogs : DASH_FAM.opex)));
-    const DASH_LINES = [...Object.keys(DASH_TOTALS), ...FIN_REV_LINES, ...FIN_COGS_LINES, 'CAC', 'SG&A', 'HC Payroll', 'OPEX'];
-    const DASH_GROUP = (n) => (DASH_TOTALS[n] ? 'Totals' : (FIN_REV_LINES.includes(n) ? 'Revenue' : (FIN_COGS_LINES.includes(n) ? 'COGS' : 'OPEX')));
-    const DASH_LABEL = (n) => (n === 'Traffic fines (out)' ? 'Traffic fines (cost)' : n);
+    const DASH_FAMILY = (n) => DASH_FAM[(DASH_TOTALS[n] || {}).fam || 'res'];
+    const DASH_LINES = Object.keys(DASH_TOTALS);
+    const DASH_LABEL = (n) => n;
+    // paleta de séries para os gráficos de composição (mix). Ordem fixa, nunca ciclada:
+    // as 4 famílias validadas + 4 apoios da mesma escala, todas em pares adjacentes distinguíveis.
+    const DASH_MIX = ['#5A00F8', '#EB6834', '#0891B2', '#15803D', '#A78BFA', '#F59E0B', '#0E7490', '#DB2777'];
     // valores da linha no P&L (custos vêm positivos p/ o gráfico ler "quanto gastamos")
     function dashSeries(name, PX) {
       const t = DASH_TOTALS[name];
-      if (t) { const a = PX[t.k] || []; return t.neg ? a.map((v) => -v) : a.slice(); }
+      if (t && t.k) { const a = PX[t.k] || []; return t.neg ? a.map((v) => -v) : a.slice(); }
       if (PX.rev && PX.rev[name]) return PX.rev[name];
       if (PX.cogs && PX.cogs[name]) return PX.cogs[name].map((v) => -v);
       if (name === 'CAC') return PX.cacTot.map((v) => -v);
@@ -3218,6 +3234,22 @@
       if (name === 'HC Payroll') return PX.hcTot.map((v) => -v);
       return new Array(FIN_MONTHS).fill(0);
     }
+    // ---- fábricas de gráfico dos cartões de baixo ----------------------------------------
+    // Todas partilham a mesma gramática do hero: sólido = realizado, pontilhado = projeção,
+    // cinza pontilhado = orçado. Eixo único sempre (nunca dois eixos y no mesmo gráfico).
+    const DASH_AXES = (fmt) => ({
+      x: { grid: { display: false }, ticks: { color: DC.txt, font: { size: 9.5 } } },
+      y: { grid: { color: (c) => (c.tick.value === 0 ? '#9ca3af' : DC.grid), lineWidth: (c) => (c.tick.value === 0 ? 1.4 : 1) },
+        ticks: { color: DC.txt, font: { size: 9.5 }, callback: (v) => (fmt ? fmt(v) : fmtQty(v)) } },
+    });
+    const DASH_TIP = (fmt) => ({ backgroundColor: '#1b0040', padding: 9, cornerRadius: 8, bodyFont: { size: 11 },
+      callbacks: { label: (c) => (c.parsed.y == null ? null : c.dataset.label + ': ' + (fmt ? fmt(c.parsed.y) : 'US$ ' + fmtQty(c.parsed.y))) } });
+    // legenda em HTML (fora do canvas): a nativa desenhava o quadradinho com a COR DE FUNDO do
+    // dataset — no "Actual", que é área translúcida, saía um retângulo quase invisível e o
+    // tracejado da projeção não aparecia. Aqui cada item mostra o traço real da série.
+    const dashLegend = (items) => '<div class="dash-leg">' + items.map((it) =>
+      `<span class="dash-leg-i"><i class="dash-leg-s${it.dash ? ' dash' : ''}" style="--c:${it.color}"></i>${escH(it.label)}</span>`).join('') + '</div>';
+
     function renderDash() {
       if (!document.getElementById('dashLineCv')) return;
       const PA = computePnl({});                    // realidade: actuals + forecast
@@ -3227,70 +3259,239 @@
       const kill = (id) => { if (dashCharts[id]) { dashCharts[id].destroy(); delete dashCharts[id]; } };
       const fam = DASH_FAMILY(dashLine);
       const sum = (a) => (a || []).reduce((s, x) => s + (x || 0), 0);
-      // ---- principal: LINHA. Sólida no realizado, pontilhada na projeção (mesma cor da família) e o
-      // plano sempre no MESMO cinza-azulado pontilhado, para ser reconhecível em qualquer linha.
-      const real = dashSeries(dashLine, PA).map((v, m) => (m <= curM ? v : null));
-      const proj = dashSeries(dashLine, PA).map((v, m) => (m >= curM ? v : null)); // repete o corte: sem buraco
-      const plan = dashSeries(dashLine, PP);
+      const combo = dashLine === 'Combinations';
+      const zz = () => new Array(FIN_MONTHS).fill(0);
+      const divv = (a, b) => a.map((v, m) => (b[m] ? v / b[m] : null));   // per-car, % etc: sem dividir por zero
+      const cum = (a) => { let s = 0; return a.map((v) => (s += (v || 0))); };
+      const pctFmt = (v) => Math.round(v) + '%';
+
+      // ---------- gráfico principal ----------
       kill('dashLineCv');
-      dashCharts.dashLineCv = new Chart(document.getElementById('dashLineCv'), {
-        type: 'line',
-        data: { labels, datasets: [
-          { label: 'Actual', data: real, borderColor: fam.color, backgroundColor: fam.fill, borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5, tension: 0.3, fill: 'origin' },
-          { label: 'Forecast', data: proj, borderColor: fam.color, borderWidth: 2.5, borderDash: [5, 4], pointRadius: 0, pointHoverRadius: 5, tension: 0.3 },
-          { label: 'Budget', data: plan, borderColor: DC.plan, borderWidth: 2, borderDash: [2, 3], pointRadius: 0, pointHoverRadius: 5, tension: 0.3 },
-        ] },
-        options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
-          plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 14, boxHeight: 2, usePointStyle: false, font: { size: 10.5 }, color: DC.txt } },
-            datalabels: { display: false },
-            tooltip: { backgroundColor: '#1b0040', padding: 10, cornerRadius: 8, titleFont: { size: 11 }, bodyFont: { size: 11.5 },
-              callbacks: { label: (c) => (c.parsed.y == null ? null : c.dataset.label + ': US$ ' + fmtQty(c.parsed.y)) } } },
-          scales: { x: { grid: { display: false }, ticks: { color: DC.txt, font: { size: 10 } } },
-            y: { grid: { color: (c) => (c.tick.value === 0 ? '#9ca3af' : DC.grid), lineWidth: (c) => (c.tick.value === 0 ? 1.4 : 1) }, ticks: { color: DC.txt, font: { size: 10 }, callback: (v) => fmtQty(v) } } } },
-      });
-      // cabeçalho do hero: muda com a linha escolhida
-      const actSum = sum(dashSeries(dashLine, PA).slice(0, curM + 1));
-      const fyA = sum(dashSeries(dashLine, PA)), fyP = sum(plan);
-      const diff = fyP ? ((fyA - fyP) / Math.abs(fyP)) * 100 : null;
-      const setTxt = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
-      setTxt('dashHeroTitle', DASH_LABEL(dashLine));
-      setTxt('dashHeroSub', fam.name + ' · solid = actual through ' + (curM >= 0 ? monthLbl(curM) : '—') + ' · dotted = forecast · grey = budget (Theoric UE per car)');
-      const dot = document.getElementById('dashDot'); if (dot) { dot.style.backgroundColor = fam.color; dot.style.color = fam.color; }
-      const st = document.getElementById('dashHeroStats');
-      if (st) st.innerHTML =
-        '<div class="dash-stat"><span>Actual to date</span><b>US$ ' + fmtQty(actSum) + '</b></div>' +
-        '<div class="dash-stat"><span>Full year (A+F)</span><b>US$ ' + fmtQty(fyA) + '</b></div>' +
-        '<div class="dash-stat"><span>Budget</span><b>US$ ' + fmtQty(fyP) + '</b></div>' +
-        '<div class="dash-stat ' + (diff == null ? '' : (diff >= 0 ? 'up' : 'down')) + '"><span>vs budget</span><b>' +
-        (diff == null ? '—' : (diff >= 0 ? '+' : '') + Math.round(diff) + '%') + '</b></div>';
-      // ---- os dois gráficos de caixa ----
-      const cashChart = (id, arrA, arrP, filled) => {
-        kill(id);
-        const a = arrA.map((v, m) => (m <= curM ? v : null)), f = arrA.map((v, m) => (m >= curM ? v : null));
-        dashCharts[id] = new Chart(document.getElementById(id), {
+      let heroLegend;
+      if (combo) {
+        // visão combinada: as três forças do P&L na mesma escala + o caixa que sobra delas
+        const mk = (label, arr, color, fill) => ({ label, data: arr, borderColor: color, backgroundColor: fill || 'transparent',
+          borderWidth: 2.4, pointRadius: 0, pointHoverRadius: 5, tension: 0.3, fill: fill ? 'origin' : false });
+        dashCharts.dashLineCv = new Chart(document.getElementById('dashLineCv'), {
           type: 'line',
           data: { labels, datasets: [
-            { label: 'Actual', data: a, borderColor: DC.act, backgroundColor: 'rgba(90,0,248,.20)', borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5, tension: 0.3, fill: filled ? 'origin' : false },
-            { label: 'Forecast', data: f, borderColor: DC.act, borderWidth: 2.5, borderDash: [5, 4], pointRadius: 0, pointHoverRadius: 5, tension: 0.3 },
-            { label: 'Budget', data: arrP, borderColor: DC.plan, borderWidth: 2, borderDash: [2, 3], pointRadius: 0, pointHoverRadius: 5, tension: 0.3 },
+            mk('Gross Revenue', PA.grossRev, DASH_FAM.rev.color, DASH_FAM.rev.fill),
+            mk('COGS', PA.cogsTot.map((v) => -v), DASH_FAM.cogs.color),
+            mk('OPEX', PA.opex.map((v) => -v), DASH_FAM.opex.color),
+            mk('Net cashflow', PA.netCf, DASH_FAM.res.color),
           ] },
           options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { display: false }, datalabels: { display: false }, tooltip: DASH_TIP() },
+            scales: DASH_AXES() },
+        });
+        heroLegend = dashLegend([
+          { label: 'Gross Revenue', color: DASH_FAM.rev.color },
+          { label: 'COGS', color: DASH_FAM.cogs.color },
+          { label: 'OPEX', color: DASH_FAM.opex.color },
+          { label: 'Net cashflow', color: DASH_FAM.res.color },
+        ]);
+      } else {
+        const serie = dashSeries(dashLine, PA);
+        const real = serie.map((v, m) => (m <= curM ? v : null));
+        const proj = serie.map((v, m) => (m >= curM ? v : null)); // repete o corte: sem buraco
+        dashCharts.dashLineCv = new Chart(document.getElementById('dashLineCv'), {
+          type: 'line',
+          data: { labels, datasets: [
+            { label: 'Actual', data: real, borderColor: fam.color, backgroundColor: fam.fill, borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5, tension: 0.3, fill: 'origin' },
+            { label: 'Forecast', data: proj, borderColor: fam.color, borderWidth: 2.5, borderDash: [5, 4], pointRadius: 0, pointHoverRadius: 5, tension: 0.3 },
+            { label: 'Budget', data: dashSeries(dashLine, PP), borderColor: DC.plan, borderWidth: 2, borderDash: [2, 3], pointRadius: 0, pointHoverRadius: 5, tension: 0.3 },
+          ] },
+          options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { display: false }, datalabels: { display: false }, tooltip: DASH_TIP() },
+            scales: DASH_AXES() },
+        });
+        heroLegend = dashLegend([
+          { label: 'Actual', color: fam.color },
+          { label: 'Forecast', color: fam.color, dash: true },
+          { label: 'Budget', color: DC.plan, dash: true },
+        ]);
+      }
+      const legEl = document.getElementById('dashLegend'); if (legEl) legEl.innerHTML = heroLegend;
+
+      // ---------- cabeçalho do hero ----------
+      const setTxt = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+      setTxt('dashHeroTitle', DASH_LABEL(dashLine));
+      const dot = document.getElementById('dashDot'); if (dot) { dot.style.backgroundColor = fam.color; dot.style.color = fam.color; }
+      const st = document.getElementById('dashHeroStats');
+      if (combo) {
+        setTxt('dashHeroSub', 'how the three blocks move together and what is left as cash · actual through ' + (curM >= 0 ? monthLbl(curM) : '—'));
+        const gmPct = sum(PA.grossRev) ? (sum(PA.gm) / sum(PA.grossRev)) * 100 : 0;
+        if (st) st.innerHTML =
+          '<div class="dash-stat"><span>Revenue (FY)</span><b>US$ ' + fmtQty(sum(PA.grossRev)) + '</b></div>' +
+          '<div class="dash-stat"><span>COGS (FY)</span><b>US$ ' + fmtQty(-sum(PA.cogsTot)) + '</b></div>' +
+          '<div class="dash-stat"><span>OPEX (FY)</span><b>US$ ' + fmtQty(-sum(PA.opex)) + '</b></div>' +
+          '<div class="dash-stat ' + (gmPct >= 0 ? 'up' : 'down') + '"><span>Gross margin</span><b>' + Math.round(gmPct) + '%</b></div>';
+      } else {
+        const serie = dashSeries(dashLine, PA);
+        const actSum = sum(serie.slice(0, curM + 1)), fyA = sum(serie), fyP = sum(dashSeries(dashLine, PP));
+        const diff = fyP ? ((fyA - fyP) / Math.abs(fyP)) * 100 : null;
+        setTxt('dashHeroSub', fam.name + ' · solid = actual through ' + (curM >= 0 ? monthLbl(curM) : '—') + ' · dotted = forecast · grey = budget (Theoric UE per car)');
+        if (st) st.innerHTML =
+          '<div class="dash-stat"><span>Actual to date</span><b>US$ ' + fmtQty(actSum) + '</b></div>' +
+          '<div class="dash-stat"><span>Full year (A+F)</span><b>US$ ' + fmtQty(fyA) + '</b></div>' +
+          '<div class="dash-stat"><span>Budget</span><b>US$ ' + fmtQty(fyP) + '</b></div>' +
+          '<div class="dash-stat ' + (diff == null ? '' : (diff >= 0 ? 'up' : 'down')) + '"><span>vs budget</span><b>' +
+          (diff == null ? '—' : (diff >= 0 ? '+' : '') + Math.round(diff) + '%') + '</b></div>';
+      }
+
+      // ---------- cartões de baixo: mudam com o totalizador escolhido ----------
+      // cada builder devolve { title, sub, legend?, draw(id) }
+      const stacked = (series) => (id) => {
+        const live = series.filter((s) => s.data.some((v) => Math.abs(v) > 0.5));
+        dashCharts[id] = new Chart(document.getElementById(id), {
+          type: 'bar',
+          data: { labels, datasets: live.map((s, i) => ({ label: s.label, data: s.data, backgroundColor: DASH_MIX[i % DASH_MIX.length], borderRadius: 3, borderSkipped: false })) },
+          options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { display: false }, datalabels: { display: false }, tooltip: DASH_TIP() },
+            scales: { x: { stacked: true, grid: { display: false }, ticks: { color: DC.txt, font: { size: 9.5 } } },
+              y: { stacked: true, grid: { color: DC.grid }, ticks: { color: DC.txt, font: { size: 9.5 }, callback: (v) => fmtQty(v) } } } },
+        });
+        return dashLegend(live.map((s, i) => ({ label: s.label, color: DASH_MIX[i % DASH_MIX.length] })));
+      };
+      const lines = (series, fmt) => (id) => {
+        dashCharts[id] = new Chart(document.getElementById(id), {
+          type: 'line',
+          data: { labels, datasets: series.map((s) => ({ label: s.label, data: s.data, borderColor: s.color,
+            backgroundColor: s.fill || 'transparent', borderWidth: s.w || 2.4, borderDash: s.dash ? [5, 4] : undefined,
+            pointRadius: 0, pointHoverRadius: 5, tension: 0.3, fill: s.fill ? 'origin' : false, spanGaps: true })) },
+          options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { display: false }, datalabels: { display: false }, tooltip: DASH_TIP(fmt) },
+            scales: DASH_AXES(fmt && ((v) => fmt(v))) },
+        });
+        return dashLegend(series.map((s) => ({ label: s.label, color: s.color, dash: !!s.dash })));
+      };
+      const bars = (data, color, fmt) => (id) => {
+        dashCharts[id] = new Chart(document.getElementById(id), {
+          type: 'bar',
+          data: { labels, datasets: [{ label: 'Value', data, backgroundColor: data.map((v, m) => (m <= curM ? color : color + '66')), borderRadius: 3, borderSkipped: false }] },
+          options: { responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false }, datalabels: { display: false }, tooltip: DASH_TIP(fmt) },
+            scales: DASH_AXES(fmt && ((v) => fmt(v))) },
+        });
+        return dashLegend([{ label: 'Actual', color }, { label: 'Forecast', color: color + '66' }]);
+      };
+      const hbars = (rows) => (id) => {
+        dashCharts[id] = new Chart(document.getElementById(id), {
+          type: 'bar',
+          data: { labels: rows.map((r) => r.label), datasets: [{ data: rows.map((r) => r.v), backgroundColor: rows.map((r) => r.color), borderRadius: 3, borderSkipped: false }] },
+          options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false,
             plugins: { legend: { display: false }, datalabels: { display: false },
               tooltip: { backgroundColor: '#1b0040', padding: 9, cornerRadius: 8, bodyFont: { size: 11 },
-                callbacks: { label: (c) => (c.parsed.y == null ? null : c.dataset.label + ': US$ ' + fmtQty(c.parsed.y)) } } },
-            scales: { x: { grid: { display: false }, ticks: { color: DC.txt, font: { size: 9.5 } } },
-              y: { grid: { color: (c) => (c.tick.value === 0 ? '#9ca3af' : DC.grid), lineWidth: (c) => (c.tick.value === 0 ? 1.4 : 1) }, ticks: { color: DC.txt, font: { size: 9.5 }, callback: (v) => fmtQty(v) } } } },
+                callbacks: { label: (c) => 'US$ ' + fmtQty(c.parsed.x) } } },
+            scales: { x: { grid: { color: DC.grid }, ticks: { color: DC.txt, font: { size: 9.5 }, callback: (v) => fmtQty(v) } },
+              y: { grid: { display: false }, ticks: { color: DC.txt, font: { size: 10 } } } } },
         });
+        return '';
       };
-      cashChart('dashAcc', PA.accCf, PP.accCf, true);
-      cashChart('dashNet', PA.netCf, PP.netCf, false);
-      // seletor agrupado por família
+
+      const revSeries = (P) => FIN_REV_LINES.map((L) => ({ label: L === 'Initial Fee / Vehicle Sell' ? 'Initial fee / sale' : L, data: (P.rev[L] || zz()).slice() }));
+      const cogsSeries = (P) => FIN_COGS_LINES.map((L) => ({ label: L === 'Traffic fines (out)' ? 'Traffic fines' : L, data: (P.cogs[L] || zz()).map((v) => -v) }))
+        .concat([{ label: 'Security deposit', data: (P.secDep || zz()).map((v) => -v) }, { label: 'Vehicle purchase', data: (P.vehPur || zz()).map((v) => -v) }]);
+
+      let cards;
+      if (dashLine === 'Gross Revenue') {
+        cards = [
+          { title: 'Revenue mix', sub: 'which line brings the money in, month by month', draw: stacked(revSeries(PA)) },
+          { title: 'Revenue per active car', sub: 'gross revenue ÷ active fleet · actual vs budget', draw: lines([
+            { label: 'Actual + forecast', data: divv(PA.grossRev, PA.active), color: DASH_FAM.rev.color, fill: DASH_FAM.rev.fill },
+            { label: 'Budget', data: divv(PP.grossRev, PP.active), color: DC.plan, dash: true, w: 2 },
+          ]) },
+        ];
+      } else if (dashLine === 'COGS') {
+        cards = [
+          { title: 'Cost mix', sub: 'what we spend to keep the fleet running', draw: stacked(cogsSeries(PA)) },
+          { title: 'Cost per active car', sub: 'total COGS ÷ active fleet · actual vs budget', draw: lines([
+            { label: 'Actual + forecast', data: divv(PA.cogsTot.map((v) => -v), PA.active), color: DASH_FAM.cogs.color, fill: DASH_FAM.cogs.fill },
+            { label: 'Budget', data: divv(PP.cogsTot.map((v) => -v), PP.active), color: DC.plan, dash: true, w: 2 },
+          ]) },
+        ];
+      } else if (dashLine === 'Gross Margin') {
+        cards = [
+          { title: 'Revenue vs COGS', sub: 'the gap between the two lines is the gross margin', draw: lines([
+            { label: 'Net revenue', data: PA.netRev, color: DASH_FAM.rev.color, fill: DASH_FAM.rev.fill },
+            { label: 'COGS + processing', data: PA.cogsTot.map((v, m) => -(v + PA.payProc[m])), color: DASH_FAM.cogs.color },
+          ]) },
+          { title: 'Margin over revenue', sub: '% of gross revenue that survives the direct costs', draw: lines([
+            { label: 'Actual + forecast', data: divv(PA.gm, PA.grossRev).map((v) => (v == null ? null : v * 100)), color: DASH_FAM.res.color, fill: DASH_FAM.res.fill },
+            { label: 'Budget', data: divv(PP.gm, PP.grossRev).map((v) => (v == null ? null : v * 100)), color: DC.plan, dash: true, w: 2 },
+          ], pctFmt) },
+        ];
+      } else if (dashLine === 'OPEX') {
+        cards = [
+          { title: 'OPEX mix', sub: 'acquisition, people and the running of the company', draw: stacked([
+            { label: 'CAC', data: PA.cacTot.map((v) => -v) },
+            { label: 'HC payroll', data: PA.hcTot.map((v) => -v) },
+            { label: 'Rent & utilities', data: PA.rentTot.map((v) => -v) },
+            { label: 'Professional services', data: PA.profTot.map((v) => -v) },
+            { label: 'IT', data: PA.itTot.map((v) => -v) },
+          ]) },
+          { title: 'OPEX over revenue', sub: 'how much of each dollar of revenue the structure eats', draw: lines([
+            { label: 'Actual + forecast', data: divv(PA.opex.map((v) => -v), PA.grossRev).map((v) => (v == null ? null : v * 100)), color: DASH_FAM.opex.color, fill: DASH_FAM.opex.fill },
+            { label: 'Budget', data: divv(PP.opex.map((v) => -v), PP.grossRev).map((v) => (v == null ? null : v * 100)), color: DC.plan, dash: true, w: 2 },
+          ], pctFmt) },
+        ];
+      } else if (dashLine === 'HC Payroll') {
+        cards = [
+          { title: 'Headcount', sub: 'people on the payroll at the end of each month', draw: bars(PA.headcount, DASH_FAM.opex.color, (v) => Math.round(v) + ' people') },
+          { title: 'Cost per head', sub: 'payroll ÷ headcount — salary, meal, health, taxes and 13th', draw: lines([
+            { label: 'Actual + forecast', data: divv(PA.hcTot.map((v) => -v), PA.headcount), color: DASH_FAM.opex.color, fill: DASH_FAM.opex.fill },
+          ]) },
+        ];
+      } else if (dashLine === 'Net cashflow') {
+        cards = [
+          { title: 'Accumulated cash', sub: (PA.carryIn ? 'carried over from ' + (finYear - 1) + ': US$ ' + fmtQty(PA.carryIn) + ' · ' : '') + 'breakeven = crossing the zero line', draw: lines([
+            { label: 'Actual + forecast', data: PA.accCf, color: DASH_FAM.res.color, fill: DASH_FAM.res.fill },
+            { label: 'Budget', data: PP.accCf, color: DC.plan, dash: true, w: 2 },
+          ]) },
+          { title: 'Monthly net cashflow', sub: 'what each month adds to (or takes from) the box', draw: bars(PA.netCf, DASH_FAM.res.color) },
+        ];
+      } else {
+        // ---- Combinations: o que estas duas premissas fazem com o caixa ----
+        const PnoSd = computePnl({ noSd: true });                       // sem calção nem devolução
+        const insBack = cum((PA.cogs['Insurance'] || zz()).map((v) => -v)); // seguro é custo: devolver ao caixa
+        const accNoIns = PA.accCf.map((v, m) => v + insBack[m]);
+        const fy = (a) => sum(a);
+        const blocks = [
+          { label: 'Insurance', v: -fy(PA.cogs['Insurance'] || zz()), color: '#EB6834' },
+          { label: 'Security deposit (net)', v: -fy(PA.secDep || zz()) - fy(PA.rev['Security Deposit Refund'] || zz()), color: '#DB2777' },
+          { label: 'Subrental fee', v: -fy(PA.cogs['Subrental fee'] || zz()), color: '#94A3B8' },
+          { label: 'Maintenance', v: -fy(PA.cogs['Maintenance'] || zz()), color: '#94A3B8' },
+          { label: 'GPS', v: -fy(PA.cogs['GPS'] || zz()), color: '#94A3B8' },
+          { label: 'Traffic fines', v: -fy(PA.cogs['Traffic fines (out)'] || zz()), color: '#94A3B8' },
+        ].filter((b) => Math.abs(b.v) > 1).sort((a, b) => b.v - a.v);
+        const dSd = (PnoSd.accCf[FIN_MONTHS - 1] || 0) - (PA.accCf[FIN_MONTHS - 1] || 0);
+        const dIns = (accNoIns[FIN_MONTHS - 1] || 0) - (PA.accCf[FIN_MONTHS - 1] || 0);
+        cards = [
+          { title: 'Security deposit & insurance — cash impact',
+            sub: 'end-of-year cash moves US$ ' + fmtQty(dSd) + ' without the deposit and US$ ' + fmtQty(dIns) + ' without insurance',
+            draw: lines([
+              { label: 'As modelled', data: PA.accCf, color: DASH_FAM.res.color, fill: DASH_FAM.res.fill },
+              { label: 'Without the deposit', data: PnoSd.accCf, color: '#DB2777', w: 2 },
+              { label: 'Without insurance', data: accNoIns, color: '#EB6834', w: 2 },
+            ]) },
+          { title: 'Weight of each cost block', sub: 'full year · deposit shown net of its refund', draw: hbars(blocks) },
+        ];
+      }
+
+      // pinta os cartões
+      const grid = document.getElementById('dashGrid');
+      if (grid) {
+        ['dashC0', 'dashC1'].forEach(kill);
+        grid.innerHTML = cards.map((c, i) =>
+          `<div class="dash-card"><div class="dash-title">${escH(c.title)}</div><div class="dash-sub">${escH(c.sub)}</div>` +
+          `<div class="dash-legwrap" id="dashL${i}"></div><div class="dash-box"><canvas id="dashC${i}"></canvas></div></div>`).join('');
+        cards.forEach((c, i) => { const leg = c.draw('dashC' + i); const el = document.getElementById('dashL' + i); if (el) el.innerHTML = leg || ''; });
+      }
+
+      // ---------- seletor de totalizador ----------
       const sel = document.getElementById('dashLineSel');
       if (sel && !sel.options.length) {
-        const groups = {};
-        DASH_LINES.forEach((n) => { const g = DASH_GROUP(n); (groups[g] = groups[g] || []).push(n); });
-        sel.innerHTML = Object.entries(groups).map(([g, ns]) =>
-          '<optgroup label="' + g + '">' + ns.map((n) => '<option value="' + escH(n) + '"' + (n === dashLine ? ' selected' : '') + '>' + escH(DASH_LABEL(n)) + '</option>').join('') + '</optgroup>').join('');
+        sel.innerHTML = DASH_LINES.map((n) => '<option value="' + escH(n) + '"' + (n === dashLine ? ' selected' : '') + '>' + escH(DASH_LABEL(n)) + '</option>').join('');
         sel.addEventListener('change', () => { dashLine = sel.value; renderDash(); });
       }
       // filtros: só o seletor de ano
@@ -4860,7 +5061,7 @@
         `<div class="ue-sliders">` +
           slider('ueCotacao', 'future FX (R$/US$)', 3, 8, 0.05, cotacao) +
           // por PAGAMENTO: a faixa útil é de poucos %, então passo de 0,1 (o histórico dá ~1,1%)
-          slider('ueInad', 'delinquency rate (% per charge)', 0, 20, 0.1, inadimplencia, inadHint()) +
+          slider('ueInad', 'delinquency rate (%)', 0, 20, 0.1, inadimplencia, inadHint()) +
           slider('ueLate', 'late-payment rate (%)', 0, 100, 1, latePct) +
           slider('ueTermPct', 'termination fee recovery (%)', 0, 100, 1, termPct) +
         `</div>`);

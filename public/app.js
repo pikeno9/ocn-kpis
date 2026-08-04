@@ -2086,9 +2086,19 @@
         const cars = Math.max(1, f.cars || plates.length || 1);
         const dias = Math.max(30, (hojeD - new Date(f.inicio + 'T12:00:00')) / MS);
         const sumBy = (bag, fn) => plates.reduce((s, pl) => s + ((bag && bag[pl]) || []).reduce((a, x) => a + fn(x), 0), 0);
-        // ritmos históricos R$/dia POR CARRO da frota de referência
-        const finesInDay = sumBy((U.multas || {}).placas, (x) => x.v) / dias / cars;
-        const finesOutDay = sumBy((U.multasBase || {}).placas, (x) => x.v) / dias / cars;
+        // ritmos históricos R$/dia POR CARRO da frota de referência.
+        // Multas seguem a REGRA DO CONTRATO (a mesma do UE real): cobramos o BRUTO + prêmio
+        // (10% v1/v2, 20% v3+) e pagamos o LÍQUIDO + 5% à LM. Usar o "total cobrado" da API aqui
+        // reproduzia o repasse atual, que aplica o prêmio sobre o valor JÁ descontado e deixava a
+        // margem em ~7% em vez dos ~30% que o contrato prevê.
+        const desc = (U.multasBase && U.multasBase.descontoMedio) || 0.8;
+        const ctv = U.contratos || {};
+        const premOf = (pl) => ((ctv[pl] || 1) >= 3 ? 0.20 : 0.10);
+        const brutoOf = (x) => (x.bruto > 0 ? x.bruto : (x.liq > 0 ? x.liq / desc : (x.v || 0) / 1.05 / desc));
+        const finesInDay = plates.reduce((s, pl) => s + (((U.multasBase || {}).placas || {})[pl] || [])
+          .reduce((a, x) => a + brutoOf(x) * (1 + premOf(pl)), 0), 0) / dias / cars;
+        const finesOutDay = plates.reduce((s, pl) => s + (((U.multasBase || {}).placas || {})[pl] || [])
+          .reduce((a, x) => a + (x.liq > 0 ? x.liq : (x.v || 0) / 1.05) * 1.05, 0), 0) / dias / cars;
         const recDay = sumBy((U.judBase || {}).placas, (x) => x.recovery || 0) / dias / cars;
         const repDay = sumBy((U.judBase || {}).placas, (x) => x.repair || 0) / dias / cars;
         const termDay = sumBy((U.judBase || {}).placas, (x) => x.term || 0) / dias / cars;
@@ -3620,6 +3630,8 @@
     // e o setting antigo (__cotacao_real__) é ignorado de propósito (ficou um valor fantasma no banco)
     let refundPct = 0.13;   // correção a.a. do Security Deposit Refund (campo, global)
     let cleanView = false;  // visão limpa: só o total (real+proj), sem os comparativos do orçado
+    let showProj = true;    // false = esconde os projetados (roxo) e mostra só o realizado — só visualização
+    let idrOff = false;     // true = tira o benefício InDrive da conta do UE (espelha o botão do P&L)
     let inadimplencia = 0;  // taxa de inadimplência % (slider, global) — desconta a projeção do Subscription
     let latePct = 0;        // % das semanas pagas COM atraso (slider, global) — projeta o Late-payment interest
     let termPct = 50;       // % da cobrança de rescisão (import_jud) que esperamos receber (slider, global)
@@ -3717,6 +3729,36 @@
     }
     // mês vigente (parcial) do eixo do UE — é o que recebe realizado + projeção do que falta
     function currentMonthIdx() { return Math.min(PMAX, Math.ceil(elapsed)); }
+    // Segundas-feiras COBRÁVEIS por carro no mês `m` do eixo do UE.
+    // O eixo é ancorado na entrega mais antiga da frota, mas cada contrato tem as suas 52 semanas
+    // contadas a partir da entrega DAQUELE carro. Na frota 1 a entrega média foi 11 dias depois do
+    // início da frota (cobertura de só 63% do M1) — é isso que deixa o M1 baixo, e a contrapartida
+    // é a cauda: quem pegou o carro no meio do M1 paga até o meio do M13.
+    // `from` (opcional) conta só as segundas AINDA POR VIR — usado no mês vigente.
+    function mondaysAvg(m, from) {
+      if (!curIni) return 0;
+      const MS = 86400000, len = SEMANAS_MES * 7 * MS;
+      const winIni = curIni.getTime() + (m - 1) * len;
+      const winFim = curIni.getTime() + m * len;
+      const pls = plateView ? [plateView] : ctxPlates;
+      if (!pls.length) return mondaysInMonth(curIni, m, from); // sem placas: comportamento antigo
+      const starts = U.starts || {};
+      const dur = U.periods * SEMANAS_MES * 7 * MS;            // 52 semanas de contrato
+      let tot = 0, n = 0;
+      pls.forEach((pl) => {
+        const lm = lossMonthByPlate[pl];
+        if (lm != null && m >= lm) return;                     // perda total sai do numerador E do denominador
+        n++;
+        const s = starts[pl] ? new Date(starts[pl] + 'T12:00:00').getTime() : curIni.getTime();
+        const ini = Math.max(s, curIni.getTime());             // entrega anterior ao eixo ancora no início
+        const a = Math.max(winIni, ini), b = Math.min(winFim, ini + dur);
+        if (b <= a) return;
+        const d0 = new Date(a);
+        let d = a + (((1 - d0.getDay()) % 7 + 7) % 7) * MS;    // 1ª segunda ≥ a
+        while (d < b) { if (!from || d > from.getTime()) tot++; d += 7 * MS; }
+      });
+      return n ? tot / n : 0;
+    }
     // Versão do contrato do motorista atual -> taxas. v1/v2: juros de atraso 5% e prêmio de multa 10%;
     // v3 em diante: 20% nos dois. Na visão de frota usa-se a média das placas (mix de versões).
     const VER_JUROS = (v) => (v >= 3 ? 20 : 5);
@@ -3759,7 +3801,7 @@
     // placa selecionada). A data da leva vira mês do UE pelo mesmo eixo de 4,333 semanas das demais
     // linhas; leva anterior ao início da frota cai no M0 e leva depois do M13 fica de fora.
     function indriveRS(p) {
-      if (!indriveOn() || !curIni) return 0;
+      if (idrOff || !indriveOn() || !curIni) return 0;
       const set = plateView ? new Set([plateView]) : new Set(ctxPlates);
       if (!set.size) return 0;
       let tot = 0;
@@ -3854,37 +3896,48 @@
       if (!mul || !ini) return;
       const MS = 86400000;
       const lag = (U.multas && U.multas.prazoRecebimentoDias) || 42;
-      // Sem corte de inadimplência aqui: a multa é repassada ao cliente (cobramos o líquido + 10% do
-      // bruto e pagamos o líquido + 5% à LM, margem ~7%), então o recebível é projetado INTEGRAL.
-      // Aplicar a taxa histórica de recebimento só na receita invertia o sinal do balanço — a multa
-      // não paga hoje continua devida pelo cliente, não é perda. `taxaRecebimento` segue medida no
-      // servidor (84,8% em coortes maduras) para quem quiser acompanhar o risco de cobrança.
+      // REGRA DO CONTRATO (conferida na planilha multas_consolidado, colunas N e O):
+      //   cobramos do cliente  = valor BRUTO   × (1 + prêmio)   → 10% na v1/v2, 20% da v3 em diante
+      //   pagamos à LM         = valor LÍQUIDO × 1,05           → o líquido é ~80% do bruto (col U = O × 1,05)
+      // Ou seja, a margem nasce do desconto: cobra-se sobre o cheio e paga-se sobre o descontado.
+      const desc = (U.multasBase && U.multasBase.descontoMedio) || 0.8;
+      const ct = U.contratos || {};
+      const premioDe = (pl) => VER_PREMIO(ct[pl] || 1);
+      const brutoDe = (x) => (x.bruto > 0 ? x.bruto : (x.liq > 0 ? x.liq / desc : (x.v || 0) / 1.05 / desc));
+      // Sem corte de inadimplência aqui: a multa é repassada ao cliente, então o recebível é
+      // projetado INTEGRAL. Aplicar a taxa histórica de recebimento só na receita invertia o sinal
+      // do balanço — a multa não paga hoje continua devida pelo cliente, não é perda.
+      // `taxaRecebimento` segue medida no servidor (~85% em coortes maduras) p/ acompanhar o risco.
       const taxa = 1;
       const moOf = (d) => { const m = Math.ceil(((d - ini) / MS) / (SEMANAS_MES * 7)); return m < 1 ? 1 : m; };
       const plates = plateView ? [plateView] : (f.placas || []);
       for (let p = 0; p <= PMAX; p++) { finesRealRS[p] = 0; finesProjRS[p] = 0; }
-      let total = 0;
+      // REALIZADO = caixa que o cliente efetivamente pagou (API de cobranças), na data do pagamento.
+      // Fica como está de propósito: é dinheiro que entrou, não modelo.
       plates.forEach((pl) => (mul[pl] || []).forEach((x) => {
-        total += x.v;
-        const dt = new Date(x.d + 'T12:00:00');
-        if (x.pago) {
-          const mo = Math.min(moOf(dt), PMAX);
-          finesRealRS[mo] += x.v;
-        } else {
-          const quando = new Date(dt.getTime() + lag * MS);
-          const mo = Math.min(Math.max(quando < hoje ? currentMonthIdx() : moOf(quando), 1), PMAX);
-          finesProjRS[mo] += x.v * taxa;
-        }
+        if (!x.pago) return;
+        finesRealRS[Math.min(moOf(new Date(x.d + 'T12:00:00')), PMAX)] += x.v;
       }));
-      // infrações futuras: ritmo histórico (valor cobrado/dia), ajustado pelo prêmio da VERSÃO DE
-      // CONTRATO vigente. O histórico embute o prêmio antigo (10% na maioria); as placas que já
-      // migraram para a v3+ cobram 20%, então escala-se pela razão entre o prêmio médio de hoje e
-      // o histórico. Aproximação: o prêmio incide sobre o bruto e a base aqui é o total cobrado.
+      // PROJETADO = a REGRA aplicada às multas já emitidas que ainda não venceram para o cliente
+      // (multas_consolidado é a base única — a mesma da linha de saída, então os dois lados falam
+      // do mesmo universo de infrações).
+      const base = (U.multasBase && U.multasBase.placas) || {};
+      let brutoTot = 0;
+      plates.forEach((pl) => (base[pl] || []).forEach((x) => {
+        const b = brutoDe(x);
+        brutoTot += b;
+        if (!x.inf) return;
+        const quando = new Date(new Date(x.inf + 'T12:00:00').getTime() + lag * MS);
+        if (quando <= hoje) return;                    // já dentro da janela realizada — vem da API acima
+        const mo = Math.min(Math.max(moOf(quando), 1), PMAX);
+        finesProjRS[mo] += b * (1 + premioDe(pl)) * taxa;
+      }));
+      // infrações FUTURAS: ritmo histórico de valor BRUTO por dia × (1 + prêmio médio das placas
+      // desta frota hoje). Antes a base era o total já cobrado — que embute o prêmio antigo — e
+      // precisava de um fator de escala; com o bruto o prêmio entra uma vez só, explicitamente.
       const dias = Math.max(1, (hoje - ini) / MS);
       const premioHoje = avgByVersion(f, VER_PREMIO, 0.10);
-      const premioHist = (U.multas && U.multas.premioMedioHist) || 0.10;
-      const escala = premioHist > 0 ? (1 + premioHoje) / (1 + premioHist) : 1;
-      const perDay = (total / dias) * taxa * escala;
+      const perDay = (brutoTot / dias) * (1 + premioHoje) * taxa;
       for (let p = 1; p <= PMAX; p++) {
         const winStart = new Date(ini.getTime() + (p - 1) * SEMANAS_MES * 7 * MS);
         const winEnd = new Date(ini.getTime() + p * SEMANAS_MES * 7 * MS);
@@ -3913,9 +3966,15 @@
       const moOf = (d) => { const m = Math.ceil(((d - curIni) / MS) / (SEMANAS_MES * 7)); return m < 1 ? 1 : m; };
       const plates = plateView ? [plateView] : (f.placas || []);
       for (let p = 0; p <= PMAX; p++) { finesOutRealRS[p] = 0; finesOutProjRS[p] = 0; }
+      // SAÍDA = valor LÍQUIDO da multa (com desconto) + 5% para a LM. Confere com a coluna U da
+      // planilha (medido: U = O × 1,0500 em 233 multas); calcular aqui em vez de ler U deixa a
+      // regra explícita e simétrica à linha de entrada, que usa o BRUTO + prêmio.
+      const LM_FEE = 1.05;
+      const liqDe = (x) => (x.liq > 0 ? x.liq : (x.v > 0 ? x.v / LM_FEE : 0));
       let total = 0;
       plates.forEach((pl) => (base[pl] || []).forEach((x) => {
-        total += x.v;
+        const val = liqDe(x) * LM_FEE;
+        total += val;
         let quando = null, venceu = false;
         if (x.venc) { quando = new Date(x.venc + 'T12:00:00'); venceu = quando <= hoje; }
         else if (x.email) { quando = new Date(new Date(x.email + 'T12:00:00').getTime() + prazo * MS); }
@@ -4086,7 +4145,9 @@
     function effNative(line, period) {
       if (line === 'Subscription' && par('__sub_semanal__') > 0) {
         // só o PRINCIPAL (esperado); o juro de atraso vai na linha "Late-payment interest"
-        if (period === 0 || period === PMAX) return { rs: 0, perActive: true };
+        // O M13 deixou de ser zerado: é lá que cai a cauda dos contratos que começaram depois
+        // do início da frota (52 semanas contadas da entrega de cada carro).
+        if (period === 0) return { rs: 0, perActive: true };
         // projeção de uma semana: semanalidade × (1 − inadimplência do slider); placa com perda total não paga
         const wk = par('__sub_semanal__') * (1 - inadimplencia / 100) * plateCut(period);
         if (periodStatus(period) === 'real') {
@@ -4094,28 +4155,29 @@
           const real = subsRS[period] || 0;
           // mês VIGENTE: soma o que já foi recebido + projeção das segundas que ainda faltam nesta janela
           if (period === currentMonthIdx() && curIni) {
-            return { rs: real, rsProj: mondaysInMonth(curIni, period, hoje) * wk, perActive: true };
+            return { rs: real, rsProj: mondaysAvg(period, hoje) * wk, perActive: true };
           }
           return { rs: real, perActive: true };
         }
         if (!curIni) return null;
-        return { rs: mondaysInMonth(curIni, period) * wk, perActive: true };
+        return { rs: mondaysAvg(period) * wk, perActive: true };
       }
       if (line === 'Late-payment interest' && par('__sub_semanal__') > 0) {
         // realizado = juro efetivo (recebido − esperado). Projetado = semanas × semanalidade
         // × % de semanas pagas em atraso (slider) × % de juros da caixinha da linha.
-        if (period === 0 || period === PMAX) return { rs: 0, perActive: true };
+        // Segue o mesmo eixo por placa do Subscription — inclusive a cauda no M13.
+        if (period === 0) return { rs: 0, perActive: true };
         const wkJuros = par('__sub_semanal__') * (latePct / 100) * (jurosPct / 100) * plateCut(period);
         if (periodStatus(period) === 'real') {
           if (!subsReady) return null;
           const real = subsJurosRS[period] || 0;
           if (period === currentMonthIdx() && curIni) {
-            return { rs: real, rsProj: mondaysInMonth(curIni, period, hoje) * wkJuros, perActive: true };
+            return { rs: real, rsProj: mondaysAvg(period, hoje) * wkJuros, perActive: true };
           }
           return { rs: real, perActive: true };
         }
         if (!curIni) return null;
-        return { rs: mondaysInMonth(curIni, period) * wkJuros, perActive: true };
+        return { rs: mondaysAvg(period) * wkJuros, perActive: true };
       }
       // Multas (entrada): realizado = pagas no mês; projetado = recebível em aberto + infrações futuras.
       // Vai até o M13 (o contrato acaba, mas ainda há multa a receber depois do último mês).
@@ -4252,16 +4314,19 @@
     }
     // camada de visão: unitary (÷ carros — ativos p/ linhas perActive) × aggregate (soma) × placa (individual)
     function effSplit(line, period) {
+      // "Actuals only": zera o lado projetado em TODA a cadeia (célula, totalizadores e TIR), para
+      // a visão ficar coerente — não adianta esconder o roxo e o Total continuar somando-o.
+      const cut = (o) => { if (o && !showProj) { o.proj = 0; if (o.status === 'proj') o.real = 0; } return o; };
       if (allMode && !plateView) {
         const r = combinedSplit(line, period);
         if (!r) return null;
         const k = viewAgg ? 1 : 1 / r.den; // combinado já vem como soma total; unitary divide pelo denominador
-        return { real: Math.round(r.real * k), proj: Math.round(r.proj * k), status: r.status };
+        return cut({ real: Math.round(r.real * k), proj: Math.round(r.proj * k), status: r.status });
       }
       const e = effSplitOne(line, period);
       if (!e) return null;
       const k = plateView ? 1 : (viewAgg ? (e.perActive ? activeCarsAt(period) : (curCars || 1)) : 1);
-      return { real: Math.round((e.real || 0) * k), proj: Math.round((e.proj || 0) * k), status: e.status };
+      return cut({ real: Math.round((e.real || 0) * k), proj: Math.round((e.proj || 0) * k), status: e.status });
     }
     // linhas cujo lançamento pontual foi movido para o M13 (planilha original só vai até M12) — o orçado de
     // referência sai do M12 e passa a aparecer só no M13 (substituição, não duplicação)
@@ -4374,9 +4439,25 @@
       return { orc, eff: effv, hasMain, kind: anyProj ? 'proj' : 'real' };
     }
 
-    function slider(id, label, min, max, step, val) {
+    function slider(id, label, min, max, step, val, hint) {
       return `<div class="ue-slider"><div class="ue-sl-top"><label>${label}</label><span class="ue-sl-val" id="${id}Val"></span></div>` +
-        `<input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"${isAdmin ? '' : ' disabled'}/></div>`;
+        `<input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"${isAdmin ? '' : ' disabled'}/>` +
+        (hint || '') + `</div>`;
+    }
+    // Inadimplência medida no histórico: contrato encerrado por "Recuperação" = o cliente parou de
+    // pagar e o carro foi retomado. A taxa vem do servidor (recuperações ÷ contrato-meses de
+    // exposição) e é oferecida como sugestão clicável em vez de um número chutado no slider.
+    const churnRate = () => {
+      const c = U.churn;
+      return (c && c.taxaMensal > 0) ? Math.round(c.taxaMensal * 1000) / 10 : null; // % ao mês, 1 casa
+    };
+    function inadHint() {
+      const r = churnRate(); if (r == null) return '';
+      const c = U.churn;
+      const same = Math.abs(inadimplencia - r) < 0.05;
+      return `<button type="button" class="ue-sl-hint${same ? ' on' : ''}" id="ueInadHist"` +
+        ` title="${c.recuperacoes} contracts repossessed over ${c.contratoMeses} contract-months of exposure — ${Math.round(c.taxaAnual * 100)}% a year at this pace">` +
+        `${same ? '✓ historical' : 'use historical: ' + String(r).replace('.', ',') + '%'}</button>`;
     }
     function wireSlider(id, setter, fmtLabel, getter, line, fleetKey, f) {
       const inp = document.getElementById(id), lab = document.getElementById(id + 'Val');
@@ -4442,9 +4523,9 @@
     // "?" — origem e atualização de cada linha (referência rápida p/ quem consome a tabela)
     function openInfoModal() {
       const ROWS = [
-        ['Subscription', 'Payments matrix (billing panel API) + weekly fee (✎ box)', 'Auto, daily'],
+        ['Subscription', 'Actual: payments matrix (billing panel API). Projected: weekly fee (✎ box) × the Mondays inside EACH plate\'s own 52 weeks, counted from its delivery date — that is why the tail lands in M13', 'Auto, daily'],
         ['Late-payment interest', 'Same matrix (actual interest) + contract version (v1/v2 5% · v3+ 20%) + late % slider', 'Auto, daily'],
-        ['Traffic fines (inflow)', 'Fines API (billing panel) — what clients pay us', 'Auto, daily'],
+        ['Traffic fines (inflow)', 'Actual: fines API (what clients really paid). Projected: contract rule — GROSS fine × (1 + premium), 10% on v1/v2 and 20% from v3', 'Auto, daily'],
         ['Termination fee', 'Sheet import_jud (total charge − fines/tolls) + recovery % slider · lands in M13', 'Auto, daily'],
         ['Initial Fee / Vehicle Sell', '✎ box (103% of purchase) · M13 · plus the InDrive benefit (iD button): value per plate × plates of the batch, on the month of the batch date', 'Manual + iD panel'],
         ['Security Deposit Refund', 'Derived: deposit × (1 + % p.a. field) · M13', 'Manual'],
@@ -4453,7 +4534,7 @@
         ['Car Preparation / Sticker', 'Fixed at M0 (−50 / −15 R$)', 'Static'],
         ['Maintenance', 'Sheet import_rev (real invoices by due date) + revisions site prices −25% + fleet API odometer', 'Auto, daily'],
         ['GPS / Security Deposit / Vehicle Purchase', '✎ boxes', 'Manual'],
-        ['Traffic fines (outflow)', 'Sheet multas_consolidado (amount we pay LM, by our due date)', 'Auto, daily'],
+        ['Traffic fines (outflow)', 'Contract rule on multas_consolidado: NET fine (col O, ~80% of gross) × 1.05 to LM, on our due date. The margin comes from the discount: we charge the gross, we pay the net', 'Auto, daily'],
         ['Recovery / Repair cost', 'Sheet import_jud (towing+recovery / damages+cleaning+others, by event date)', 'Auto, daily'],
         ['Part Replacement', 'Fleet site events (natural wear only) + ⚙ Parts panel (intervals & costs)', 'Auto, daily / panel'],
       ];
@@ -4603,6 +4684,7 @@
     function renderPlates(f) {
       const platesEl = document.getElementById('uePlates');
       if (!platesEl) return;
+      if (cleanView) { platesEl.innerHTML = ''; return; } // modo limpo: sem o grid de placas
       const plates = f.placas || [];
       platesEl.innerHTML =
         `<div class="ue-plates-label">View by plate</div><div class="ue-plates-grid">` +
@@ -4736,34 +4818,54 @@
             // moeda + Clean view empilhados (o Clean fica logo abaixo das bandeiras)
             `<div class="ue-actstack">` +
               `<div class="ue-cur-toggle" id="ueCurToggle">${CUR_FLAGS(currency)}</div>` +
-              `<button class="ue-clean2${cleanView ? ' on' : ''}" id="ueClean" title="Hide the budget comparison and show one combined number per month">✨ Clean view</button>` +
+              `<button class="ue-clean2${cleanView ? ' on' : ''}" id="ueClean" title="${cleanView ? 'Back to the full view' : 'Strip the panel down to the table: one number per month, no budget comparison, no controls'}">✨ Clean view</button>` +
             `</div>` +
-            `<button class="ue-tool-btn" id="ueParts" title="Replacement intervals and cost per part">⚙ Parts</button>` +
-            `<button class="idr-btn${indriveOn() ? ' on' : ''}" id="ueIndrive" title="InDrive benefit per plate — batches feed the Initial Fee line">` +
-              `<span class="idr-mark">iD</span><span class="idr-txt">InDrive</span>` +
-              (indriveOn() ? `<span class="idr-count">${indriveData.batches.reduce((s, b) => s + (b.plates || []).length, 0)}</span>` : '') +
-            `</button>` +
-            (isAdmin ? `<label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Manual mode</span></label>` : '') +
-            `<button class="ue-tool-btn" id="ueRefresh" title="Re-fetches the spreadsheet data">↻ Refresh</button>` +
+            // no modo limpo some tudo que é controle — fica só moeda, clean view e o "?"
+            (cleanView ? '' :
+              `<button class="ue-proj${showProj ? '' : ' off'}" id="ueProj" title="${showProj ? 'Hide the projected numbers (purple) and show actuals only' : 'Bring the projections back'}">` +
+                `<span class="ue-proj-dot"></span><span>${showProj ? 'Actuals + projection' : 'Actuals only'}</span></button>` +
+              `<button class="ue-tool-btn" id="ueParts" title="Replacement intervals and cost per part">⚙ Parts</button>` +
+              `<button class="idr-btn${indriveOn() && !idrOff ? ' on' : (indriveOn() ? ' off' : '')}" id="ueIndrive" title="Edit the InDrive batches">` +
+                `<span class="idr-mark">iD</span><span class="idr-txt">InDrive</span>` +
+                (indriveOn()
+                  ? `<span class="idr-state" id="ueIdrToggle" title="${idrOff ? 'InDrive is OUT of the UE — click to bring it back' : 'Click to remove the InDrive benefit from the UE'}">${idrOff ? 'off' : 'on'}</span>`
+                  : '') +
+              `</button>` +
+              (isAdmin ? `<label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Manual mode</span></label>` : '') +
+              `<button class="ue-tool-btn" id="ueRefresh" title="Re-fetches the spreadsheet data">↻ Refresh</button>`) +
             `<button class="ue-tool-btn ue-info-btn" id="ueInfo" title="Where each line comes from and how it updates">?</button>` +
           `</div>` +
         `</div>` +
-        contractBar +
+        (cleanView ? '' : contractBar) +
+        (cleanView ? '' :
         `<div class="ue-sliders">` +
           slider('ueCotacao', 'future FX (R$/US$)', 3, 8, 0.05, cotacao) +
-          slider('ueInad', 'delinquency rate (%)', 0, 50, 1, inadimplencia) +
+          slider('ueInad', 'delinquency rate (%)', 0, 50, 1, inadimplencia, inadHint()) +
           slider('ueLate', 'late-payment rate (%)', 0, 100, 1, latePct) +
           slider('ueTermPct', 'termination fee recovery (%)', 0, 100, 1, termPct) +
-        `</div>`;
+        `</div>`);
       const infoBtn = document.getElementById('ueInfo');
       if (infoBtn) infoBtn.addEventListener('click', openInfoModal);
       const partsBtn = document.getElementById('ueParts');
       if (partsBtn) partsBtn.addEventListener('click', () => openPartsModal(f));
+      // o mesmo botão faz as duas coisas: a pílula on/off liga e desliga o efeito, o resto abre o painel
       const idrBtn = document.getElementById('ueIndrive');
-      if (idrBtn) idrBtn.addEventListener('click', () => openIndriveModal(f));
+      if (idrBtn) idrBtn.addEventListener('click', (ev) => {
+        if (ev.target && ev.target.id === 'ueIdrToggle') { ev.stopPropagation(); idrOff = !idrOff; loadFleet(); return; }
+        openIndriveModal(f);
+      });
+      const projBtn = document.getElementById('ueProj');
+      if (projBtn) projBtn.addEventListener('click', () => { showProj = !showProj; loadFleet(); });
       const cleanBtn = document.getElementById('ueClean');
       if (cleanBtn) cleanBtn.addEventListener('click', () => { cleanView = !cleanView; loadFleet(); });
-      if (isAdmin) document.getElementById('ueManual').addEventListener('change', (e) => { manualMode = e.target.checked; renderTable(f); });
+      const inadHist = document.getElementById('ueInadHist');
+      if (inadHist) inadHist.addEventListener('click', async () => {
+        const r = churnRate(); if (r == null) return;
+        inadimplencia = r;
+        if (isAdmin) { try { await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fleet: '__cfg__', line: '__inadimplencia__', period: 0, value: r, kind: 'proj' }) }); } catch (e) {} }
+        loadFleet();
+      });
+      if (isAdmin && !cleanView) document.getElementById('ueManual').addEventListener('change', (e) => { manualMode = e.target.checked; renderTable(f); });
       // toggle da moeda de exibição (R$ principal · US$ convertido)
       document.querySelectorAll('#ueCurToggle .ue-cur-btn').forEach((b) => b.addEventListener('click', () => {
         currency = b.dataset.c;
@@ -4868,8 +4970,11 @@
         tbl.querySelectorAll('.ue-editable').forEach((td) => td.addEventListener('click', () => openEditor(td, f)));
         tbl.querySelectorAll('.ue-param-label').forEach((el) => el.addEventListener('click', () => openParamModal(el.dataset.pline, f)));
       }
-      document.getElementById('ueFoot').innerHTML =
-        '<span class="ue-tag ue-tag-real">Actual</span><span class="ue-tag ue-tag-proj">Projected</span><span class="ue-tag ue-tag-orc">Budget</span>';
+      // no modo limpo a legenda some junto com o resto dos detalhes (só sobra a tabela e a TIR)
+      document.getElementById('ueFoot').innerHTML = cleanView ? ''
+        : '<span class="ue-tag ue-tag-real">Actual</span>'
+          + (showProj ? '<span class="ue-tag ue-tag-proj">Projected</span>' : '')
+          + '<span class="ue-tag ue-tag-orc">Budget</span>';
       renderIrr(T);
     }
 
@@ -4893,6 +4998,38 @@
           ? `the contract does not pay the invested cash back in this view (net ${cur} ${Math.round(netTot).toLocaleString('pt-BR')} over M0–M${PMAX}), so there is no rate that zeroes the NPV.`
           : `the net cashflow never turns negative in this view — with no outlay to discount there is no IRR.`;
         el.innerHTML = `<div class="irr-panel irr-na"><div class="irr-na-txt"><b>IRR not defined</b><span>${why}</span></div></div>`;
+        return;
+      }
+      // TIR só significa alguma coisa quando existe um desembolso relevante para remunerar.
+      // Na frota 1, por exemplo, não houve calção: o "investido" é só a preparação do carro, e
+      // dividir um ano de mensalidades por uma base quase nula explode a taxa (centenas de % a.m.)
+      // sem dizer nada sobre o negócio. Nesse caso mostramos o retorno em CAIXA, que é o que vale.
+      const inflowTot = flows.filter((v) => v > 0).reduce((a, b) => a + b, 0);
+      // dois gatilhos: base de desembolso irrelevante (< 10% do que entra) ou taxa fora de qualquer
+      // faixa útil (> 20% a.m. ≈ 700% a.a.) — nos dois casos a TIR vira ruído, não informação
+      const semCalcao = invested < inflowTot * 0.10;
+      const absurda = rM > 0.20;
+      if (semCalcao || absurda) {
+        const mult = invested > 0 ? (netTot / invested) : null;
+        const porque = semCalcao
+          ? `Almost no cash goes in up front (${money(invested)} against ${money(inflowTot)} of inflows — this fleet has no sub-rental deposit), so the rate that zeroes the NPV runs away from any useful range.`
+          : `The upfront outlay is small next to a full year of subscriptions, so the rate compounds to a number that no longer compares to anything.`;
+        el.innerHTML =
+          `<div class="irr-panel irr-thin">` +
+            `<div class="irr-main">` +
+              `<div class="irr-kpi"><span class="irr-lbl">IRR not meaningful here</span>` +
+                `<b class="irr-big irr-year">${money(netTot)}</b>` +
+                `<span class="irr-sub">net cash per car over M0–M${PMAX} — use this instead</span></div>` +
+            `</div>` +
+            `<div class="irr-side">` +
+              `<div class="irr-facts">` +
+                `<div><span>Cash invested</span><b>${money(invested)}</b></div>` +
+                `<div><span>Return on cash</span><b class="${netTot >= 0 ? 'up' : 'down'}">${mult == null ? '—' : (mult >= 0 ? '' : '−') + Math.abs(mult).toFixed(1) + '×'}</b></div>` +
+                `<div><span>Payback</span><b>${payback == null ? 'not reached' : 'M' + payback}</b></div>` +
+              `</div>` +
+              `<div class="irr-why">${porque} The IRR would read ${pct(rM)} a month (${pct(Math.pow(1 + rM, 12) - 1)} a year).</div>` +
+            `</div>` +
+          `</div>`;
         return;
       }
       const rA = Math.pow(1 + rM, 12) - 1;

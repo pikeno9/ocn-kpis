@@ -1916,7 +1916,10 @@
   let pnlCollapsed = new Set(['grev', 'tax', 'cogs', 'opex', 'cac', 'sga', 'hc']); // grupos recolhidos (padrão: fechados)
   let pnlVersions = [], pnlVersion = 'live'; // versões congeladas p/ board + versão selecionada
   const FIN_MONTHS = 12; // 2026-01 .. 2026-12
-  const FIN_ML = (i) => '2026-' + String(i + 1).padStart(2, '0');
+  const FIN_BASE_YEAR = 2026;                 // ano-base das coortes (índice absoluto de mês)
+  let finYear = FIN_BASE_YEAR;                 // ano exibido no P&L / Fleet Plan (2026 ou 2027)
+  const FIN_YOFF = () => (finYear - FIN_BASE_YEAR) * 12;   // deslocamento em meses do ano exibido
+  const FIN_ML = (i) => finYear + '-' + String(i + 1).padStart(2, '0');
   const FIN_REV_LINES = ['Subscription', 'Late-payment interest', 'Traffic fines', 'Termination fee', 'Initial Fee / Vehicle Sell', 'Security Deposit Refund'];
   const FIN_COGS_LINES = ['Subrental fee', 'Maintenance', 'Insurance', 'GPS', 'Car Preparation', 'Sticker', 'Traffic fines (out)', 'Recovery cost', 'Repair cost', 'Part Replacement'];
   const FIN_ASSUMP = [
@@ -1995,10 +1998,10 @@
     //   seguem a idade do contrato, sem pro-rata (como no Excel).
     // - Frota ativa decai pelo decomissionamento mensal (default 0,725%/mês).
     // - Mês de entrega = M1 do UE (recorrências), e os one-offs do M0 caem junto nele.
-    const FIN_MONDAYS = (() => { const a = []; for (let mo = 0; mo < 12; mo++) { let n = 0; const d = new Date(2026, mo, 1); while (d.getMonth() === mo) { if (d.getDay() === 1) n++; d.setDate(d.getDate() + 1); } a.push(n); } return a; })(); // 2026: [4,4,5,4,4,5,4,5,4,4,5,4]
+    const FIN_MONDAYS = (() => { const a = []; for (let mo = 0; mo < 12; mo++) { let n = 0; const d = new Date(finYear, mo, 1); while (d.getMonth() === mo) { if (d.getDay() === 1) n++; d.setDate(d.getDate() + 1); } a.push(n); } return a; })(); // 2026: [4,4,5,4,4,5,4,5,4,4,5,4]
     // segundas-feiras de um mês no dia >= `fromDay` (semanas pagas a partir do recebimento)
-    const mondaysOnOrAfter = (mo, fromDay) => { let n = 0; const d = new Date(2026, mo, 1); while (d.getMonth() === mo) { if (d.getDay() === 1 && d.getDate() >= fromDay) n++; d.setDate(d.getDate() + 1); } return n; };
-    const cohMonth = (c) => (c.date ? (parseInt(c.date.slice(5, 7), 10) - 1) : (c.month || 0));
+    const mondaysOnOrAfter = (moAbs, fromDay) => { const yy = FIN_BASE_YEAR + Math.floor(moAbs / 12), mo = ((moAbs % 12) + 12) % 12; let n = 0; const d = new Date(yy, mo, 1); while (d.getMonth() === mo) { if (d.getDay() === 1 && d.getDate() >= fromDay) n++; d.setDate(d.getDate() + 1); } return n; };
+    const cohMonth = (c) => (c.date ? ((parseInt(c.date.slice(0, 4), 10) - FIN_BASE_YEAR) * 12 + parseInt(c.date.slice(5, 7), 10) - 1) : (c.month || 0));
     const cohDay = (c) => (c.date ? parseInt(c.date.slice(8, 10), 10) : 1);
     // ---- PERFIS DE REFERÊNCIA: projeção com as premissas do UE REALIZADO ----
     // Por modelo, o P&L projeta com o perfil por idade (M0..M13, R$/veículo) da frota de referência:
@@ -2112,9 +2115,9 @@
       const U = OCN.ue || {};
       const z = () => new Array(FIN_MONTHS).fill(0);
       const out = { sub: z(), late: z(), finesIn: z(), maint: z(), finesOut: z(), subr: z(), ins: z(), gps: z(), prep: z(), stick: z(), rec: z(), rep: z(), parts: z(), any: false };
-      const moOf = (iso) => (iso && String(iso).slice(0, 4) === '2026') ? parseInt(String(iso).slice(5, 7), 10) - 1 : null;
+      const moOf = (iso) => (iso && String(iso).slice(0, 4) === String(finYear)) ? parseInt(String(iso).slice(5, 7), 10) - 1 : null;
       const hojeD = new Date(((U.hoje) || new Date().toISOString().slice(0, 10)) + 'T12:00:00');
-      const curMo = hojeD.getFullYear() === 2026 ? hojeD.getMonth() : FIN_MONTHS - 1;
+      const curMo = hojeD.getFullYear() === finYear ? hojeD.getMonth() : (hojeD.getFullYear() > finYear ? FIN_MONTHS - 1 : 0);
       const MS = 86400000;
       Object.values(((U.pagamentos || {}).placas) || {}).forEach((ws) => ws.forEach((s) => {
         const m = moOf(s.v); if (m == null) return;
@@ -2153,20 +2156,20 @@
         const subr = par('__subrental_mensal__');
         if (subr > 0) for (let i = 1; i <= 12; i++) {
           const d = new Date(ini.getFullYear(), ini.getMonth() + i, 26, 12);
-          if (d > hojeD || d.getFullYear() !== 2026) continue;
+          if (d > hojeD || d.getFullYear() !== finYear) continue;
           out.subr[d.getMonth()] += subr * Math.max(0, cars - lostBefore(d)); out.any = true;
         }
         const insT = par('__ins_total__'), insN = par('__ins_parcelas__');
         if (insT > 0 && insN >= 1) for (let n = 1; n <= insN; n++) {
           const d = new Date(ini.getTime() + (n - 0.5) * UET_WPM * 7 * MS);
-          if (d > hojeD || d.getFullYear() !== 2026) continue;
+          if (d > hojeD || d.getFullYear() !== finYear) continue;
           out.ins[d.getMonth()] += (insT / insN) * cars; out.any = true; // seguro paga pelos carros TOTAIS
         }
         const gps0 = par('__gps_m0__'), gpsM = par('__gps_mensal__');
         if (gps0 > 0 && m0 != null && ini <= hojeD) { out.gps[m0] += gps0 * cars; out.any = true; }
         if (gpsM > 0) for (let n = 1; n <= 12; n++) {
           const d = new Date(ini.getTime() + (n - 0.5) * UET_WPM * 7 * MS);
-          if (d > hojeD || d.getFullYear() !== 2026) continue;
+          if (d > hojeD || d.getFullYear() !== finYear) continue;
           out.gps[d.getMonth()] += gpsM * Math.max(0, cars - lostBefore(d)); out.any = true;
         }
       });
@@ -2186,9 +2189,10 @@
       for (let m = 0; m < FIN_MONTHS; m++) {
         finCohorts.forEach((c) => {
           const cm = cohMonth(c);
-          if (cm > m) return;
+          const M = FIN_YOFF() + m;                 // mês absoluto da coluna exibida (ano-base 2026)
+          if (cm > M) return;
           delivered[m] += c.qty;
-          const age = m - cm;                       // 0 = mês de recebimento
+          const age = M - cm;                       // 0 = mês de recebimento
           const activeN = c.qty * Math.pow(1 - decomm, age);
           active[m] += activeN;
           const p = age + 1;                        // idade no UE (mês de entrega = M1)
@@ -2226,7 +2230,7 @@
       // agregadas por mês CALENDÁRIO. Futuro continua vindo do Theoric; multas (que o Theoric não
       // modela) seguem no ritmo histórico R$/dia.
       const hojeIso = (OCN.ue && OCN.ue.hoje) || new Date().toISOString().slice(0, 10);
-      const curM = hojeIso.slice(0, 4) === '2026' ? parseInt(hojeIso.slice(5, 7), 10) - 1 : FIN_MONTHS - 1;
+      const curM = hojeIso.slice(0, 4) === String(finYear) ? parseInt(hojeIso.slice(5, 7), 10) - 1 : (parseInt(hojeIso.slice(0, 4), 10) > finYear ? FIN_MONTHS - 1 : -1);
       const ACT = finActuals();
       let actualsThrough = null;
       if (ACT.any) {
@@ -2293,7 +2297,7 @@
       const hcTot = zeros(); for (let m = 0; m < FIN_MONTHS; m++) hcTot[m] = base[m] + meal[m] + health[m] + ptax[m] + th13[m] + bonus[m];
       // CAC (referenciado, como no Excel): comissão = USD/carro × carros ENTREGUES no mês;
       // Ads = soma dos canais; Influenciadores = nº de perfis do mês × preço por perfil.
-      const newDelivered = zeros(); finCohorts.forEach((c) => { const cm = cohMonth(c); if (cm >= 0 && cm < FIN_MONTHS) newDelivered[cm] += c.qty; });
+      const newDelivered = zeros(); finCohorts.forEach((c) => { const cm = cohMonth(c) - FIN_YOFF(); if (cm >= 0 && cm < FIN_MONTHS) newDelivered[cm] += c.qty; });
       const commission = zeros(), adsTot = zeros(), infTot = zeros();
       for (let m = 0; m < FIN_MONTHS; m++) {
         commission[m] = -(finCac.perUnit || 0) * newDelivered[m];
@@ -2393,22 +2397,59 @@
       const opts = ['<option value="live"' + (pnlVersion === 'live' ? ' selected' : '') + '>● Live</option>']
         .concat(pnlVersions.map((v) => `<option value="${v.id}"${pnlVersion === v.id ? ' selected' : ''}>${escH(v.name)}</option>`)).join('');
       let h = '<div class="pnl-bar">';
-      h += `<label class="pnl-lbl">Version <select id="pnlVer" class="pnl-sel">${opts}</select></label>`;
-      if (isAdmin && live) h += '<button id="pnlSaveVer" class="pnl-btn">＋ Save board version</button>';
-      if (isAdmin && !live) h += '<button id="pnlDelVer" class="pnl-btn pnl-del">🗑 Delete version</button>';
-      if (live) h += `<button id="pnlNoSdBtn" class="pnl-btn${pnlNoSd ? ' on' : ''}">Exclude sub-rental deposit</button>`;
-      h += `<button id="pnlExpand" class="pnl-btn">${pnlCollapsed.size ? 'Expand all' : 'Collapse all'}</button>`;
+      // seletor de ANO (2026 · 2027) — o P&L e o Fleet Plan seguem o ano escolhido
+      h += '<div class="pnl-years">' + [FIN_BASE_YEAR, FIN_BASE_YEAR + 1].map((y) =>
+        `<button class="pnl-yr${finYear === y ? ' on' : ''}" data-y="${y}">${y}</button>`).join('') + '</div>';
+      h += `<select id="pnlVer" class="pnl-sel" title="Version">${opts}</select>`;
+      if (isAdmin && live) h += '<button id="pnlSaveVer" class="pnl-btn" title="Freeze this P&L under a name (board presentation)">＋ Version</button>';
+      if (isAdmin && !live) h += '<button id="pnlDelVer" class="pnl-btn pnl-del" title="Delete this frozen version">🗑</button>';
+      if (live) h += `<button id="pnlNoSdBtn" class="pnl-btn${pnlNoSd ? ' on' : ''}" title="What-if view without the sub-rental security deposit (and its refund)">No deposit</button>`;
+      h += `<button id="pnlExpand" class="pnl-btn" title="${pnlCollapsed.size ? 'Expand all groups' : 'Collapse all groups'}">${pnlCollapsed.size ? '⤢' : '⤡'}</button>`;
+      h += '<button id="pnlInfo" class="pnl-btn pnl-info" title="Where each line comes from and how it updates">?</button>';
       if (!live) { const v = pnlVersions.find((x) => x.id === pnlVersion); h += `<span class="pnl-frozen">📌 Frozen${v && v.savedAt ? ' · ' + v.savedAt.slice(0, 10) : ''}${v && v.snapshot && v.snapshot.noSd ? ' · no deposit' : ''}</span>`; }
+      if (pnlActualsThrough != null) h += `<span class="pnl-act">actuals → ${monthLbl(pnlActualsThrough)}</span>`;
       h += '</div>';
-      const actNote = pnlActualsThrough != null ? ` · <b>Actuals through ${monthLbl(pnlActualsThrough)}</b> (payments matrix, fines, import_rev, real fleet params)` : '';
-      const projNote = refProfiles ? ' · projections from <b>reference fleets</b> (Polo=F1, Argo=F2, Tera=F6; Tera repair/recovery from F1)' : ' · per-vehicle UE from <b>Unit Economics Theoric</b>';
-      h += `<div class="fin-note">Fed by <b>${finCohorts.length}</b> cohort(s)${projNote} · FX <b>R$ ${finPar('__fin_fx__').toFixed(2).replace('.', ',')}</b>/US$ · Sub-rental security deposit is in COGS (like the UE)${actNote}.</div>`;
       ctl.innerHTML = h;
+      ctl.querySelectorAll('.pnl-yr').forEach((b) => b.addEventListener('click', () => {
+        finYear = +b.dataset.y; refProfiles = buildProfiles(); renderPnl(); renderFleetPlan(); renderCac();
+      }));
+      const ib = document.getElementById('pnlInfo'); if (ib) ib.addEventListener('click', openPnlInfo);
       const sel = document.getElementById('pnlVer'); if (sel) sel.addEventListener('change', () => { pnlVersion = sel.value; renderPnl(); });
       const nb = document.getElementById('pnlNoSdBtn'); if (nb) nb.addEventListener('click', () => { pnlNoSd = !pnlNoSd; renderPnl(); });
       const eb = document.getElementById('pnlExpand'); if (eb) eb.addEventListener('click', () => { if (pnlCollapsed.size) pnlCollapsed.clear(); else pnlCollapsed = new Set(PNL_GROUPS); renderPnl(); });
       const sv = document.getElementById('pnlSaveVer'); if (sv) sv.addEventListener('click', savePnlVersion);
       const dv = document.getElementById('pnlDelVer'); if (dv) dv.addEventListener('click', deletePnlVersion);
+    }
+    // "?" do P&L — de onde vem cada bloco e como se atualiza
+    function openPnlInfo() {
+      const R = [
+        ['Delivered / Active fleet', 'Fleet Plan cohorts (calendar) − monthly decommissioning', 'Manual (calendar)'],
+        ['Subscription · Late-payment', 'Past: real payments matrix of every plate. Future: reference-fleet profile × active cars', 'Auto, daily'],
+        ['Traffic fines (in/out)', 'Past: fines API (received) and multas_consolidado (paid). Future: historical R$/day per car', 'Auto, daily'],
+        ['Termination fee', 'import_jud (total charge − fines/tolls) × recovery % slider, at contract end (M13)', 'Auto, daily'],
+        ['Maintenance', 'Past: import_rev invoices by due date. Future: km pace → revisions at −25%, paid after ~33 days', 'Auto, daily'],
+        ['Subrental · Insurance · GPS · Prep · Sticker', 'Real per-fleet boxes of the Unit Economics, on their own schedules (subrental on the 26th, etc.)', 'Manual (UE boxes)'],
+        ['Recovery · Repair', 'import_jud (towing+recovery / damages+cleaning+others) by event date', 'Auto, daily'],
+        ['Part Replacement', 'Fleet site events + ⚙ Parts panel; future from each fleet\'s km pace', 'Auto / panel'],
+        ['Taxes · Payment fee', 'Assumptions tab (federal, credit, processing fee — the fee is editable per month)', 'Manual'],
+        ['HC Payroll', 'SG&A → Headcount: one row per employee × the cost table', 'Manual'],
+        ['SG&A (Rent · Prof · IT)', 'SG&A tabs, item by item, month by month', 'Manual'],
+        ['CAC', 'Commission = USD/car × deliveries of the month · Paid media and influencers from the CAC tabs', 'Manual + Fleet Plan'],
+      ];
+      const ov = document.createElement('div');
+      ov.className = 'ue-modal-overlay';
+      ov.innerHTML =
+        `<div class="ue-modal ue-modal-info"><div class="ue-modal-title">Where the P&amp;L numbers come from</div>` +
+        `<div class="ue-modal-sub">Months up to today use <b>actuals</b> from the whole fleet; the current month blends actuals with the remaining days. Later months are projected from the <b>reference fleets</b> (Polo=F1, Argo=F2, Tera=F6; Tera's repair/recovery from F1). Automatic sources refresh <b>daily at 05:00 (São Paulo)</b>.</div>` +
+        `<table class="ue-info-table"><thead><tr><th>Block</th><th>Source</th><th>Updates</th></tr></thead><tbody>` +
+        R.map(([a, b, c]) => `<tr><td>${a}</td><td>${b}</td><td>${c}</td></tr>`).join('') +
+        `</tbody></table>` +
+        `<div class="ue-modal-hint">Everything is converted to USD by the FX assumption (R$ ${finPar('__fin_fx__').toFixed(2).replace('.', ',')}/US$).</div>` +
+        `<div class="ue-modal-actions"><button type="button" class="ue-modal-cancel">Close</button></div></div>`;
+      document.body.appendChild(ov);
+      const close = () => ov.remove();
+      ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+      ov.querySelector('.ue-modal-cancel').addEventListener('click', close);
     }
     function renderPnlExtras(P, live) {
       const ex = document.getElementById('pnlExtras'); if (!ex) return;
@@ -2425,7 +2466,7 @@
       h += tile('CAC per unit sold', 'US$ ' + fmtNum(cacUnit), totDeliv + ' delivered (FY)');
       h += tile('Total headcount (Dec)', Math.round(hcDec), 'people on payroll');
       h += tile('Processing fee', (Math.round(feeAvg * 100) / 100) + '%', 'avg / month');
-      h += tile('Breakeven month', beIdx >= 0 ? monthLbl(beIdx) : '—', beIdx >= 0 ? 'acc. cashflow turns +' : 'not within 2026');
+      h += tile('Breakeven month', beIdx >= 0 ? monthLbl(beIdx) : '—', beIdx >= 0 ? 'acc. cashflow turns +' : ('not within ' + finYear));
       h += tile('Gross margin', Math.round(gmFY) + '%', 'FY-26E');
       h += tile('Net cashflow (FY)', fmt(sum(P.netCf)), 'USD');
       h += '</div>';
@@ -2483,18 +2524,18 @@
     function renderFleetPlan() {
       const el = document.getElementById('fleetPlanWrap'); if (!el) return;
       const byDay = {}; // ISO -> { model: qty }
-      finCohorts.forEach((c) => { const d = c.date || '2026-01-01'; (byDay[d] = byDay[d] || {})[c.model] = ((byDay[d][c.model]) || 0) + c.qty; });
+      finCohorts.forEach((c) => { const d = c.date || (finYear + '-01-01'); (byDay[d] = byDay[d] || {})[c.model] = ((byDay[d][c.model]) || 0) + c.qty; });
       const dayTot = (d) => Object.values(byDay[d] || {}).reduce((s, x) => s + x, 0);
       const modelColor = (id) => ((finModels.find((x) => x.id === id) || {}).color) || '#5A00F8';
       const WD = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
       let cal = '<div class="fin-cal">';
       for (let mo = 0; mo < 12; mo++) {
-        const first = new Date(2026, mo, 1).getDay();
-        const days = new Date(2026, mo + 1, 0).getDate();
+        const first = new Date(finYear, mo, 1).getDay();
+        const days = new Date(finYear, mo + 1, 0).getDate();
         let monthTot = 0, cells = '';
         for (let i = 0; i < first; i++) cells += '<div class="fc-day fc-empty"></div>';
         for (let dd = 1; dd <= days; dd++) {
-          const iso = '2026-' + String(mo + 1).padStart(2, '0') + '-' + String(dd).padStart(2, '0');
+          const iso = finYear + '-' + String(mo + 1).padStart(2, '0') + '-' + String(dd).padStart(2, '0');
           const tot = dayTot(iso); monthTot += tot;
           const dots = (byDay[iso] ? Object.keys(byDay[iso]) : []).map((id) => `<span class="fc-dot" style="background:${modelColor(id)}"></span>`).join('');
           cells += `<div class="fc-day${tot ? ' fc-has' : ''}${iso === finSelDay ? ' fc-sel' : ''}" data-iso="${iso}"><span class="fc-n">${dd}</span>${tot ? `<span class="fc-qty">${tot}</span>` : ''}<span class="fc-dots">${dots}</span></div>`;
@@ -2811,7 +2852,7 @@
       const el = document.getElementById('finCacWrap'); if (!el) return;
       // comissão: valor por carro × entregas do mês (referenciado ao Fleet Plan, como no Excel)
       const newDelivered = new Array(FIN_MONTHS).fill(0);
-      finCohorts.forEach((c) => { const cm = cohMonth(c); if (cm >= 0 && cm < FIN_MONTHS) newDelivered[cm] += c.qty; });
+      finCohorts.forEach((c) => { const cm = cohMonth(c) - FIN_YOFF(); if (cm >= 0 && cm < FIN_MONTHS) newDelivered[cm] += c.qty; });
       const per = finCac.perUnit || 0;
       const infTot = new Array(FIN_MONTHS).fill(0);
       (finCac.inf || []).forEach((it) => { for (let m = 0; m < FIN_MONTHS; m++) infTot[m] += (Number((it.profiles || [])[m]) || 0) * (it.price || 0); });

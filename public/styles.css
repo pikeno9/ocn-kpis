@@ -1133,3 +1133,91 @@ html { scrollbar-gutter: stable; }
 /* barras horizontais precisam de mais altura por linha */
 .dash-card .dash-box { height: 240px; }
 
+
+/* ============ P&L: seletor de versao (dropdown proprio) ============ */
+/* O <select> nativo nao dizia O QUE cada versao e, e nao dava para estilizar a lista.
+   Aqui o botao mostra icone + nome + o que aquilo significa, e a lista vem agrupada. */
+.pnl-vp { position: relative; }
+.pnl-vp-btn {
+  display: inline-flex; align-items: center; gap: 9px; height: 38px; padding: 0 12px 0 11px;
+  font: inherit; cursor: pointer; border-radius: 10px; background: var(--surface);
+  border: 1px solid var(--border-2); box-shadow: 0 1px 3px #0000000d;
+  transition: border-color .12s, box-shadow .12s;
+}
+.pnl-vp-btn:hover { border-color: #cbd5e1; box-shadow: 0 2px 8px #0f172a14; }
+.pnl-vp-btn.open { border-color: var(--accent); box-shadow: 0 0 0 3px #7c3aed1f; }
+.pnl-vp-ic { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 7px; font-size: 11px; flex: none; }
+.pnl-vp-btn.live .pnl-vp-ic, .pnl-vp-ic.live { background: #dcfce7; color: #15803d; }
+.pnl-vp-btn.budget .pnl-vp-ic, .pnl-vp-ic.budget { background: #cffafe; color: #0e7490; }
+.pnl-vp-btn.scen .pnl-vp-ic, .pnl-vp-ic.scen { background: #ede9fe; color: #6d28d9; }
+.pnl-vp-btn.frozen .pnl-vp-ic, .pnl-vp-ic.frozen { background: #f1f5f9; color: #475569; font-size: 10px; }
+.pnl-vp-txt { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.15; min-width: 0; }
+.pnl-vp-txt b { font-size: 12.5px; font-weight: 700; color: var(--text); white-space: nowrap; }
+.pnl-vp-txt i { font-size: 9.5px; font-style: normal; color: var(--text-2); white-space: nowrap; max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
+.pnl-vp-car { font-size: 10px; color: var(--text-2); margin-left: 2px; }
+.pnl-vp-pop {
+  position: absolute; z-index: 60; top: calc(100% + 6px); left: 0; min-width: 268px; max-width: 340px;
+  max-height: 340px; overflow-y: auto; padding: 6px;
+  background: var(--surface); border: 1px solid var(--border-2); border-radius: 12px; box-shadow: 0 12px 32px #0f172a24;
+}
+.pnl-vp-h { font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; color: var(--text-2); padding: 9px 9px 4px; }
+.pnl-vp-o { display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 9px; border: none; background: transparent; border-radius: 8px; cursor: pointer; text-align: left; font: inherit; }
+.pnl-vp-o:hover { background: var(--surface-2, #f1f5f9); }
+.pnl-vp-o.on { background: #f5f0ff; }
+.pnl-vp-o.on .pnl-vp-txt b { color: var(--accent); }
+
+.pnl-scen-new { border-color: #c4b5fd; color: var(--accent); }
+.pnl-scenchip { font-size: 12px; font-weight: 600; color: #6d28d9; background: #ede9fe; border-radius: 999px; padding: 3px 10px; }
+
+/* ============ P&L: caixinha do cenario ============ */
+.ue-modal.ue-modal-scen { width: 660px; max-width: 94vw; max-height: 88vh; overflow-y: auto; }
+.scen-name { display: block; margin: 4px 0 14px; }
+.scen-name > span { display: block; font-size: 11px; font-weight: 600; color: var(--text-2); margin-bottom: 4px; }
+.scen-name input { width: 100%; font: inherit; font-size: 13px; padding: 9px 11px; border: 1px solid var(--border-2); border-radius: 9px; color: var(--text); }
+.scen-name input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px #7c3aed1f; }
+.scen-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(196px, 1fr)); gap: 10px; }
+.scen-f { padding: 9px 11px 10px; border: 1px solid var(--border-2); border-radius: 10px; background: var(--surface); }
+.scen-f.on { border-color: #c4b5fd; background: #fbf9ff; }
+.scen-f-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.scen-f-top label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-2); }
+.scen-f-v { font-size: 12px; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
+.scen-f input[type=range] { width: 100%; margin: 6px 0 2px; accent-color: var(--accent); cursor: pointer; }
+.scen-f-b { font-size: 9.5px; color: var(--text-2); }
+.scen-rst { font: inherit; font-size: 9.5px; font-weight: 700; border: none; background: transparent; color: var(--accent); cursor: pointer; padding: 0 0 0 4px; text-decoration: underline; }
+.scen-toggles { display: flex; flex-wrap: wrap; gap: 14px; margin: 14px 0 4px; }
+.scen-t { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text); cursor: pointer; }
+.scen-t input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+.scen-out { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 14px 0; padding: 12px 15px; border-radius: 11px; background: linear-gradient(135deg, #3A00A0, #23004e); color: #fff; }
+.scen-out > span { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; opacity: .8; }
+.scen-out b { font-family: var(--font-display); font-size: 21px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.scen-out b.up { color: #C0F11C; } .scen-out b.down { color: #fca5a5; }
+.scen-out i { flex-basis: 100%; font-size: 10.5px; font-style: normal; opacity: .7; }
+
+
+/* ============ Dashboard: seletor de totalizador ============ */
+/* Substitui o <select> nativo: mostra o nome grande, o que aquele totalizador mede, e a
+   bolinha da familia de cor â€” assim da para saber em que sessao estamos so de bater o olho. */
+.dash-pk { position: relative; }
+.dash-pk-btn {
+  display: inline-flex; align-items: center; gap: 10px; height: 44px; padding: 0 14px 0 13px; min-width: 232px;
+  font: inherit; cursor: pointer; border-radius: 12px; text-align: left;
+  background: var(--surface); border: 1.5px solid var(--border-2); box-shadow: 0 1px 4px #0000000f;
+  transition: border-color .12s, box-shadow .12s, transform .12s;
+}
+.dash-pk-btn:hover { border-color: #cbd5e1; box-shadow: 0 3px 12px #0f172a1a; transform: translateY(-1px); }
+.dash-pk-btn.open { border-color: var(--accent); box-shadow: 0 0 0 3px #7c3aed1f; }
+.dash-pk-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.dash-pk-txt { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; flex: 1; }
+.dash-pk-txt b { font-size: 14px; font-weight: 800; color: var(--text); white-space: nowrap; letter-spacing: -.01em; }
+.dash-pk-txt i { font-size: 10px; font-style: normal; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-pk-car { font-size: 11px; color: var(--text-2); }
+.dash-pk-pop {
+  position: absolute; z-index: 60; top: calc(100% + 7px); right: 0; min-width: 270px; padding: 6px;
+  background: var(--surface); border: 1px solid var(--border-2); border-radius: 13px; box-shadow: 0 14px 36px #0f172a26;
+}
+.dash-pk-o { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: none; background: transparent; border-radius: 9px; cursor: pointer; text-align: left; font: inherit; }
+.dash-pk-o:hover { background: var(--surface-2, #f1f5f9); }
+.dash-pk-o.on { background: #f5f0ff; }
+.dash-pk-o.on .dash-pk-txt b { color: var(--accent); }
+.dash-pk-o .dash-pk-txt b { font-size: 12.5px; font-weight: 700; }
+

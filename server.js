@@ -460,6 +460,56 @@ app.post('/api/theoric/models/delete', requireGiga, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ---------- Finance: CENÁRIOS do P&L (máscara de premissas, recalculada ao vivo) ----------
+// Diferente da versão congelada: aqui não se guarda número nenhum, só os overrides. O P&L é
+// recalculado com eles a cada abertura, então o cenário acompanha os dados novos.
+// [{ id, name, savedAt, ov: { scale, fx, taxFed, taxCred, payFee, decomm, cacScale, sgaScale,
+//                            hcScale, noSd, noIndrive } }]
+const SCEN_NUM = { scale: [0.05, 10], fx: [1, 20], taxFed: [0, 60], taxCred: [0, 60], payFee: [0, 20], decomm: [0, 20], cacScale: [0, 10], sgaScale: [0, 10], hcScale: [0, 10] };
+function sanitizeOv(raw) {
+  const ov = {}, b = (raw && typeof raw === 'object') ? raw : {};
+  for (const [k, [lo, hi]] of Object.entries(SCEN_NUM)) {
+    if (b[k] == null || b[k] === '') continue;
+    const n = Number(b[k]);
+    if (isFinite(n)) ov[k] = Math.min(hi, Math.max(lo, n));
+  }
+  if (b.noSd) ov.noSd = true;
+  if (b.noIndrive) ov.noIndrive = true;
+  return ov;
+}
+app.get('/api/finance/scenarios', requireGiga, async (req, res) => {
+  try { const d = await store.getDoc('fin_scenarios'); res.json({ scenarios: Array.isArray(d && d.scenarios) ? d.scenarios : [] }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/finance/scenarios', requireGiga, async (req, res) => {
+  const b = req.body || {};
+  const name = String(b.name || '').trim().slice(0, 60);
+  if (!name) return res.status(400).json({ error: 'nome do cenário é obrigatório' });
+  try {
+    const d = await store.getDoc('fin_scenarios');
+    const list = Array.isArray(d && d.scenarios) ? d.scenarios.slice() : [];
+    const ov = sanitizeOv(b.ov);
+    const id = String(b.id || '');
+    const cur = id ? list.find((x) => x.id === id) : null;
+    if (cur) { cur.name = name; cur.ov = ov; cur.savedAt = new Date().toISOString(); }
+    else {
+      if (list.length >= 30) return res.status(400).json({ error: 'limite de 30 cenários' });
+      list.push({ id: 's' + Date.now(), name, ov, savedAt: new Date().toISOString() });
+    }
+    await store.setDoc('fin_scenarios', { scenarios: list }, req.user.login);
+    res.json({ ok: true, scenarios: list, saved: cur ? cur.id : list[list.length - 1].id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/finance/scenarios/delete', requireGiga, async (req, res) => {
+  const id = String((req.body || {}).id || '');
+  try {
+    const d = await store.getDoc('fin_scenarios');
+    const list = (Array.isArray(d && d.scenarios) ? d.scenarios : []).filter((x) => x.id !== id);
+    await store.setDoc('fin_scenarios', { scenarios: list }, req.user.login);
+    res.json({ ok: true, scenarios: list });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ---------- Finance: versões congeladas do P&L (apresentação p/ board) ----------
 // [{ id, name, savedAt, snapshot: {...números calculados} }] — snapshot é read-only, guardado como veio.
 app.get('/api/finance/pnl-versions', requireGiga, async (req, res) => {

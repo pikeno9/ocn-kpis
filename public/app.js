@@ -1962,11 +1962,14 @@
   let sgaTab = 'hc', cacTab = 'comm'; // abas de 3º nível dentro de SG&A e CAC & Marketing
   let pnlNoSd = false; // P&L: excluir o sub-rental security deposit da visão
   let pnlNoIdr = false; // P&L: tirar o efeito da InDrive da conta (mesma mecânica do "No deposit")
-  let pnlCollapsed = new Set(['grev', 'tax', 'cogs', 'opex', 'cac', 'sga', 'hc']); // grupos recolhidos (padrão: fechados)
+  // padrão: Gross Revenue e OPEX abertos (é o que se olha primeiro); o resto fechado
+  let pnlCollapsed = new Set(['tax', 'cogs', 'cac', 'sga', 'hc']);
   let pnlVersions = [], pnlVersion = 'live';
+  let pnlScenarios = [];   // cenários salvos: máscaras de premissas recalculadas ao vivo
   let pnlSimScale = 100; // simulador de frota: % das entregas do Fleet Plan
   let pnlSimApply = false; // máscara: aplica a simulação na PRÓPRIA tabela do P&L
-  let dashCharts = {}, dashLine = 'Gross Revenue'; // gráficos do Dashboard + linha do explorador
+  let dashCharts = {}, dashLine = 'Gross Revenue'; // gráficos do Dashboard + totalizador escolhido
+  let dashSpan = 'y0';   // 'y0' = ano-base · 'y1' = ano seguinte · 'both' = os dois emendados
   let finActCache = {}; // cache do realizado consolidado (por ano) — o solver chama computePnl em série // versões congeladas p/ board + versão selecionada
   const FIN_MONTHS = 12; // 2026-01 .. 2026-12
   const FIN_BASE_YEAR = 2026;                 // ano-base das coortes (índice absoluto de mês)
@@ -2240,16 +2243,22 @@
     }
     function computePnl(opts) {
       opts = opts || {};
-      const fx = finPar('__fin_fx__') || 5.5;
-      const taxFed = finPar('__fin_tax_fed__') / 100, taxCred = finPar('__fin_tax_credit__') / 100;
-      const payFeeM = (m) => finParM('__fin_payfee__', m) / 100, decomm = finPar('__fin_decomm__') / 100;
+      // CENÁRIO: máscara de premissas por cima do modelo. Nada aqui é número guardado — o P&L é
+      // recalculado com os overrides, então o cenário continua válido quando os dados mudam.
+      const ov = opts.ov || {};
+      const has = (k) => ov[k] != null && isFinite(ov[k]);
+      const fx = has('fx') ? ov.fx : (finPar('__fin_fx__') || 5.5);
+      const taxFed = (has('taxFed') ? ov.taxFed : finPar('__fin_tax_fed__')) / 100;
+      const taxCred = (has('taxCred') ? ov.taxCred : finPar('__fin_tax_credit__')) / 100;
+      const payFeeM = (m) => (has('payFee') ? ov.payFee : finParM('__fin_payfee__', m)) / 100;
+      const decomm = (has('decomm') ? ov.decomm : finPar('__fin_decomm__')) / 100;
       const WEEKLY_LINES = { 'Subscription': 1, 'Late-payment interest': 1 };   // semanal × semanas pagas
       const BILLABLE_LINES = { 'Subrental fee': 1 };                            // mensal × billable ratio
       const maints = {}; finModels.forEach((m) => { maints[m.id] = uetMaint(finModelVals[m.id] || {}, m.id); });
       const zeros = () => new Array(FIN_MONTHS).fill(0);
       const rev = {}, cogs = {}; FIN_REV_LINES.forEach((l) => rev[l] = zeros()); FIN_COGS_LINES.forEach((l) => cogs[l] = zeros());
       const delivered = zeros(), active = zeros(), secDep = zeros(), vehPur = zeros();
-      const scale = opts.scale || 1;               // simulador: multiplica as entregas do Fleet Plan
+      const scale = (opts.scale || 1) * (has('scale') ? ov.scale : 1); // simulador × cenário nas entregas
       const cohorts = opts.extra ? finCohorts.concat(opts.extra) : finCohorts; // coortes sintéticas (solver)
       for (let m = 0; m < FIN_MONTHS; m++) {
         cohorts.forEach((c) => {
@@ -2341,7 +2350,7 @@
       // Fica FORA do orçado (é um evento concreto, não fazia parte da projeção original) e sai da
       // conta quando o botão "InDrive" do P&L está desligado.
       let indriveTot = 0;
-      if (!opts.noIndrive && !opts.budget && indriveOn()) {
+      if (!opts.noIndrive && !ov.noIndrive && !opts.budget && indriveOn()) {
         indriveData.batches.forEach((b) => {
           if (String(b.date).slice(0, 4) !== String(finYear)) return;
           const m = parseInt(String(b.date).slice(5, 7), 10) - 1;
@@ -2353,7 +2362,7 @@
       }
       // visão "sem sub-rental security deposit": zera o calção E a devolução dele (refund) — os dois
       // lados da mesma moeda; deixar só um distorceria o cashflow
-      if (opts.noSd) { secDep.fill(0); if (rev['Security Deposit Refund']) rev['Security Deposit Refund'].fill(0); }
+      if (opts.noSd || ov.noSd) { secDep.fill(0); if (rev['Security Deposit Refund']) rev['Security Deposit Refund'].fill(0); }
       const grossRev = zeros(), cogsTot = zeros();
       for (let m = 0; m < FIN_MONTHS; m++) {
         FIN_REV_LINES.forEach((L) => grossRev[m] += rev[L][m]);
@@ -2377,7 +2386,8 @@
           if (m === FIN_MONTHS - 1) { th13[m] -= n * r.salary * th13f; bonus[m] -= n * r.bonus; } // 13º e bônus em dezembro
         });
       }
-      const hcTot = zeros(); for (let m = 0; m < FIN_MONTHS; m++) hcTot[m] = base[m] + meal[m] + health[m] + ptax[m] + th13[m] + bonus[m];
+      const hcK = has('hcScale') ? ov.hcScale : 1;   // cenário: multiplicador da folha
+      const hcTot = zeros(); for (let m = 0; m < FIN_MONTHS; m++) hcTot[m] = (base[m] + meal[m] + health[m] + ptax[m] + th13[m] + bonus[m]) * hcK;
       // CAC (referenciado, como no Excel): comissão = USD/carro × carros ENTREGUES no mês;
       // Ads = soma dos canais; Influenciadores = nº de perfis do mês × preço por perfil.
       const newDelivered = zeros(); cohorts.forEach((c) => { const cm = cohMonth(c) - FIN_YOFF(); if (cm >= 0 && cm < FIN_MONTHS) newDelivered[cm] += c.qty * scale; });
@@ -2387,9 +2397,10 @@
         (finCac.ads || []).forEach((a) => { adsTot[m] -= Number((a.v || [])[m]) || 0; });
         (finCac.inf || []).forEach((t) => { infTot[m] -= (Number((t.profiles || [])[m]) || 0) * (t.price || 0); });
       }
-      const cacTot = zeros(); for (let m = 0; m < FIN_MONTHS; m++) cacTot[m] = commission[m] + adsTot[m] + infTot[m];
+      const cacK = has('cacScale') ? ov.cacScale : 1, sgaK = has('sgaScale') ? ov.sgaScale : 1;
+      const cacTot = zeros(); for (let m = 0; m < FIN_MONTHS; m++) cacTot[m] = (commission[m] + adsTot[m] + infTot[m]) * cacK;
       // SG&A – Admin: soma dos itens de cada tabela (Rent & Utilities / Professional Services / IT)
-      const sumItems = (list) => { const a = zeros(); (list || []).forEach((it) => { for (let m = 0; m < FIN_MONTHS; m++) a[m] -= Number((it.v || [])[m]) || 0; }); return a; };
+      const sumItems = (list) => { const a = zeros(); (list || []).forEach((it) => { for (let m = 0; m < FIN_MONTHS; m++) a[m] -= (Number((it.v || [])[m]) || 0) * sgaK; }); return a; };
       const rentTot = sumItems(finSga.rent), profTot = sumItems(finSga.prof), itTot = sumItems(finSga.it);
       const sga = zeros(); for (let m = 0; m < FIN_MONTHS; m++) sga[m] = hcTot[m] + rentTot[m] + profTot[m] + itTot[m];
       const opex = zeros(); for (let m = 0; m < FIN_MONTHS; m++) opex[m] = cacTot[m] + sga[m]; // #2: secDep saiu daqui (foi pro COGS)
@@ -2419,15 +2430,17 @@
     let pnlActualsThrough = null; // último mês calendário coberto por dados realizados
     function renderPnl() {
       const el = document.getElementById('pnlTable'); if (!el) return;
-      // 3 modos: Live (realizado + projeção), Budget (orçado: só UE Teórico, sem realizado) e as
-      // versões congeladas (snapshot salvo). Budget e congelada não aceitam o simulador de frota.
+      // 4 modos: Live (realizado + projeção), Budget (orçado: só UE Teórico, sem realizado),
+      // CENÁRIO (máscara de premissas, recalculada ao vivo) e versão congelada (snapshot salvo).
+      // Só o Live aceita o simulador de frota e os botões de what-if.
       const budget = pnlVersion === 'budget';
-      const snap = (pnlVersion === 'live' || budget) ? null : pnlSnap();
-      const live = !snap && !budget;
+      const scen = pnlScenarios.find((x) => x.id === pnlVersion) || null;
+      const snap = (pnlVersion === 'live' || budget || scen) ? null : pnlSnap();
+      const live = !snap && !budget && !scen;
       const simOn = live && pnlSimApply && pnlSimScale !== 100;
       // baseOpts = as opções que geraram P; guardadas p/ quem precisa recalcular em cima da MESMA
       // base (ex.: o cartão "+1 car today"). Fica null nas versões congeladas — lá não há motor.
-      const baseOpts = snap ? null : { budget, noSd: pnlNoSd, noIndrive: pnlNoIdr, scale: simOn ? pnlSimScale / 100 : 1 };
+      const baseOpts = snap ? null : { budget, noSd: pnlNoSd, noIndrive: pnlNoIdr, scale: simOn ? pnlSimScale / 100 : 1, ov: scen ? scen.ov : null };
       const P = snap || computePnl(baseOpts);
       const sum = (a) => a.reduce((s, x) => s + (x || 0), 0);
       const gmPct = P.grossRev.map((v, m) => (v ? (P.gm[m] / v) * 100 : null));
@@ -2501,25 +2514,169 @@
       renderPnlControls(live);
       renderPnlExtras(P, live, baseOpts);
     }
+    // ---------- seletor de versão do P&L (dropdown próprio, não o <select> nativo) ----------
+    // Agrupa Live · Budget · Cenários · Congeladas e mostra o que cada um É, não só o nome.
+    const SCEN_FIELDS = [
+      { k: 'scale', label: 'Deliveries', hint: '× on the Fleet Plan', unit: '×', dflt: 1, min: 0.05, max: 10, step: 0.05 },
+      { k: 'fx', label: 'FX', hint: 'R$ per US$', unit: '', dflt: null, min: 1, max: 20, step: 0.05, from: () => finPar('__fin_fx__') || 5.5 },
+      { k: 'taxFed', label: 'Federal tax', hint: 'on gross revenue', unit: '%', dflt: null, min: 0, max: 60, step: 0.1, from: () => finPar('__fin_tax_fed__') },
+      { k: 'taxCred', label: 'Tax credit', hint: 'on gross revenue', unit: '%', dflt: null, min: 0, max: 60, step: 0.1, from: () => finPar('__fin_tax_credit__') },
+      { k: 'payFee', label: 'Processing fee', hint: 'flat, all months', unit: '%', dflt: null, min: 0, max: 20, step: 0.1, from: () => finParM('__fin_payfee__', 0) },
+      { k: 'decomm', label: 'Decommissioning', hint: 'monthly fleet drop', unit: '%', dflt: null, min: 0, max: 20, step: 0.1, from: () => finPar('__fin_decomm__') },
+      { k: 'cacScale', label: 'CAC', hint: '× on acquisition', unit: '×', dflt: 1, min: 0, max: 10, step: 0.05 },
+      { k: 'sgaScale', label: 'SG&A admin', hint: '× on rent/services/IT', unit: '×', dflt: 1, min: 0, max: 10, step: 0.05 },
+      { k: 'hcScale', label: 'Payroll', hint: '× on headcount cost', unit: '×', dflt: 1, min: 0, max: 10, step: 0.05 },
+    ];
+    const scenBase = (f) => (f.from ? f.from() : f.dflt);
+    // resumo curto do que o cenário muda — vira o chip ao lado do seletor
+    function scenSummary(s) {
+      if (!s || !s.ov) return '';
+      const out = [];
+      SCEN_FIELDS.forEach((f) => {
+        const v = s.ov[f.k]; if (v == null) return;
+        const base = scenBase(f);
+        if (base != null && Math.abs(v - base) < 1e-9) return;
+        out.push(f.label + ' ' + (f.unit === '×' ? String(Math.round(v * 100) / 100).replace('.', ',') + '×' : String(Math.round(v * 100) / 100).replace('.', ',') + f.unit));
+      });
+      if (s.ov.noSd) out.push('no deposit');
+      if (s.ov.noIndrive) out.push('no InDrive');
+      return out.join(' · ');
+    }
+    function verPicker() {
+      const scen = pnlScenarios.find((x) => x.id === pnlVersion);
+      const frozen = pnlVersions.find((x) => x.id === pnlVersion);
+      const cur = pnlVersion === 'live' ? { ic: '●', cls: 'live', name: 'Live', sub: 'actuals + forecast' }
+        : pnlVersion === 'budget' ? { ic: '◆', cls: 'budget', name: 'Budget', sub: 'Theoric UE per car' }
+        : scen ? { ic: '◇', cls: 'scen', name: scen.name, sub: 'scenario' }
+        : { ic: '📌', cls: 'frozen', name: (frozen && frozen.name) || '—', sub: 'frozen' };
+      return `<div class="pnl-vp" id="pnlVp">` +
+        `<button type="button" class="pnl-vp-btn ${cur.cls}" id="pnlVpBtn">` +
+          `<span class="pnl-vp-ic">${cur.ic}</span>` +
+          `<span class="pnl-vp-txt"><b>${escH(cur.name)}</b><i>${escH(cur.sub)}</i></span>` +
+          `<span class="pnl-vp-car">▾</span></button>` +
+        `<div class="pnl-vp-pop" id="pnlVpPop" hidden></div></div>`;
+    }
+    function wireVerPicker() {
+      const btn = document.getElementById('pnlVpBtn'), pop = document.getElementById('pnlVpPop');
+      if (!btn || !pop) return;
+      const groups = [
+        { t: '', items: [{ id: 'live', ic: '●', cls: 'live', n: 'Live', s: 'actuals + forecast' },
+                         { id: 'budget', ic: '◆', cls: 'budget', n: 'Budget', s: 'Fleet Plan × Theoric UE, no actuals' }] },
+        { t: 'Scenarios', items: pnlScenarios.map((v) => ({ id: v.id, ic: '◇', cls: 'scen', n: v.name, s: scenSummary(v) || 'same as Live' })) },
+        { t: 'Frozen', items: pnlVersions.map((v) => ({ id: v.id, ic: '📌', cls: 'frozen', n: v.name, s: (v.savedAt || '').slice(0, 10) })) },
+      ].filter((g) => g.items.length);
+      pop.innerHTML = groups.map((g) => (g.t ? `<div class="pnl-vp-h">${g.t}</div>` : '') + g.items.map((i) =>
+        `<button type="button" class="pnl-vp-o${pnlVersion === i.id ? ' on' : ''}" data-v="${escH(i.id)}">` +
+        `<span class="pnl-vp-ic ${i.cls}">${i.ic}</span><span class="pnl-vp-txt"><b>${escH(i.n)}</b><i>${escH(i.s)}</i></span></button>`).join('')).join('');
+      const close = () => { pop.hidden = true; btn.classList.remove('open'); document.removeEventListener('click', out); };
+      const out = (e) => { if (!document.getElementById('pnlVp').contains(e.target)) close(); };
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (pop.hidden) { pop.hidden = false; btn.classList.add('open'); setTimeout(() => document.addEventListener('click', out), 0); } else close();
+      });
+      pop.querySelectorAll('.pnl-vp-o').forEach((b) => b.addEventListener('click', () => { pnlVersion = b.dataset.v; close(); renderPnl(); }));
+    }
+
+    // ---------- cenário: máscara de premissas ----------
+    function openScenModal(scen) {
+      const ov = Object.assign({}, (scen && scen.ov) || {});
+      const ov0 = Object.assign({}, ov);
+      const ovl = document.createElement('div'); ovl.className = 'ue-modal-overlay';
+      ovl.innerHTML = `<div class="ue-modal ue-modal-scen"></div>`;
+      document.body.appendChild(ovl);
+      const box = ovl.querySelector('.ue-modal-scen');
+      const close = () => ovl.remove();
+      function draw() {
+        const P0 = computePnl({ noSd: pnlNoSd, noIndrive: pnlNoIdr });
+        const P1 = computePnl({ noSd: pnlNoSd, noIndrive: pnlNoIdr, ov });
+        const eoy = (P) => (P.accCf || [])[FIN_MONTHS - 1] || 0;
+        const d = eoy(P1) - eoy(P0);
+        box.innerHTML =
+          `<div class="ue-modal-title">${scen ? 'Edit scenario' : 'New scenario'}</div>` +
+          `<div class="ue-modal-sub">A mask over the assumptions — nothing is frozen here. The P&amp;L is recomputed with these values every time you open it, so the scenario keeps up with new data.</div>` +
+          `<label class="scen-name"><span>Name</span><input id="scenName" type="text" maxlength="60" placeholder="e.g. Slower ramp, cheaper CAC" value="${escH((scen && scen.name) || '')}"></label>` +
+          `<div class="scen-grid">` + SCEN_FIELDS.map((f) => {
+            const base = scenBase(f);
+            const val = ov[f.k] != null ? ov[f.k] : base;
+            const changed = ov[f.k] != null && base != null && Math.abs(ov[f.k] - base) > 1e-9;
+            return `<div class="scen-f${changed ? ' on' : ''}">` +
+              `<div class="scen-f-top"><label>${escH(f.label)}</label>` +
+                `<span class="scen-f-v">${String(Math.round(val * 100) / 100).replace('.', ',')}${f.unit}</span></div>` +
+              `<input type="range" data-k="${f.k}" min="${f.min}" max="${f.max}" step="${f.step}" value="${val}">` +
+              `<div class="scen-f-b">${escH(f.hint)} · base ${String(Math.round(base * 100) / 100).replace('.', ',')}${f.unit}` +
+                (changed ? ` <button type="button" class="scen-rst" data-k="${f.k}">reset</button>` : '') + `</div></div>`;
+          }).join('') + `</div>` +
+          `<div class="scen-toggles">` +
+            `<label class="scen-t"><input type="checkbox" data-b="noSd"${ov.noSd ? ' checked' : ''}><span>Drop the sub-rental deposit (and its refund)</span></label>` +
+            `<label class="scen-t"><input type="checkbox" data-b="noIndrive"${ov.noIndrive ? ' checked' : ''}><span>Drop the InDrive benefit</span></label>` +
+          `</div>` +
+          `<div class="scen-out"><span>End-of-year cash vs Live</span><b class="${d >= 0 ? 'up' : 'down'}">${d >= 0 ? '+' : '−'}US$ ${fmtQty(Math.abs(d))}</b>` +
+            `<i>US$ ${fmtQty(eoy(P1))} against US$ ${fmtQty(eoy(P0))}</i></div>` +
+          `<div class="ue-modal-actions">` +
+            `<button type="button" class="ue-modal-cancel">Cancel</button>` +
+            `<button type="button" class="ue-modal-save" id="scenSave">${scen ? 'Save changes' : 'Create scenario'}</button></div>`;
+        box.querySelectorAll('input[type=range]').forEach((inp) => {
+          inp.addEventListener('input', () => {
+            const f = SCEN_FIELDS.find((x) => x.k === inp.dataset.k);
+            const el = inp.parentElement.querySelector('.scen-f-v');
+            if (el) el.textContent = String(Math.round(Number(inp.value) * 100) / 100).replace('.', ',') + f.unit;
+          });
+          inp.addEventListener('change', () => { ov[inp.dataset.k] = Number(inp.value); draw(); });
+        });
+        box.querySelectorAll('.scen-rst').forEach((b) => b.addEventListener('click', () => { delete ov[b.dataset.k]; draw(); }));
+        box.querySelectorAll('input[type=checkbox]').forEach((c) => c.addEventListener('change', () => { if (c.checked) ov[c.dataset.b] = true; else delete ov[c.dataset.b]; draw(); }));
+        box.querySelector('.ue-modal-cancel').addEventListener('click', close);
+        box.querySelector('#scenSave').addEventListener('click', save);
+      }
+      async function save() {
+        const name = (box.querySelector('#scenName').value || '').trim();
+        if (!name) { box.querySelector('#scenName').focus(); return; }
+        const btn = box.querySelector('#scenSave'); btn.disabled = true; btn.textContent = 'Saving…';
+        try {
+          const body = { name, ov };
+          if (scen) body.id = scen.id;
+          const r = await fetch('/api/finance/scenarios', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(body) });
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
+          pnlScenarios = d.scenarios; pnlVersion = d.saved;
+          close(); renderPnl();
+        } catch (e) { btn.disabled = false; btn.textContent = scen ? 'Save changes' : 'Create scenario'; alert('Could not save: ' + e.message); }
+      }
+      ovl.addEventListener('click', (e) => { if (e.target === ovl) close(); });
+      draw();
+      const n = box.querySelector('#scenName'); if (n && !scen) n.focus();
+      void ov0;
+    }
+    async function deleteScenario(scen) {
+      if (!scen) return;
+      if (!window.confirm('Delete the scenario "' + scen.name + '"?')) return;
+      try {
+        const r = await fetch('/api/finance/scenarios/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: scen.id }) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
+        pnlScenarios = d.scenarios; pnlVersion = 'live'; renderPnl();
+      } catch (e) { alert('Could not delete: ' + e.message); }
+    }
     function renderPnlControls(live) {
       const ctl = document.getElementById('pnlControls'); if (!ctl) return;
       const budget = pnlVersion === 'budget';
-      const opts = ['<option value="live"' + (pnlVersion === 'live' ? ' selected' : '') + '>● Live</option>',
-        '<option value="budget"' + (budget ? ' selected' : '') + '>◆ Budget</option>']
-        .concat(pnlVersions.map((v) => `<option value="${v.id}"${pnlVersion === v.id ? ' selected' : ''}>${escH(v.name)}</option>`)).join('');
+      const scen = pnlScenarios.find((x) => x.id === pnlVersion) || null;
       let h = '<div class="pnl-bar">';
       // seletor de ANO (2026 · 2027) — o P&L e o Fleet Plan seguem o ano escolhido
       h += '<div class="pnl-years">' + [FIN_BASE_YEAR, FIN_BASE_YEAR + 1].map((y) =>
         `<button class="pnl-yr${finYear === y ? ' on' : ''}" data-y="${y}">${y}</button>`).join('') + '</div>';
-      h += `<select id="pnlVer" class="pnl-sel" title="Version">${opts}</select>`;
-      if (isAdmin && live) h += '<button id="pnlSaveVer" class="pnl-btn" title="Freeze this P&L under a name (board presentation)">＋ Version</button>';
-      if (isAdmin && !live && !budget) h += '<button id="pnlDelVer" class="pnl-btn pnl-del" title="Delete this frozen version">🗑</button>';
+      h += verPicker();
+      if (isAdmin && live) h += '<button id="pnlSaveVer" class="pnl-btn" title="Freeze this P&L under a name (board presentation)">📌 Freeze</button>';
+      if (isAdmin) h += `<button id="pnlNewScen" class="pnl-btn pnl-scen-new" title="${scen ? 'Edit the assumptions of this scenario' : 'Create a scenario: a mask over the assumptions, recomputed live'}">${scen ? '✎ Edit scenario' : '＋ Scenario'}</button>`;
+      if (isAdmin && !live && !budget && !scen) h += '<button id="pnlDelVer" class="pnl-btn pnl-del" title="Delete this frozen version">🗑</button>';
+      if (isAdmin && scen) h += '<button id="pnlDelScen" class="pnl-btn pnl-del" title="Delete this scenario">🗑</button>';
       if (live) h += `<button id="pnlNoSdBtn" class="pnl-btn${pnlNoSd ? ' on' : ''}" title="What-if view without the sub-rental security deposit (and its refund)">No deposit</button>`;
       if (live && indriveOn()) h += `<button id="pnlIdrBtn" class="idr-btn idr-btn-sm${pnlNoIdr ? ' off' : ' on'}" title="${pnlNoIdr ? 'InDrive is OUT of the P&L — click to bring it back' : 'Click to remove the InDrive benefit from the P&L'}"><span class="idr-mark">iD</span><span class="idr-txt">InDrive</span><span class="idr-state">${pnlNoIdr ? 'off' : 'on'}</span></button>`;
       h += `<button id="pnlExpand" class="pnl-btn" title="${pnlCollapsed.size ? 'Expand all groups' : 'Collapse all groups'}">${pnlCollapsed.size ? '⤢' : '⤡'}</button>`;
       h += '<button id="pnlAssump" class="pnl-btn" title="Tax rates, processing fee (global and per month), FX and other assumptions">⚙ Assumptions</button>';
       h += '<button id="pnlInfo" class="pnl-btn pnl-info" title="Where each line comes from and how it updates">?</button>';
       if (budget) h += `<span class="pnl-budge">◆ Budget · per-car standard from the Theoric UE · no actuals</span>`;
+      else if (scen) h += `<span class="pnl-scenchip">◇ Scenario · ${escH(scenSummary(scen) || 'same as Live')}</span>`;
       else if (!live) { const v = pnlVersions.find((x) => x.id === pnlVersion); h += `<span class="pnl-frozen">📌 Frozen${v && v.savedAt ? ' · ' + v.savedAt.slice(0, 10) : ''}${v && v.snapshot && v.snapshot.noSd ? ' · no deposit' : ''}</span>`; }
       if (pnlActualsThrough != null) h += `<span class="pnl-act">actuals → ${monthLbl(pnlActualsThrough)}</span>`;
       if (live && pnlSimApply && pnlSimScale !== 100) h += `<span class="pnl-simchip">⚠ simulated · deliveries at ${pnlSimScale}%</span>`;
@@ -2530,7 +2687,9 @@
       }));
       const ab = document.getElementById('pnlAssump'); if (ab) ab.addEventListener('click', openAssumpModal);
       const ib = document.getElementById('pnlInfo'); if (ib) ib.addEventListener('click', openPnlInfo);
-      const sel = document.getElementById('pnlVer'); if (sel) sel.addEventListener('change', () => { pnlVersion = sel.value; renderPnl(); });
+      wireVerPicker();
+      const ns = document.getElementById('pnlNewScen'); if (ns) ns.addEventListener('click', () => openScenModal(scen));
+      const ds = document.getElementById('pnlDelScen'); if (ds) ds.addEventListener('click', () => deleteScenario(scen));
       const nb = document.getElementById('pnlNoSdBtn'); if (nb) nb.addEventListener('click', () => { pnlNoSd = !pnlNoSd; renderPnl(); });
       const idb = document.getElementById('pnlIdrBtn'); if (idb) idb.addEventListener('click', () => { pnlNoIdr = !pnlNoIdr; renderPnl(); });
       const eb = document.getElementById('pnlExpand'); if (eb) eb.addEventListener('click', () => { if (pnlCollapsed.size) pnlCollapsed.clear(); else pnlCollapsed = new Set(PNL_GROUPS); renderPnl(); });
@@ -3250,19 +3409,65 @@
     const dashLegend = (items) => '<div class="dash-leg">' + items.map((it) =>
       `<span class="dash-leg-i"><i class="dash-leg-s${it.dash ? ' dash' : ''}" style="--c:${it.color}"></i>${escH(it.label)}</span>`).join('') + '</div>';
 
+    // Junta dois anos num P&L só, para o dashboard poder mostrar 24 meses de uma vez.
+    // Funciona porque o accCf de 2027 já carrega o fechamento de 2026 — emendar os dois dá
+    // uma curva contínua, sem degrau nem reinício.
+    function concatPnl(A, B) {
+      const out = {};
+      Object.keys(A).forEach((k) => {
+        const a = A[k], b = B[k];
+        if (Array.isArray(a) && Array.isArray(b)) out[k] = a.concat(b);
+        else if (a && b && typeof a === 'object' && !Array.isArray(a)) {
+          out[k] = {}; Object.keys(a).forEach((l) => { out[k][l] = Array.isArray(a[l]) ? a[l].concat(b[l] || []) : a[l]; });
+        } else out[k] = a;
+      });
+      return out;
+    }
+    // Um gráfico de composição com 12 séries é ilegível. Mantém as N maiores do ano e junta o
+    // resto num "Other" — as pequenas continuam visíveis no cartão de ranking ao lado.
+    function topSeries(series, n) {
+      const fy = (a) => a.reduce((x, y) => x + (y || 0), 0);
+      const ranked = series.map((x) => ({ ...x, fy: Math.abs(fy(x.data)) })).filter((x) => x.fy > 0.5).sort((a, b) => b.fy - a.fy);
+      if (ranked.length <= n + 1) return ranked;
+      const keep = ranked.slice(0, n), rest = ranked.slice(n);
+      const other = rest[0].data.map((_, i) => rest.reduce((s, r) => s + (r.data[i] || 0), 0));
+      return keep.concat([{ label: 'Other (' + rest.length + ')', data: other, rest: rest.map((r) => r.label) }]);
+    }
+    // ranking anual das linhas — é aqui que as pequenas ficam legíveis
+    function rankRows(series, colors) {
+      const fy = (a) => a.reduce((x, y) => x + (y || 0), 0);
+      return series.map((x, i) => ({ label: x.label, v: fy(x.data) })).filter((x) => Math.abs(x.v) > 0.5)
+        .sort((a, b) => b.v - a.v).map((r, i) => ({ ...r, color: colors[i % colors.length] }));
+    }
     function renderDash() {
       if (!document.getElementById('dashLineCv')) return;
-      const PA = computePnl({});                    // realidade: actuals + forecast
-      const PP = computePnl({ budget: true });      // orçado: Fleet Plan × UE Teórico por carro, sem realizado
+      // span de anos: um ano só ou os dois emendados (24 colunas)
+      const anoDe = (y, fn) => { const keep = finYear; try { finYear = y; return fn(); } finally { finYear = keep; } };
+      const Y0 = FIN_BASE_YEAR, Y1 = FIN_BASE_YEAR + 1;
+      const spanYear = dashSpan === 'y1' ? Y1 : Y0;
+      let PA, PP, labels;
+      if (dashSpan === 'both') {
+        const a0 = anoDe(Y0, () => computePnl({})), a1 = anoDe(Y1, () => computePnl({}));
+        const p0 = anoDe(Y0, () => computePnl({ budget: true })), p1 = anoDe(Y1, () => computePnl({ budget: true }));
+        PA = concatPnl(a0, a1); PP = concatPnl(p0, p1);
+        PA.actualsThrough = a0.actualsThrough;   // realizado só existe no 1º ano
+        labels = anoDe(Y0, () => Array.from({ length: FIN_MONTHS }, (_, m) => monthLbl(m)))
+          .concat(anoDe(Y1, () => Array.from({ length: FIN_MONTHS }, (_, m) => monthLbl(m))));
+      } else {
+        PA = anoDe(spanYear, () => computePnl({}));
+        PP = anoDe(spanYear, () => computePnl({ budget: true }));
+        labels = anoDe(spanYear, () => Array.from({ length: FIN_MONTHS }, (_, m) => monthLbl(m)));
+      }
+      const NM = labels.length;                    // 12 ou 24 colunas
       const curM = PA.actualsThrough != null ? PA.actualsThrough : -1;
-      const labels = Array.from({ length: FIN_MONTHS }, (_, m) => monthLbl(m));
       const kill = (id) => { if (dashCharts[id]) { dashCharts[id].destroy(); delete dashCharts[id]; } };
       const fam = DASH_FAMILY(dashLine);
       const sum = (a) => (a || []).reduce((s, x) => s + (x || 0), 0);
       const combo = dashLine === 'Combinations';
-      const zz = () => new Array(FIN_MONTHS).fill(0);
+      const zz = () => new Array(NM).fill(0);
       const divv = (a, b) => a.map((v, m) => (b[m] ? v / b[m] : null));   // per-car, % etc: sem dividir por zero
       const cum = (a) => { let s = 0; return a.map((v) => (s += (v || 0))); };
+      const LAST = NM - 1;
       const pctFmt = (v) => Math.round(v) + '%';
 
       // ---------- gráfico principal ----------
@@ -3341,8 +3546,8 @@
 
       // ---------- cartões de baixo: mudam com o totalizador escolhido ----------
       // cada builder devolve { title, sub, legend?, draw(id) }
-      const stacked = (series) => (id) => {
-        const live = series.filter((s) => s.data.some((v) => Math.abs(v) > 0.5));
+      const stacked = (series, top) => (id) => {
+        const live = topSeries(series, top || 5);
         dashCharts[id] = new Chart(document.getElementById(id), {
           type: 'bar',
           data: { labels, datasets: live.map((s, i) => ({ label: s.label, data: s.data, backgroundColor: DASH_MIX[i % DASH_MIX.length], borderRadius: 3, borderSkipped: false })) },
@@ -3351,7 +3556,7 @@
             scales: { x: { stacked: true, grid: { display: false }, ticks: { color: DC.txt, font: { size: 9.5 } } },
               y: { stacked: true, grid: { color: DC.grid }, ticks: { color: DC.txt, font: { size: 9.5 }, callback: (v) => fmtQty(v) } } } },
         });
-        return dashLegend(live.map((s, i) => ({ label: s.label, color: DASH_MIX[i % DASH_MIX.length] })));
+        return dashLegend(live.map((s, i) => ({ label: s.label + (s.rest ? '' : ''), color: DASH_MIX[i % DASH_MIX.length] })));
       };
       const lines = (series, fmt) => (id) => {
         dashCharts[id] = new Chart(document.getElementById(id), {
@@ -3396,7 +3601,8 @@
       let cards;
       if (dashLine === 'Gross Revenue') {
         cards = [
-          { title: 'Revenue mix', sub: 'which line brings the money in, month by month', draw: stacked(revSeries(PA)) },
+          { title: 'Revenue mix', sub: 'top lines by the year; the rest grouped as "Other"', draw: stacked(revSeries(PA), 4) },
+          { title: 'Every revenue line, full year', sub: 'the small ones, readable', draw: hbars(rankRows(revSeries(PA), DASH_MIX)) },
           { title: 'Revenue per active car', sub: 'gross revenue ÷ active fleet · actual vs budget', draw: lines([
             { label: 'Actual + forecast', data: divv(PA.grossRev, PA.active), color: DASH_FAM.rev.color, fill: DASH_FAM.rev.fill },
             { label: 'Budget', data: divv(PP.grossRev, PP.active), color: DC.plan, dash: true, w: 2 },
@@ -3404,7 +3610,8 @@
         ];
       } else if (dashLine === 'COGS') {
         cards = [
-          { title: 'Cost mix', sub: 'what we spend to keep the fleet running', draw: stacked(cogsSeries(PA)) },
+          { title: 'Cost mix', sub: 'top blocks by the year; the rest grouped as "Other"', draw: stacked(cogsSeries(PA), 4) },
+          { title: 'Every cost line, full year', sub: 'the small ones, readable', draw: hbars(rankRows(cogsSeries(PA), DASH_MIX)) },
           { title: 'Cost per active car', sub: 'total COGS ÷ active fleet · actual vs budget', draw: lines([
             { label: 'Actual + forecast', data: divv(PA.cogsTot.map((v) => -v), PA.active), color: DASH_FAM.cogs.color, fill: DASH_FAM.cogs.fill },
             { label: 'Budget', data: divv(PP.cogsTot.map((v) => -v), PP.active), color: DC.plan, dash: true, w: 2 },
@@ -3444,7 +3651,7 @@
         ];
       } else if (dashLine === 'Net cashflow') {
         cards = [
-          { title: 'Accumulated cash', sub: (PA.carryIn ? 'carried over from ' + (finYear - 1) + ': US$ ' + fmtQty(PA.carryIn) + ' · ' : '') + 'breakeven = crossing the zero line', draw: lines([
+          { title: 'Accumulated cash', sub: (PA.carryIn && dashSpan !== 'both' ? 'carried over from ' + (spanYear - 1) + ': US$ ' + fmtQty(PA.carryIn) + ' · ' : '') + 'breakeven = crossing the zero line', draw: lines([
             { label: 'Actual + forecast', data: PA.accCf, color: DASH_FAM.res.color, fill: DASH_FAM.res.fill },
             { label: 'Budget', data: PP.accCf, color: DC.plan, dash: true, w: 2 },
           ]) },
@@ -3452,7 +3659,9 @@
         ];
       } else {
         // ---- Combinations: o que estas duas premissas fazem com o caixa ----
-        const PnoSd = computePnl({ noSd: true });                       // sem calção nem devolução
+        const PnoSd = dashSpan === 'both'
+          ? concatPnl(anoDe(Y0, () => computePnl({ noSd: true })), anoDe(Y1, () => computePnl({ noSd: true })))
+          : anoDe(spanYear, () => computePnl({ noSd: true }));            // sem calção nem devolução
         const insBack = cum((PA.cogs['Insurance'] || zz()).map((v) => -v)); // seguro é custo: devolver ao caixa
         const accNoIns = PA.accCf.map((v, m) => v + insBack[m]);
         const fy = (a) => sum(a);
@@ -3464,8 +3673,8 @@
           { label: 'GPS', v: -fy(PA.cogs['GPS'] || zz()), color: '#94A3B8' },
           { label: 'Traffic fines', v: -fy(PA.cogs['Traffic fines (out)'] || zz()), color: '#94A3B8' },
         ].filter((b) => Math.abs(b.v) > 1).sort((a, b) => b.v - a.v);
-        const dSd = (PnoSd.accCf[FIN_MONTHS - 1] || 0) - (PA.accCf[FIN_MONTHS - 1] || 0);
-        const dIns = (accNoIns[FIN_MONTHS - 1] || 0) - (PA.accCf[FIN_MONTHS - 1] || 0);
+        const dSd = (PnoSd.accCf[LAST] || 0) - (PA.accCf[LAST] || 0);
+        const dIns = (accNoIns[LAST] || 0) - (PA.accCf[LAST] || 0);
         cards = [
           { title: 'Security deposit & insurance — cash impact',
             sub: 'end-of-year cash moves US$ ' + fmtQty(dSd) + ' without the deposit and US$ ' + fmtQty(dIns) + ' without insurance',
@@ -3489,18 +3698,35 @@
       }
 
       // ---------- seletor de totalizador ----------
-      const sel = document.getElementById('dashLineSel');
-      if (sel && !sel.options.length) {
-        sel.innerHTML = DASH_LINES.map((n) => '<option value="' + escH(n) + '"' + (n === dashLine ? ' selected' : '') + '>' + escH(DASH_LABEL(n)) + '</option>').join('');
-        sel.addEventListener('change', () => { dashLine = sel.value; renderDash(); });
+      // seletor de totalizador (dropdown próprio, com o nome grande e o que ele mede embaixo)
+      const pick = document.getElementById('dashPick');
+      if (pick) {
+        const sub2 = { 'Gross Revenue': 'everything we invoice', 'COGS': 'what the fleet costs to run',
+          'Gross Margin': 'what survives the direct costs', 'OPEX': 'structure, people and acquisition',
+          'HC Payroll': 'the people line, in detail', 'Net cashflow': 'what actually hits the box',
+          'Combinations': 'correlations and what-ifs' };
+        pick.innerHTML =
+          '<button type="button" class="dash-pk-btn" id="dashPkBtn">' +
+            '<span class="dash-pk-dot" style="background:' + fam.color + '"></span>' +
+            '<span class="dash-pk-txt"><b>' + escH(DASH_LABEL(dashLine)) + '</b><i>' + escH(sub2[dashLine] || '') + '</i></span>' +
+            '<span class="dash-pk-car">▾</span></button>' +
+          '<div class="dash-pk-pop" id="dashPkPop" hidden>' + DASH_LINES.map((nm) =>
+            '<button type="button" class="dash-pk-o' + (nm === dashLine ? ' on' : '') + '" data-v="' + escH(nm) + '">' +
+            '<span class="dash-pk-dot" style="background:' + DASH_FAMILY(nm).color + '"></span>' +
+            '<span class="dash-pk-txt"><b>' + escH(DASH_LABEL(nm)) + '</b><i>' + escH(sub2[nm] || '') + '</i></span></button>').join('') + '</div>';
+        const pb = document.getElementById('dashPkBtn'), pp = document.getElementById('dashPkPop');
+        const closeP = () => { pp.hidden = true; pb.classList.remove('open'); document.removeEventListener('click', outP); };
+        const outP = (e) => { if (!pick.contains(e.target)) closeP(); };
+        pb.addEventListener('click', (e) => { e.stopPropagation(); if (pp.hidden) { pp.hidden = false; pb.classList.add('open'); setTimeout(() => document.addEventListener('click', outP), 0); } else closeP(); });
+        pp.querySelectorAll('.dash-pk-o').forEach((b) => b.addEventListener('click', () => { dashLine = b.dataset.v; closeP(); renderDash(); }));
       }
-      // filtros: só o seletor de ano
+      // filtros: ano-base · ano seguinte · os dois emendados
       const ft = document.getElementById('dashFilters');
       if (ft) {
-        ft.innerHTML = '<div class="pnl-years">' + [FIN_BASE_YEAR, FIN_BASE_YEAR + 1].map((y) => '<button class="pnl-yr' + (finYear === y ? ' on' : '') + '" data-y="' + y + '">' + y + '</button>').join('') + '</div>';
-        ft.querySelectorAll('.pnl-yr').forEach((b) => b.addEventListener('click', () => {
-          finYear = +b.dataset.y; finActCache = {}; refProfiles = buildProfiles(); renderDash(); renderPnl(); renderFleetPlan(); renderCac();
-        }));
+        const SPANS = [['y0', String(Y0)], ['y1', String(Y1)], ['both', Y0 + ' + ' + String(Y1).slice(2)]];
+        ft.innerHTML = '<div class="pnl-years">' + SPANS.map(([k, lbl]) =>
+          '<button class="pnl-yr' + (dashSpan === k ? ' on' : '') + '" data-s="' + k + '">' + lbl + '</button>').join('') + '</div>';
+        ft.querySelectorAll('.pnl-yr').forEach((b) => b.addEventListener('click', () => { dashSpan = b.dataset.s; renderDash(); }));
       }
     }
 
@@ -3522,6 +3748,7 @@
       refProfiles = buildProfiles();
       await loadIndrive();
       await loadPnlVersions();
+      try { const r = await fetch('/api/finance/scenarios', { credentials: 'include' }); const d = await r.json(); pnlScenarios = (d && d.scenarios) || []; } catch (e) { pnlScenarios = []; }
       renderFleetPlan(); renderHc(); renderAdmin(); renderCac(); renderAssump(); renderPnl();
       const dashTab = document.querySelector('.sub-tab[data-sub="findash"]');
       if (dashTab) dashTab.addEventListener('click', () => setTimeout(renderDash, 60));

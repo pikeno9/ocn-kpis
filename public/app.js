@@ -2076,9 +2076,11 @@
           prof['Maintenance'] = A();
           for (let n = 1; n <= 30; n++) {
             const pr = prices.find((x) => x.n === n); if (!pr) break;
-            const mo = Math.ceil(((n * 10000) / kmDia + 33) / MESd);
-            if (mo > 13) break;
-            prof['Maintenance'][Math.max(1, mo)] += -pr.valor * 0.75;
+            // corte pela REVISÃO (dentro do contrato); o pagamento com prazo pode cair no M13
+            const revMo = Math.ceil(((n * 10000) / kmDia) / MESd);
+            if (revMo > 12) break;
+            const payMo = Math.min(13, Math.ceil(((n * 10000) / kmDia + 33) / MESd));
+            prof['Maintenance'][Math.max(1, payMo)] += -pr.valor * 0.75;
           }
         }
         // Part Replacement: cruzamentos de km das peças no ritmo da frota
@@ -2228,21 +2230,27 @@
       const ACT = finActuals();
       let actualsThrough = null;
       if (ACT.any) {
+        // mês VIGENTE = realizado até hoje + fração restante do mês projetada pelo modelo
+        // (senão agosto no dia 3 mostraria só 3 dias de receita e pareceria um buraco)
+        const dimCal = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+        const diaHoje = parseInt(hojeIso.slice(8, 10), 10) || 1;
+        const remFrac = Math.max(0, (dimCal[curM] - diaHoje) / dimCal[curM]);
         for (let m = 0; m <= curM && m < FIN_MONTHS; m++) {
-          rev['Subscription'][m] = ACT.sub[m] / fx;
-          rev['Late-payment interest'][m] = ACT.late[m] / fx;
-          rev['Traffic fines'][m] = ACT.finesIn[m] / fx;
-          cogs['Maintenance'][m] = -ACT.maint[m] / fx;
-          cogs['Traffic fines (out)'][m] = -ACT.finesOut[m] / fx;
-          // linhas de agenda com os parâmetros REAIS de cada frota (item: subrental/seguro/GPS/prep/adesivo)
-          cogs['Subrental fee'][m] = -ACT.subr[m] / fx;
-          cogs['Insurance'][m] = -ACT.ins[m] / fx;
-          cogs['GPS'][m] = -ACT.gps[m] / fx;
-          cogs['Car Preparation'][m] = -ACT.prep[m] / fx;
-          cogs['Sticker'][m] = -ACT.stick[m] / fx;
-          cogs['Recovery cost'][m] = -ACT.rec[m] / fx;
-          cogs['Repair cost'][m] = -ACT.rep[m] / fx;
-          cogs['Part Replacement'][m] = -ACT.parts[m] / fx;
+          const blend = (arr, act) => (act / fx) + (m === curM ? (arr[m] || 0) * remFrac : 0);
+          rev['Subscription'][m] = blend(rev['Subscription'], ACT.sub[m]);
+          rev['Late-payment interest'][m] = blend(rev['Late-payment interest'], ACT.late[m]);
+          rev['Traffic fines'][m] = blend(rev['Traffic fines'], ACT.finesIn[m]);
+          cogs['Maintenance'][m] = blend(cogs['Maintenance'], -ACT.maint[m]);
+          cogs['Traffic fines (out)'][m] = blend(cogs['Traffic fines (out)'], -ACT.finesOut[m]);
+          // linhas de agenda com os parâmetros REAIS de cada frota (subrental/seguro/GPS/prep/adesivo)
+          cogs['Subrental fee'][m] = blend(cogs['Subrental fee'], -ACT.subr[m]);
+          cogs['Insurance'][m] = blend(cogs['Insurance'], -ACT.ins[m]);
+          cogs['GPS'][m] = blend(cogs['GPS'], -ACT.gps[m]);
+          cogs['Car Preparation'][m] = blend(cogs['Car Preparation'], -ACT.prep[m]);
+          cogs['Sticker'][m] = blend(cogs['Sticker'], -ACT.stick[m]);
+          cogs['Recovery cost'][m] = blend(cogs['Recovery cost'], -ACT.rec[m]);
+          cogs['Repair cost'][m] = blend(cogs['Repair cost'], -ACT.rep[m]);
+          cogs['Part Replacement'][m] = blend(cogs['Part Replacement'], -ACT.parts[m]);
         }
         const days = Math.max(1, (new Date(hojeIso + 'T12:00:00') - new Date('2026-04-01T12:00:00')) / 86400000);
         if (days > 30) {
@@ -3289,13 +3297,13 @@
         for (let n = 1; n <= 200; n++) {
           if (feitas[n]) continue;
           const alvo = kmOf(n);
-          if (alvo > kmDia * (SEMANAS_MES * 7) * (U.periods + 2)) break; // além do contrato
-          // dias até bater a km da revisão (0 se já passou) + prazo médio de pagamento
+          // o corte é pela REVISÃO (tem que acontecer dentro do contrato, M1..M12);
+          // o PAGAMENTO (revisão + prazo médio) pode passar do fim — cai no M13 (acerto pós-contrato)
           const diasAteRev = Math.max(0, (alvo - odo) / kmDia);
-          const quando = new Date(hoje.getTime() + (diasAteRev * MS) + prazo * MS);
-          const mo = moOf(quando);
-          if (mo > PMAX) break;                               // paga depois do fim do contrato
-          maintProjRS[Math.max(mo, 1)] += priceOf(n) * DESC;
+          const revMo = moOf(new Date(hoje.getTime() + diasAteRev * MS));
+          if (revMo > U.periods) break;
+          const payMo = Math.min(PMAX, moOf(new Date(hoje.getTime() + (diasAteRev * MS) + prazo * MS)));
+          maintProjRS[Math.max(payMo, 1)] += priceOf(n) * DESC;
         }
       });
       // ÷ carros ATIVOS do mês (mesma regra das demais linhas por carro); placa = sem divisão
@@ -3617,9 +3625,10 @@
         return { rs: n ? -par('__subrental_mensal__') * n * plateCut(period) : 0, perActive: true };
       }
       if (line === 'Maintenance' && maintReady) {
-        if (period === 0 || period === PMAX) return { rs: 0, perActive: true };
+        if (period === 0) return { rs: 0, perActive: true };
         // Realizado e projetado convivem no mesmo mês: uma nota já emitida com vencimento FUTURO é
         // custo comprometido (realizado), enquanto as revisões ainda sem pagamento entram projetadas.
+        // Vai até o M13: revisão feita perto do fim do contrato é paga (prazo médio) depois dele.
         return { rs: -(maintRealRS[period] || 0), rsProj: -(maintProjRS[period] || 0), perActive: true };
       }
       if (line === 'Insurance' && par('__ins_total__') > 0 && par('__ins_parcelas__') >= 1) {

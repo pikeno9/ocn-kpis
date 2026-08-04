@@ -1914,7 +1914,8 @@
   let sgaTab = 'hc', cacTab = 'comm'; // abas de 3º nível dentro de SG&A e CAC & Marketing
   let pnlNoSd = false; // P&L: excluir o sub-rental security deposit da visão
   let pnlCollapsed = new Set(['grev', 'tax', 'cogs', 'opex', 'cac', 'sga', 'hc']); // grupos recolhidos (padrão: fechados)
-  let pnlVersions = [], pnlVersion = 'live'; // versões congeladas p/ board + versão selecionada
+  let pnlVersions = [], pnlVersion = 'live';
+  let pnlSimScale = 100; // simulador de frota: % das entregas do Fleet Plan // versões congeladas p/ board + versão selecionada
   const FIN_MONTHS = 12; // 2026-01 .. 2026-12
   const FIN_BASE_YEAR = 2026;                 // ano-base das coortes (índice absoluto de mês)
   let finYear = FIN_BASE_YEAR;                 // ano exibido no P&L / Fleet Plan (2026 ou 2027)
@@ -2186,14 +2187,16 @@
       const zeros = () => new Array(FIN_MONTHS).fill(0);
       const rev = {}, cogs = {}; FIN_REV_LINES.forEach((l) => rev[l] = zeros()); FIN_COGS_LINES.forEach((l) => cogs[l] = zeros());
       const delivered = zeros(), active = zeros(), secDep = zeros(), vehPur = zeros();
+      const scale = opts.scale || 1;               // simulador: multiplica as entregas do Fleet Plan
       for (let m = 0; m < FIN_MONTHS; m++) {
         finCohorts.forEach((c) => {
           const cm = cohMonth(c);
           const M = FIN_YOFF() + m;                 // mês absoluto da coluna exibida (ano-base 2026)
           if (cm > M) return;
-          delivered[m] += c.qty;
+          const qty = c.qty * scale;
+          delivered[m] += qty;
           const age = M - cm;                       // 0 = mês de recebimento
-          const activeN = c.qty * Math.pow(1 - decomm, age);
+          const activeN = qty * Math.pow(1 - decomm, age);
           active[m] += activeN;
           const p = age + 1;                        // idade no UE (mês de entrega = M1)
           if (p > UET_PERIODS - 1) return;          // além do M13: contrato encerrado
@@ -2217,12 +2220,12 @@
             }
             if (age === 0) {                                        // one-offs do M0 caem no mês de entrega
               const v0 = val(L, 0);
-              if (v0 != null) bag[L][m] += (v0 * c.qty) / fx;
+              if (v0 != null) bag[L][m] += (v0 * qty) / fx;
             }
           };
           FIN_REV_LINES.forEach((L) => add(L, rev));
           FIN_COGS_LINES.forEach((L) => add(L, cogs));
-          if (age === 0) { const v0 = val('Security Deposit', 0); if (v0 != null) secDep[m] += (v0 * c.qty) / fx; }
+          if (age === 0) { const v0 = val('Security Deposit', 0); if (v0 != null) secDep[m] += (v0 * qty) / fx; }
           { const vp = val('Vehicle Purchase', p); if (vp != null) vehPur[m] += (vp * activeN) / fx; }
         });
       }
@@ -2496,27 +2499,101 @@
       ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
       ov.querySelector('.ue-modal-cancel').addEventListener('click', close);
     }
+    // breakeven de VERDADE: ignora os meses antes da operação começar (jan/26 não conta) e exige
+    // que o acumulado tenha ficado negativo antes de virar — senão "mês 1 sem operação" parece breakeven
+    function pnlBreakeven(P) {
+      const firstOp = (P.delivered || []).findIndex((d) => d > 0);
+      if (firstOp < 0) return null;
+      let wasNeg = false;
+      for (let m = firstOp; m < FIN_MONTHS; m++) {
+        const v = (P.accCf || [])[m] || 0;
+        if (v < 0) wasNeg = true;
+        else if (wasNeg) return m;
+      }
+      return null;
+    }
+    function pnlKpis(P) {
+      const sum = (a) => (a || []).reduce((s, x) => s + (x || 0), 0);
+      const firstOp = (P.delivered || []).findIndex((d) => d > 0);
+      const opMonths = [];
+      for (let m = 0; m < FIN_MONTHS; m++) if ((P.active || [])[m] > 0) opMonths.push(m);
+      const beIdx = pnlBreakeven(P);
+      // pico de caixa: o ponto mais fundo do acumulado — é o funding necessário para atravessar o vale
+      let peak = 0, peakM = null;
+      for (let m = Math.max(0, firstOp); m < FIN_MONTHS; m++) { const v = (P.accCf || [])[m] || 0; if (v < peak) { peak = v; peakM = m; } }
+      const arpu = opMonths.length ? opMonths.reduce((s, m) => s + (P.grossRev[m] / P.active[m]), 0) / opMonths.length : 0;
+      const totDeliv = (P.delivered || [])[FIN_MONTHS - 1] || 0;
+      const cacUnit = totDeliv ? (-sum(P.cacTot)) / totDeliv : 0;
+      const gmFY = sum(P.grossRev) ? (sum(P.gm) / sum(P.grossRev)) * 100 : 0;
+      const opexPct = sum(P.grossRev) ? (-sum(P.opex) / sum(P.grossRev)) * 100 : 0;
+      return { beIdx, peak, peakM, arpu, cacUnit, gmFY, opexPct, netFY: sum(P.netCf), eoy: (P.accCf || [])[FIN_MONTHS - 1] || 0, totDeliv, hcDec: (P.headcount || [])[FIN_MONTHS - 1] || 0 };
+    }
+    // caixa de UM carro ao longo da vida (M0..M13), pelo perfil de referência — "quanto vale 1 carro a mais"
+    function carLifetime(model) {
+      const prof = refProfiles && refProfiles[model];
+      if (!prof) return null;
+      const fx = finPar('__fin_fx__') || 5.5;
+      let total = 0, cum = 0, payback = null;
+      for (let p = 0; p < UET_PERIODS; p++) {
+        let mSum = 0;
+        Object.values(prof).forEach((arr) => { mSum += arr[p] || 0; });
+        total += mSum; cum += mSum;
+        if (payback == null && p > 0 && cum >= 0) payback = p;
+      }
+      return { total: total / fx, payback };
+    }
     function renderPnlExtras(P, live) {
       const ex = document.getElementById('pnlExtras'); if (!ex) return;
-      const sum = (a) => (a || []).reduce((s, x) => s + (x || 0), 0);
-      // ---- #4 indicadores complementares ----
-      const totDeliv = P.delivered[FIN_MONTHS - 1] || 0;
-      const cacUnit = totDeliv ? (-sum(P.cacTot)) / totDeliv : 0;
-      const hcDec = P.headcount ? P.headcount[FIN_MONTHS - 1] : 0;
-      const feeAvg = P.payFeePct ? (sum(P.payFeePct) / FIN_MONTHS) : 0;
-      const beIdx = P.accCf.findIndex((v) => v >= 0);
-      const gmFY = sum(P.grossRev) ? (sum(P.gm) / sum(P.grossRev)) * 100 : 0;
-      const tile = (label, val, sub) => `<div class="pnl-kpi"><div class="pnl-kpi-v">${val}</div><div class="pnl-kpi-l">${escH(label)}</div><div class="pnl-kpi-s">${escH(sub || '')}</div></div>`;
-      let h = '<div class="fin-sub">Complementary indicators</div><div class="pnl-kpis">';
-      h += tile('CAC per unit sold', 'US$ ' + fmtNum(cacUnit), totDeliv + ' delivered (FY)');
-      h += tile('Total headcount (Dec)', Math.round(hcDec), 'people on payroll');
-      h += tile('Processing fee', (Math.round(feeAvg * 100) / 100) + '%', 'avg / month');
-      h += tile('Breakeven month', beIdx >= 0 ? monthLbl(beIdx) : '—', beIdx >= 0 ? 'acc. cashflow turns +' : ('not within ' + finYear));
-      h += tile('Gross margin', Math.round(gmFY) + '%', 'FY-26E');
-      h += tile('Net cashflow (FY)', fmt(sum(P.netCf)), 'USD');
+      const K = pnlKpis(P);
+      const tile = (label, val, sub, cls) => `<div class="pnl-kpi${cls ? ' ' + cls : ''}"><div class="pnl-kpi-v">${val}</div><div class="pnl-kpi-l">${escH(label)}</div><div class="pnl-kpi-s">${escH(sub || '')}</div></div>`;
+      const money = (v) => (v < 0 ? '−' : '') + 'US$ ' + fmtNum(Math.abs(v));
+      let h = '';
+      // ---- caixa: os números que mandam ----
+      h += '<div class="fin-sub">Cash</div><div class="pnl-kpis">';
+      h += tile('Breakeven month', K.beIdx != null ? monthLbl(K.beIdx) : '—', K.beIdx != null ? 'acc. cashflow turns positive' : ('not within ' + finYear), K.beIdx != null ? 'pnl-good' : 'pnl-warn');
+      h += tile('Peak funding need', money(K.peak), K.peakM != null ? ('deepest at ' + monthLbl(K.peakM)) : 'no negative dip', 'pnl-warn');
+      h += tile('End-of-year cash', money(K.eoy), 'acc. net cashflow, ' + monthLbl(FIN_MONTHS - 1), K.eoy >= 0 ? 'pnl-good' : 'pnl-warn');
+      h += tile('Net cashflow (FY)', money(K.netFY), 'sum of the year');
       h += '</div>';
+      // ---- unit economics ----
+      const mixModels = ['Polo', 'Argo', 'Tera'].map((mo) => ({ mo, lt: carLifetime(mo) })).filter((x) => x.lt);
+      h += '<div class="fin-sub">Unit economics</div><div class="pnl-kpis">';
+      h += tile('Revenue / active car', money(K.arpu), 'avg per month (ARPU)');
+      h += tile('CAC per unit', money(K.cacUnit), K.totDeliv + ' cars delivered (FY)');
+      mixModels.forEach(({ mo, lt }) => {
+        h += tile('+1 ' + mo + ' lifetime cash', money(lt.total), lt.payback != null ? ('payback in M' + lt.payback) : 'no payback in contract', lt.total >= 0 ? 'pnl-good' : 'pnl-warn');
+      });
+      h += '</div>';
+      // ---- eficiência ----
+      h += '<div class="fin-sub">Efficiency</div><div class="pnl-kpis">';
+      h += tile('Gross margin', Math.round(K.gmFY) + '%', 'FY, over gross revenue');
+      h += tile('OPEX / revenue', Math.round(K.opexPct) + '%', 'CAC + SG&A over gross revenue');
+      h += tile('Headcount (Dec)', Math.round(K.hcDec), 'people on payroll');
+      h += '</div>';
+      // ---- simulador de frota (só na visão live) ----
+      if (live) {
+        h += '<div class="fin-sub">Fleet simulator</div>';
+        h += `<div class="pnl-sim"><div class="pnl-sim-top"><span class="pnl-sim-lbl">Deliveries at</span>` +
+          `<input type="range" id="pnlSimScale" min="50" max="200" step="5" value="${pnlSimScale}">` +
+          `<span class="pnl-sim-val" id="pnlSimVal">${pnlSimScale}%</span><span class="pnl-sim-hint">of the Fleet Plan</span></div>` +
+          `<div class="pnl-kpis" id="pnlSimOut"></div></div>`;
+      }
       ex.innerHTML = h;
-      ex.querySelectorAll('.pnl-fee').forEach((inp) => inp.addEventListener('change', () => savePnlFee(+inp.dataset.m, inp.value)));
+      if (live) {
+        const sl = document.getElementById('pnlSimScale');
+        const paint = () => {
+          document.getElementById('pnlSimVal').textContent = pnlSimScale + '%';
+          const S = computePnl({ noSd: pnlNoSd, scale: pnlSimScale / 100 });
+          const KS = pnlKpis(S);
+          const d = (a, b) => (b - a);
+          document.getElementById('pnlSimOut').innerHTML =
+            tile('Breakeven', KS.beIdx != null ? monthLbl(KS.beIdx) : '—', K.beIdx != null && KS.beIdx != null ? (KS.beIdx === K.beIdx ? 'same as plan' : ((KS.beIdx < K.beIdx ? 'earlier' : 'later') + ' by ' + Math.abs(KS.beIdx - K.beIdx) + ' mo')) : '', KS.beIdx != null ? 'pnl-good' : 'pnl-warn') +
+            tile('Peak funding', money(KS.peak), fmt(d(K.peak, KS.peak)) + ' vs plan', 'pnl-warn') +
+            tile('End-of-year cash', money(KS.eoy), fmt(d(K.eoy, KS.eoy)) + ' vs plan', KS.eoy >= 0 ? 'pnl-good' : 'pnl-warn') +
+            tile('Cars delivered', Math.round(KS.totDeliv), (pnlSimScale >= 100 ? '+' : '') + Math.round(KS.totDeliv - K.totDeliv) + ' vs plan');
+        };
+        if (sl) { sl.addEventListener('input', () => { pnlSimScale = +sl.value; paint(); }); paint(); }
+      }
     }
     async function savePnlFee(m, raw) {
       const num = parseInput(raw);
@@ -4191,9 +4268,13 @@
             `<div class="ue-fleet-sub">${subInfo}</div></div>` +
           `</div>` +
           `<div class="ue-head-actions">` +
-            `<div class="ue-cur-toggle" id="ueCurToggle">` +
-              `<button class="ue-cur-btn${currency === 'BRL' ? ' active' : ''}" data-c="BRL" title="Reais (R$)"><svg viewBox="0 0 20 14" class="ue-flag"><rect width="20" height="14" rx="2" fill="#009C3B"/><path d="M10 2.2 17.5 7 10 11.8 2.5 7Z" fill="#FFDF00"/><circle cx="10" cy="7" r="2.7" fill="#002776"/></svg></button>` +
-              `<button class="ue-cur-btn${currency === 'USD' ? ' active' : ''}" data-c="USD" title="US Dollars (US$)"><svg viewBox="0 0 20 14" class="ue-flag"><rect width="20" height="14" rx="2" fill="#fff"/><g fill="#B22234"><rect y="0" width="20" height="2"/><rect y="4" width="20" height="2"/><rect y="8" width="20" height="2"/><rect y="12" width="20" height="2"/></g><rect width="9" height="6" fill="#3C3B6E"/></svg></button>` +
+            // moeda + Clean view empilhados (o Clean fica logo abaixo das bandeiras)
+            `<div class="ue-actstack">` +
+              `<div class="ue-cur-toggle" id="ueCurToggle">` +
+                `<button class="ue-cur-btn${currency === 'BRL' ? ' active' : ''}" data-c="BRL" title="Reais (R$)"><svg viewBox="0 0 20 14" class="ue-flag"><rect width="20" height="14" rx="2" fill="#009C3B"/><path d="M10 2.2 17.5 7 10 11.8 2.5 7Z" fill="#FFDF00"/><circle cx="10" cy="7" r="2.7" fill="#002776"/></svg></button>` +
+                `<button class="ue-cur-btn${currency === 'USD' ? ' active' : ''}" data-c="USD" title="US Dollars (US$)"><svg viewBox="0 0 20 14" class="ue-flag"><rect width="20" height="14" rx="2" fill="#fff"/><g fill="#B22234"><rect y="0" width="20" height="2"/><rect y="4" width="20" height="2"/><rect y="8" width="20" height="2"/><rect y="12" width="20" height="2"/></g><rect width="9" height="6" fill="#3C3B6E"/></svg></button>` +
+              `</div>` +
+              `<button class="ue-clean2${cleanView ? ' on' : ''}" id="ueClean" title="Hide the budget comparison and show one combined number per month">✨ Clean view</button>` +
             `</div>` +
             `<button class="ue-tool-btn" id="ueParts" title="Replacement intervals and cost per part">⚙ Parts</button>` +
             (isAdmin ? `<label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Manual mode</span></label>` : '') +
@@ -4202,10 +4283,6 @@
           `</div>` +
         `</div>` +
         contractBar +
-        // Clean view fica entre a barra do contrato e as premissas; os sliders ficam colados na tabela
-        `<div class="ue-viewbar">` +
-          `<button class="ue-clean2${cleanView ? ' on' : ''}" id="ueClean" title="Hide the budget comparison and show one combined number per month">✨ Clean view</button>` +
-        `</div>` +
         `<div class="ue-sliders">` +
           slider('ueCotacao', 'future FX (R$/US$)', 3, 8, 0.05, cotacao) +
           slider('ueInad', 'delinquency rate (%)', 0, 50, 1, inadimplencia) +

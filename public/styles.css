@@ -494,7 +494,8 @@ html { scrollbar-gutter: stable; }
 /* ---- Cabeçalho das tabelas de UE (real + teórico) e do P&L: gradiente roxo, cantos suaves ---- */
 #ueTable thead th, #uetTable thead th, #pnlTable thead th { background: linear-gradient(180deg, #32006e, #23004e); color: #fff; font-size: 9.5px; letter-spacing: .5px; padding-top: 7px; padding-bottom: 7px; border-bottom: 2px solid #5A00F8; }
 #ueTable thead th.ue-rowlabel, #uetTable thead th.ue-rowlabel, #pnlTable thead th.ue-rowlabel { background: linear-gradient(180deg, #32006e, #23004e); border-top-left-radius: 8px; }
-#ueTable thead th.ue-totalcol, #uetTable thead th.ue-totalcol, #pnlTable thead th.ue-totalcol { background: linear-gradient(180deg, #5A00F8, #4700c4); border-top-right-radius: 8px; }
+#ueTable thead th.ue-totalcol, #uetTable thead th.ue-totalcol { background: linear-gradient(180deg, #5A00F8, #4700c4); border-top-right-radius: 8px; }
+#pnlTable thead th.ue-totalcol { background: linear-gradient(180deg, #32006e, #23004e); border-top-right-radius: 8px; border-left: 2px solid #5A00F8; }
 
 /* ---- Modal de peças: um cartão por peça, campos com unidade ---- */
 .ue-modal-parts { max-width: 430px; }
@@ -752,9 +753,9 @@ html { scrollbar-gutter: stable; }
 .ue-fleets { margin-bottom: 10px; }
 
 /* ---- P&L: faixa de frota acima dos meses ---- */
-#pnlTable thead tr.pnl-fleetrow th { background: #1b0040; border-bottom: 0; padding-top: 6px; padding-bottom: 3px; font-size: 9px; letter-spacing: .3px; }
-#pnlTable thead tr.pnl-fleetrow th.ue-rowlabel { background: #1b0040; border-top-left-radius: 8px; }
-#pnlTable thead tr.pnl-fleetrow th.ue-totalcol { background: #4700c4; border-top-right-radius: 8px; }
+#pnlTable thead tr.pnl-fleetrow th { background: #12002b; border-bottom: 2px solid #5A00F8; padding-top: 10px; padding-bottom: 8px; font-size: 9px; letter-spacing: .3px; }
+#pnlTable thead tr.pnl-fleetrow th.ue-rowlabel { background: #12002b; border-top-left-radius: 8px; color: #b9a6ff; }
+#pnlTable thead tr.pnl-fleetrow th.ue-totalcol { background: #12002b; border-top-right-radius: 8px; }
 #pnlTable thead tr:not(.pnl-fleetrow) th { border-top-left-radius: 0; border-top-right-radius: 0; }
 .pnl-fl-act { font-size: 11px; font-weight: 800; color: #fff; }
 .pnl-fl-new { font-size: 9.5px; font-weight: 700; color: #b9a6ff; margin-left: 4px; }
@@ -772,3 +773,23 @@ html { scrollbar-gutter: stable; }
 .asm-mo span { font-size: 9.5px; font-weight: 600; color: var(--text-2); text-align: center; text-transform: uppercase; }
 .asm-mo input { width: 100%; box-sizing: border-box; border: 1px solid var(--border-2); border-radius: 7px; padding: 5px 4px; font: inherit; font-size: 12.5px; font-weight: 600; text-align: center; color: var(--text); background: var(--surface); }
 .asm-mo input:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 2px #7c3aed26; }
+
+
+/* ---- KPIs do P&L: grupos + acentos de cor ---- */
+.pnl-kpi.pnl-good { border-left-color: #16a34a; }
+.pnl-kpi.pnl-good .pnl-kpi-v { color: #15803d; }
+.pnl-kpi.pnl-warn { border-left-color: #d97706; }
+.pnl-kpi.pnl-warn .pnl-kpi-v { color: #b45309; }
+/* simulador de frota */
+.pnl-sim { border: 1px solid var(--border-2); border-radius: 12px; padding: 14px 16px; background: color-mix(in srgb, var(--accent) 3%, var(--surface)); }
+.pnl-sim-top { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.pnl-sim-lbl { font-size: 12px; font-weight: 700; color: var(--text-2); text-transform: uppercase; letter-spacing: .04em; }
+.pnl-sim-top input[type=range] { flex: 1; min-width: 180px; max-width: 420px; accent-color: var(--accent); cursor: pointer; }
+.pnl-sim-val { font-size: 15px; font-weight: 800; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 999px; padding: 3px 12px; }
+.pnl-sim-hint { font-size: 11.5px; color: var(--text-2); }
+/* pilha moeda + clean view no cabeçalho do UE */
+.ue-actstack { display: flex; flex-direction: column; gap: 7px; align-items: stretch; }
+.ue-actstack .ue-clean2 { font-size: 11.5px; padding: 5px 12px; text-align: center; }
+/* botões de ferramenta: altura única, hover consistente, "?" centrado */
+.ue-tool-btn { display: inline-flex; align-items: center; justify-content: center; height: 34px; padding: 0 15px; box-shadow: 0 1px 2px #00000010; }
+.ue-info-btn { width: 34px; padding: 0; border-radius: 50%; font-size: 14px; }

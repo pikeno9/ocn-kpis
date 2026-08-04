@@ -1915,7 +1915,10 @@
   let pnlNoSd = false; // P&L: excluir o sub-rental security deposit da visão
   let pnlCollapsed = new Set(['grev', 'tax', 'cogs', 'opex', 'cac', 'sga', 'hc']); // grupos recolhidos (padrão: fechados)
   let pnlVersions = [], pnlVersion = 'live';
-  let pnlSimScale = 100; // simulador de frota: % das entregas do Fleet Plan // versões congeladas p/ board + versão selecionada
+  let pnlSimScale = 100; // simulador de frota: % das entregas do Fleet Plan
+  let pnlSimApply = false; // máscara: aplica a simulação na PRÓPRIA tabela do P&L
+  let dashCharts = {}, dashLine = 'Subscription'; // gráficos do Dashboard + linha do explorador
+  let finActCache = {}; // cache do realizado consolidado (por ano) — o solver chama computePnl em série // versões congeladas p/ board + versão selecionada
   const FIN_MONTHS = 12; // 2026-01 .. 2026-12
   const FIN_BASE_YEAR = 2026;                 // ano-base das coortes (índice absoluto de mês)
   let finYear = FIN_BASE_YEAR;                 // ano exibido no P&L / Fleet Plan (2026 ou 2027)
@@ -2188,8 +2191,9 @@
       const rev = {}, cogs = {}; FIN_REV_LINES.forEach((l) => rev[l] = zeros()); FIN_COGS_LINES.forEach((l) => cogs[l] = zeros());
       const delivered = zeros(), active = zeros(), secDep = zeros(), vehPur = zeros();
       const scale = opts.scale || 1;               // simulador: multiplica as entregas do Fleet Plan
+      const cohorts = opts.extra ? finCohorts.concat(opts.extra) : finCohorts; // coortes sintéticas (solver)
       for (let m = 0; m < FIN_MONTHS; m++) {
-        finCohorts.forEach((c) => {
+        cohorts.forEach((c) => {
           const cm = cohMonth(c);
           const M = FIN_YOFF() + m;                 // mês absoluto da coluna exibida (ano-base 2026)
           if (cm > M) return;
@@ -2235,9 +2239,9 @@
       // modela) seguem no ritmo histórico R$/dia.
       const hojeIso = (OCN.ue && OCN.ue.hoje) || new Date().toISOString().slice(0, 10);
       const curM = hojeIso.slice(0, 4) === String(finYear) ? parseInt(hojeIso.slice(5, 7), 10) - 1 : (parseInt(hojeIso.slice(0, 4), 10) > finYear ? FIN_MONTHS - 1 : -1);
-      const ACT = finActuals();
+      const ACT = finActCache[finYear] || (finActCache[finYear] = finActuals());
       let actualsThrough = null;
-      if (ACT.any) {
+      if (ACT.any && !opts.noActuals) {
         // mês VIGENTE = realizado até hoje + fração restante do mês projetada pelo modelo
         // (senão agosto no dia 3 mostraria só 3 dias de receita e pareceria um buraco)
         const dimCal = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
@@ -2301,7 +2305,7 @@
       const hcTot = zeros(); for (let m = 0; m < FIN_MONTHS; m++) hcTot[m] = base[m] + meal[m] + health[m] + ptax[m] + th13[m] + bonus[m];
       // CAC (referenciado, como no Excel): comissão = USD/carro × carros ENTREGUES no mês;
       // Ads = soma dos canais; Influenciadores = nº de perfis do mês × preço por perfil.
-      const newDelivered = zeros(); finCohorts.forEach((c) => { const cm = cohMonth(c) - FIN_YOFF(); if (cm >= 0 && cm < FIN_MONTHS) newDelivered[cm] += c.qty; });
+      const newDelivered = zeros(); cohorts.forEach((c) => { const cm = cohMonth(c) - FIN_YOFF(); if (cm >= 0 && cm < FIN_MONTHS) newDelivered[cm] += c.qty * scale; });
       const commission = zeros(), adsTot = zeros(), infTot = zeros();
       for (let m = 0; m < FIN_MONTHS; m++) {
         commission[m] = -(finCac.perUnit || 0) * newDelivered[m];
@@ -2331,7 +2335,8 @@
       const el = document.getElementById('pnlTable'); if (!el) return;
       const snap = (pnlVersion === 'live') ? null : pnlSnap();
       const live = !snap;
-      const P = snap || computePnl({ noSd: pnlNoSd });
+      const simOn = live !== false && pnlSimApply && pnlSimScale !== 100;
+      const P = snap || computePnl({ noSd: pnlNoSd, scale: simOn ? pnlSimScale / 100 : 1 });
       const sum = (a) => a.reduce((s, x) => s + (x || 0), 0);
       const gmPct = P.grossRev.map((v, m) => (v ? (P.gm[m] / v) * 100 : null));
       // árvore de linhas (grupos colapsáveis) — #1
@@ -2421,10 +2426,11 @@
       h += '<button id="pnlInfo" class="pnl-btn pnl-info" title="Where each line comes from and how it updates">?</button>';
       if (!live) { const v = pnlVersions.find((x) => x.id === pnlVersion); h += `<span class="pnl-frozen">📌 Frozen${v && v.savedAt ? ' · ' + v.savedAt.slice(0, 10) : ''}${v && v.snapshot && v.snapshot.noSd ? ' · no deposit' : ''}</span>`; }
       if (pnlActualsThrough != null) h += `<span class="pnl-act">actuals → ${monthLbl(pnlActualsThrough)}</span>`;
+      if (live && pnlSimApply && pnlSimScale !== 100) h += `<span class="pnl-simchip">⚠ simulated · deliveries at ${pnlSimScale}%</span>`;
       h += '</div>';
       ctl.innerHTML = h;
       ctl.querySelectorAll('.pnl-yr').forEach((b) => b.addEventListener('click', () => {
-        finYear = +b.dataset.y; refProfiles = buildProfiles(); renderPnl(); renderFleetPlan(); renderCac();
+        finYear = +b.dataset.y; finActCache = {}; refProfiles = buildProfiles(); renderPnl(); renderFleetPlan(); renderCac(); renderDash();
       }));
       const ab = document.getElementById('pnlAssump'); if (ab) ab.addEventListener('click', openAssumpModal);
       const ib = document.getElementById('pnlInfo'); if (ib) ib.addEventListener('click', openPnlInfo);
@@ -2548,42 +2554,33 @@
       const tile = (label, val, sub, cls) => `<div class="pnl-kpi${cls ? ' ' + cls : ''}"><div class="pnl-kpi-v">${val}</div><div class="pnl-kpi-l">${escH(label)}</div><div class="pnl-kpi-s">${escH(sub || '')}</div></div>`;
       const money = (v) => (v < 0 ? '−' : '') + 'US$ ' + fmtNum(Math.abs(v));
       let h = '';
-      // ---- caixa: os números que mandam ----
+      // ---- só o essencial: caixa + unit economics ----
       h += '<div class="fin-sub">Cash</div><div class="pnl-kpis">';
       h += tile('Breakeven month', K.beIdx != null ? monthLbl(K.beIdx) : '—', K.beIdx != null ? 'acc. cashflow turns positive' : ('not within ' + finYear), K.beIdx != null ? 'pnl-good' : 'pnl-warn');
       h += tile('Peak funding need', money(K.peak), K.peakM != null ? ('deepest at ' + monthLbl(K.peakM)) : 'no negative dip', 'pnl-warn');
       h += tile('End-of-year cash', money(K.eoy), 'acc. net cashflow, ' + monthLbl(FIN_MONTHS - 1), K.eoy >= 0 ? 'pnl-good' : 'pnl-warn');
-      h += tile('Net cashflow (FY)', money(K.netFY), 'sum of the year');
       h += '</div>';
-      // ---- unit economics ----
-      const mixModels = ['Polo', 'Argo', 'Tera'].map((mo) => ({ mo, lt: carLifetime(mo) })).filter((x) => x.lt);
       h += '<div class="fin-sub">Unit economics</div><div class="pnl-kpis">';
       h += tile('Revenue / active car', money(K.arpu), 'avg per month (ARPU)');
       h += tile('CAC per unit', money(K.cacUnit), K.totDeliv + ' cars delivered (FY)');
-      mixModels.forEach(({ mo, lt }) => {
-        h += tile('+1 ' + mo + ' lifetime cash', money(lt.total), lt.payback != null ? ('payback in M' + lt.payback) : 'no payback in contract', lt.total >= 0 ? 'pnl-good' : 'pnl-warn');
-      });
-      h += '</div>';
-      // ---- eficiência ----
-      h += '<div class="fin-sub">Efficiency</div><div class="pnl-kpis">';
       h += tile('Gross margin', Math.round(K.gmFY) + '%', 'FY, over gross revenue');
-      h += tile('OPEX / revenue', Math.round(K.opexPct) + '%', 'CAC + SG&A over gross revenue');
-      h += tile('Headcount (Dec)', Math.round(K.hcDec), 'people on payroll');
       h += '</div>';
       // ---- simulador de frota (só na visão live) ----
       if (live) {
         h += '<div class="fin-sub">Fleet simulator</div>';
         h += `<div class="pnl-sim"><div class="pnl-sim-top"><span class="pnl-sim-lbl">Deliveries at</span>` +
           `<input type="range" id="pnlSimScale" min="50" max="200" step="5" value="${pnlSimScale}">` +
-          `<span class="pnl-sim-val" id="pnlSimVal">${pnlSimScale}%</span><span class="pnl-sim-hint">of the Fleet Plan</span></div>` +
-          `<div class="pnl-kpis" id="pnlSimOut"></div></div>`;
+          `<span class="pnl-sim-val" id="pnlSimVal">${pnlSimScale}%</span>` +
+          `<label class="pnl-sim-mask"><input type="checkbox" id="pnlSimApply"${pnlSimApply ? ' checked' : ''}> apply to the table</label>` +
+          `<button class="pnl-btn" id="pnlBeSolver" title="How many extra cars to hit a target breakeven month">🎯 Breakeven target</button>` +
+          `</div><div class="pnl-kpis" id="pnlSimOut"></div></div>`;
       }
       ex.innerHTML = h;
       if (live) {
         const sl = document.getElementById('pnlSimScale');
         const paint = () => {
           document.getElementById('pnlSimVal').textContent = pnlSimScale + '%';
-          const S = computePnl({ noSd: pnlNoSd, scale: pnlSimScale / 100 });
+          const S = pnlSimScale === 100 ? P : computePnl({ noSd: pnlNoSd, scale: pnlSimScale / 100 });
           const KS = pnlKpis(S);
           const d = (a, b) => (b - a);
           document.getElementById('pnlSimOut').innerHTML =
@@ -2593,7 +2590,53 @@
             tile('Cars delivered', Math.round(KS.totDeliv), (pnlSimScale >= 100 ? '+' : '') + Math.round(KS.totDeliv - K.totDeliv) + ' vs plan');
         };
         if (sl) { sl.addEventListener('input', () => { pnlSimScale = +sl.value; paint(); }); paint(); }
+        const ap = document.getElementById('pnlSimApply');
+        if (ap) ap.addEventListener('change', () => { pnlSimApply = ap.checked; renderPnl(); });
+        const bs = document.getElementById('pnlBeSolver');
+        if (bs) bs.addEventListener('click', openBeSolver);
       }
+    }
+    // 🎯 solver: quantos carros A MAIS (numa data escolhida) para o breakeven bater no mês-alvo
+    function openBeSolver() {
+      const monthOpts = (sel) => Array.from({ length: FIN_MONTHS }, (_, m) => `<option value="${m}"${m === sel ? ' selected' : ''}>${monthLbl(m)}</option>`).join('');
+      const modelOpts = ['Tera', 'Polo', 'Argo'].map((mo, i) => `<option value="${mo}"${i === 0 ? ' selected' : ''}>${mo}</option>`).join('');
+      const curM = pnlActualsThrough != null ? pnlActualsThrough : 0;
+      const ov = document.createElement('div');
+      ov.className = 'ue-modal-overlay';
+      ov.innerHTML =
+        `<div class="ue-modal"><div class="ue-modal-title">🎯 Breakeven target</div>` +
+        `<div class="ue-modal-sub">How many EXTRA cars (on top of the Fleet Plan) we would need to receive for the accumulated cashflow to turn positive by the target month.</div>` +
+        `<div class="ue-modal-field"><label>Target breakeven month</label><select id="beTarget" class="pnl-sel">${monthOpts(FIN_MONTHS - 1)}</select></div>` +
+        `<div class="ue-modal-field"><label>Extra cars delivered in</label><select id="beWhen" class="pnl-sel">${monthOpts(Math.min(curM + 1, FIN_MONTHS - 1))}</select></div>` +
+        `<div class="ue-modal-field"><label>Model</label><select id="beModel" class="pnl-sel">${modelOpts}</select></div>` +
+        `<div class="be-result" id="beResult">Pick the target and press Solve.</div>` +
+        `<div class="ue-modal-actions"><button type="button" class="ue-modal-cancel">Close</button><button type="button" class="ue-modal-save" id="beRun">Solve</button></div></div>`;
+      document.body.appendChild(ov);
+      const close = () => ov.remove();
+      ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+      ov.querySelector('.ue-modal-cancel').addEventListener('click', close);
+      ov.querySelector('#beRun').addEventListener('click', () => {
+        const target = +ov.querySelector('#beTarget').value;
+        const when = +ov.querySelector('#beWhen').value;
+        const model = ov.querySelector('#beModel').value;
+        const out = ov.querySelector('#beResult');
+        const iso = finYear + '-' + String(when + 1).padStart(2, '0') + '-01';
+        const beWith = (extra) => pnlBreakeven(computePnl({ noSd: pnlNoSd, extra: extra > 0 ? [{ id: '_sim', model, date: iso, qty: extra }] : null }));
+        const base = beWith(0);
+        if (base != null && base <= target) { out.innerHTML = `Already there: the plan breaks even at <b>${monthLbl(base)}</b> without extra cars.`; return; }
+        // busca: passos crescentes até 3000 carros (checa monotonicidade na prática)
+        let found = null;
+        for (const e of [5, 10, 15, 20, 30, 40, 50, 75, 100, 150, 200, 300, 400, 500, 750, 1000, 1500, 2000, 3000]) {
+          const be = beWith(e);
+          if (be != null && be <= target) { found = e; break; }
+        }
+        if (found == null) { out.innerHTML = `Not achievable by ${monthLbl(target)} — even <b>+3.000 ${model}s</b> delivered in ${monthLbl(when)} don't turn the accumulated cash positive in time. The constraint is per-car economics/time, not volume.`; return; }
+        // refina para o mínimo dentro do intervalo encontrado
+        let lo = 0, hi = found;
+        while (hi - lo > 1) { const mid = Math.ceil((lo + hi) / 2); const be = beWith(mid); if (be != null && be <= target) hi = mid; else lo = mid; }
+        const be = beWith(hi);
+        out.innerHTML = `<b>+${hi} ${model}${hi > 1 ? 's' : ''}</b> delivered in <b>${monthLbl(when)}</b> → breakeven at <b>${monthLbl(be)}</b>` + (base != null ? ` (plan alone: ${monthLbl(base)})` : ' (plan alone: no breakeven this year)');
+      });
     }
     async function savePnlFee(m, raw) {
       const num = parseInput(raw);
@@ -3012,6 +3055,90 @@
       wireEditBar(el);
     }
 
+    // ---------- DASHBOARD: realizado + projetado vs plano (gráficos) ----------
+    // Paleta validada (dataviz): Actual #5A00F8 · Forecast #A78BFA · Plan #EB6834.
+    // "Plan" = o mesmo motor SEM o override de realizado (o modelo puro das frotas de referência).
+    const DC = { act: '#5A00F8', for: '#A78BFA', plan: '#EB6834', grid: 'rgba(120,120,140,0.10)', txt: '#6b7280' };
+    function renderDash() {
+      if (!document.getElementById('dashRev')) return;
+      const PA = computePnl({});                    // realidade: actuals + forecast
+      const PP = computePnl({ noActuals: true });   // plano: modelo puro
+      const curM = PA.actualsThrough != null ? PA.actualsThrough : -1;
+      const labels = Array.from({ length: FIN_MONTHS }, (_, m) => monthLbl(m));
+      const seg = (arr) => ({ a: arr.map((v, m) => (m <= curM ? v : null)), f: arr.map((v, m) => (m > curM ? v : (m === curM ? v : null))) });
+      const kill = (id) => { if (dashCharts[id]) { dashCharts[id].destroy(); delete dashCharts[id]; } };
+      const sparse = (arr) => { // rótulos diretos SÓ no pico e no último valor (regra da skill)
+        const idx = new Set();
+        let mx = 0, mi = -1; arr.forEach((v, i) => { if (v != null && Math.abs(v) > mx) { mx = Math.abs(v); mi = i; } });
+        if (mi >= 0) idx.add(mi);
+        for (let i = arr.length - 1; i >= 0; i--) if (arr[i] != null) { idx.add(i); break; }
+        return idx;
+      };
+      const mkBars = (id, arr, planArr) => {
+        kill(id);
+        const s = seg(arr);
+        const lb = sparse(arr);
+        dashCharts[id] = new Chart(document.getElementById(id), {
+          data: { labels, datasets: [
+            { type: 'bar', label: 'Actual', data: s.a, backgroundColor: DC.act, borderRadius: 4, maxBarThickness: 26,
+              datalabels: { display: (c) => lb.has(c.dataIndex) && c.dataset.data[c.dataIndex] != null, anchor: 'end', align: 'top', color: '#374151', font: { size: 10, weight: 700 }, formatter: (v) => fmtQty(v) } },
+            { type: 'bar', label: 'Forecast', data: s.f, backgroundColor: DC.for, borderRadius: 4, maxBarThickness: 26,
+              datalabels: { display: (c) => lb.has(c.dataIndex) && c.dataset.data[c.dataIndex] != null, anchor: 'end', align: 'top', color: '#374151', font: { size: 10, weight: 700 }, formatter: (v) => fmtQty(v) } },
+            { type: 'line', label: 'Plan', data: planArr, borderColor: DC.plan, borderWidth: 2, borderDash: [6, 4], pointRadius: 0, pointHoverRadius: 5, tension: 0.25, datalabels: { display: false } },
+          ] },
+          options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 16 } },
+            plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 10, boxHeight: 10, font: { size: 10.5 }, color: DC.txt } },
+              tooltip: { callbacks: { label: (c) => c.dataset.label + ': US$ ' + fmtQty(c.parsed.y) } } },
+            scales: { x: { stacked: true, grid: { display: false }, ticks: { color: DC.txt, font: { size: 9.5 } } },
+              y: { grid: { color: DC.grid }, ticks: { color: DC.txt, font: { size: 9.5 }, callback: (v) => fmtQty(v) } } } },
+        });
+      };
+      mkBars('dashRev', PA.grossRev, PP.grossRev);
+      mkBars('dashCogs', PA.cogsTot.map((v) => -v), PP.cogsTot.map((v) => -v));
+      mkBars('dashNet', PA.netCf, PP.netCf);
+      // acumulado: linha (sólida no realizado, tracejada no projetado) + plano; a linha do zero é o breakeven
+      kill('dashAcc');
+      dashCharts.dashAcc = new Chart(document.getElementById('dashAcc'), {
+        type: 'line',
+        data: { labels, datasets: [
+          { label: 'Actual + Forecast', data: PA.accCf, borderColor: DC.act, backgroundColor: DC.act, borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5, tension: 0.25,
+            segment: { borderDash: (c) => (c.p1DataIndex > curM ? [5, 4] : undefined) }, datalabels: { display: false } },
+          { label: 'Plan', data: PP.accCf, borderColor: DC.plan, borderWidth: 2, borderDash: [6, 4], pointRadius: 0, pointHoverRadius: 5, tension: 0.25, datalabels: { display: false } },
+        ] },
+        options: { responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 10, boxHeight: 10, font: { size: 10.5 }, color: DC.txt } },
+            tooltip: { callbacks: { label: (c) => c.dataset.label + ': US$ ' + fmtQty(c.parsed.y) } } },
+          scales: { x: { grid: { display: false }, ticks: { color: DC.txt, font: { size: 9.5 } } },
+            y: { grid: { color: (c) => (c.tick.value === 0 ? '#9ca3af' : DC.grid), lineWidth: (c) => (c.tick.value === 0 ? 1.6 : 1) }, ticks: { color: DC.txt, font: { size: 9.5 }, callback: (v) => fmtQty(v) } } } },
+      });
+      // explorador de linhas: qualquer linha de receita/custo/OPEX, mesma leitura
+      const sel = document.getElementById('dashLineSel');
+      const series = (name, PX) => {
+        if (PX.rev[name]) return PX.rev[name];
+        if (PX.cogs[name]) return PX.cogs[name].map((v) => -v);
+        if (name === 'CAC') return PX.cacTot.map((v) => -v);
+        if (name === 'SG&A') return PX.sga.map((v) => -v);
+        if (name === 'OPEX') return PX.opex.map((v) => -v);
+        if (name === 'HC Payroll') return PX.hcTot.map((v) => -v);
+        return new Array(FIN_MONTHS).fill(0);
+      };
+      const lineNames = [...FIN_REV_LINES, ...FIN_COGS_LINES, 'CAC', 'SG&A', 'HC Payroll', 'OPEX'];
+      if (sel && !sel.options.length) {
+        sel.innerHTML = lineNames.map((n) => `<option value="${escH(n)}"${n === dashLine ? ' selected' : ''}>${escH(n === 'Traffic fines (out)' ? 'Traffic fines (cost)' : n)}</option>`).join('');
+        sel.addEventListener('change', () => { dashLine = sel.value; renderDash(); });
+      }
+      mkBars('dashLineCv', series(dashLine, PA), series(dashLine, PP));
+      // filtros: ano + chip de realizado
+      const ft = document.getElementById('dashFilters');
+      if (ft) {
+        ft.innerHTML = '<div class="pnl-years">' + [FIN_BASE_YEAR, FIN_BASE_YEAR + 1].map((y) => `<button class="pnl-yr${finYear === y ? ' on' : ''}" data-y="${y}">${y}</button>`).join('') + '</div>' +
+          (curM >= 0 ? `<span class="pnl-act">solid/dark = actual through ${monthLbl(curM)} · light = forecast · dashed orange = plan</span>` : '');
+        ft.querySelectorAll('.pnl-yr').forEach((b) => b.addEventListener('click', () => {
+          finYear = +b.dataset.y; finActCache = {}; refProfiles = buildProfiles(); renderDash(); renderPnl(); renderFleetPlan(); renderCac();
+        }));
+      }
+    }
+
     (async () => {
       const getVals = async (fleet) => { const o = {}; try { const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(fleet), { credentials: 'include' }); const d = await r.json(); (d.values || []).forEach((v) => { o[v.line + '@@' + v.period] = v.value; }); } catch (e) {} return o; };
       try { const r = await fetch('/api/theoric/models', { credentials: 'include' }); const d = await r.json(); finModels = d.models || []; } catch (e) { finModels = []; }
@@ -3029,6 +3156,8 @@
       refProfiles = buildProfiles();
       await loadPnlVersions();
       renderFleetPlan(); renderHc(); renderAdmin(); renderCac(); renderAssump(); renderPnl();
+      const dashTab = document.querySelector('.sub-tab[data-sub="findash"]');
+      if (dashTab) dashTab.addEventListener('click', () => setTimeout(renderDash, 60));
     })();
   }
 

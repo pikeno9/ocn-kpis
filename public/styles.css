@@ -30,15 +30,16 @@ body { min-height: 100vh; }
 button { font-family: inherit; cursor: pointer; }
 
 /* ---- header (estilo OCN: gradiente roxo) ---- */
+/* Cabeçalho no padrão do Portal OCN: logo, navegação e usuário na MESMA barra roxa.
+   O título "KPI Dashboard / One Car Now" saiu — a logo já identifica o produto e a barra
+   ficou livre para a navegação, que antes ocupava uma faixa branca inteira embaixo. */
 .app-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 32px; background: var(--gradient-purple); color: #fff;
+  display: flex; align-items: center; gap: 26px;
+  padding: 14px 28px; background: var(--gradient-purple); color: #fff;
   position: sticky; top: 0; z-index: 20;
 }
-.app-brand { display: flex; align-items: center; gap: 16px; text-decoration: none; }
-.app-brand__logo { height: 34px; width: auto; display: block; }
-.app-brand__text h1 { font-family: var(--font-display); font-size: 21px; font-weight: 700; color: #fff; margin: 0; line-height: 1.2; }
-.app-brand__text p { font-size: 12px; color: #ffffffbf; margin: 2px 0 0; }
+.app-brand { display: flex; align-items: center; gap: 16px; text-decoration: none; flex: none; }
+.app-brand__logo { height: 32px; width: auto; display: block; }
 .app-user { display: flex; align-items: center; gap: 16px; }
 .app-user__info { text-align: right; line-height: 1.3; }
 .app-user__info .email { font-size: 12px; font-weight: 500; color: #fff; }
@@ -63,9 +64,10 @@ button { font-family: inherit; cursor: pointer; }
 .app-freeze-btn.frozen:hover:not(:disabled) { background: #a5e3ff; }
 .header-meta { font-size: 11px; color: #ffffffb3; white-space: nowrap; }
 @media (max-width: 640px) {
-  .app-header { padding: 12px 16px; }
+  .app-header { padding: 10px 14px; gap: 12px; flex-wrap: wrap; }
   .app-brand__logo { height: 26px; }
-  .app-brand__text p, .app-user__info, .header-meta { display: none; }
+  .app-user__info, .header-meta { display: none; }
+  .main-tabs { order: 3; flex-basis: 100%; }
 }
 
 /* ---- tela de loading (splash estilo ocn-clientes: logo pulsando + barra gradiente) ---- */
@@ -545,17 +547,18 @@ html { scrollbar-gutter: stable; }
 .ue-kbtn.on[data-k="real"] { background: #1d1d1b; color: #fff; border-color: #1d1d1b; }
 .ue-kbtn.on[data-k="proj"] { background: #6D28D9; color: #fff; border-color: #6D28D9; }
 
-/* ---- main tabs ---- */
-.main-tabs {
-  display: flex; gap: 4px; padding: 0 32px; background: var(--surface);
-  border-bottom: 1px solid var(--border); position: sticky; top: 69px; z-index: 19;
-}
+/* ---- navegação principal (dentro da barra roxa) ---- */
+.main-tabs { display: flex; align-items: center; gap: 0; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.main-tabs::-webkit-scrollbar { display: none; }
 .main-tab {
-  padding: 13px 18px; font-size: 13px; font-weight: 500; border: none; background: none;
-  color: var(--text-2); border-bottom: 2px solid transparent; display: flex; align-items: center; gap: 7px;
+  position: relative; padding: 6px 13px; font-size: 13.5px; font-weight: 500; border: none; background: none;
+  color: #ffffffb8; white-space: nowrap; transition: color .12s;
 }
-.main-tab:hover { color: var(--text); }
-.main-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+/* divisória fina entre os itens, como no Portal */
+.main-tab + .main-tab::before { content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 1px; height: 14px; background: #ffffff33; }
+.main-tab:hover { color: #fff; }
+.main-tab.active { color: #fff; font-weight: 700; }
+.main-tab.active::after { content: ""; position: absolute; left: 13px; right: 13px; bottom: -8px; height: 2.5px; border-radius: 2px; background: #fff; }
 .tab-badge { font-size: 10px; background: var(--surface-2); color: var(--text-3); border-radius: 4px; padding: 1px 7px; }
 
 /* ---- content ---- */
@@ -690,7 +693,7 @@ html { scrollbar-gutter: stable; }
 
 @media (max-width: 640px) {
   .content { padding: 16px; }
-  .main-tabs { overflow-x: auto; padding: 0 16px; }
+  .main-tabs { overflow-x: auto; padding: 0; }
 }
 
 /* ---- Organograma executivo (Headcount) ---- */
@@ -1169,31 +1172,6 @@ html { scrollbar-gutter: stable; }
 .pnl-scen-new { border-color: #c4b5fd; color: var(--accent); }
 .pnl-scenchip { font-size: 12px; font-weight: 600; color: #6d28d9; background: #ede9fe; border-radius: 999px; padding: 3px 10px; }
 
-/* ============ P&L: caixinha do cenario ============ */
-.ue-modal.ue-modal-scen { width: 660px; max-width: 94vw; max-height: 88vh; overflow-y: auto; }
-.scen-name { display: block; margin: 4px 0 14px; }
-.scen-name > span { display: block; font-size: 11px; font-weight: 600; color: var(--text-2); margin-bottom: 4px; }
-.scen-name input { width: 100%; font: inherit; font-size: 13px; padding: 9px 11px; border: 1px solid var(--border-2); border-radius: 9px; color: var(--text); }
-.scen-name input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px #7c3aed1f; }
-.scen-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(196px, 1fr)); gap: 10px; }
-.scen-f { padding: 9px 11px 10px; border: 1px solid var(--border-2); border-radius: 10px; background: var(--surface); }
-.scen-f.on { border-color: #c4b5fd; background: #fbf9ff; }
-.scen-f-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.scen-f-top label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-2); }
-.scen-f-v { font-size: 12px; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
-.scen-f input[type=range] { width: 100%; margin: 6px 0 2px; accent-color: var(--accent); cursor: pointer; }
-.scen-f-b { font-size: 9.5px; color: var(--text-2); }
-.scen-rst { font: inherit; font-size: 9.5px; font-weight: 700; border: none; background: transparent; color: var(--accent); cursor: pointer; padding: 0 0 0 4px; text-decoration: underline; }
-.scen-toggles { display: flex; flex-wrap: wrap; gap: 14px; margin: 14px 0 4px; }
-.scen-t { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text); cursor: pointer; }
-.scen-t input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
-.scen-out { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 14px 0; padding: 12px 15px; border-radius: 11px; background: linear-gradient(135deg, #3A00A0, #23004e); color: #fff; }
-.scen-out > span { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; opacity: .8; }
-.scen-out b { font-family: var(--font-display); font-size: 21px; font-weight: 800; font-variant-numeric: tabular-nums; }
-.scen-out b.up { color: #C0F11C; } .scen-out b.down { color: #fca5a5; }
-.scen-out i { flex-basis: 100%; font-size: 10.5px; font-style: normal; opacity: .7; }
-
-
 /* ============ Dashboard: seletor de totalizador ============ */
 /* Substitui o <select> nativo: mostra o nome grande, o que aquele totalizador mede, e a
    bolinha da familia de cor â€” assim da para saber em que sessao estamos so de bater o olho. */
@@ -1221,3 +1199,18 @@ html { scrollbar-gutter: stable; }
 .dash-pk-o.on .dash-pk-txt b { color: var(--accent); }
 .dash-pk-o .dash-pk-txt b { font-size: 12.5px; font-weight: 700; }
 
+
+/* ---- P&L: botao de congelar (sem simbolo, com peso proprio) ---- */
+.pnl-freeze { border-color: #cbd5e1; color: var(--text); font-weight: 700; }
+.pnl-freeze:hover { border-color: #94a3b8; background: var(--surface-2, #f1f5f9); color: var(--text); }
+/* breakeven que cai no ano SEGUINTE: nem verde (ja veio) nem roxo-escuro (nunca vem) */
+.pnl-hero.next { background: linear-gradient(135deg, #0E7490, #164E63); box-shadow: 0 3px 14px #164e6333; }
+/* chip do cenario ocupa a linha toda quando o resumo cresce */
+.pnl-scenchip { max-width: 100%; }
+
+/* Bloco do usuario compacto: a navegacao passou a dividir a barra com ele, entao o rotulo de
+   "Change password" some (fica so a chave, com o title) e o "updated" encolhe. */
+.app-header .app-user { gap: 10px; flex: none; }
+.app-header .app-pw-btn span { display: none; }
+.app-header .app-pw-btn { padding: 6px 9px; }
+.app-header .header-meta { font-size: 10.5px; opacity: .85; }

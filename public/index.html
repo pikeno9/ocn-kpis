@@ -26,11 +26,15 @@
   <header class="app-header">
     <div class="app-brand">
       <img src="brand/ocn-logo-white.png" alt="OCN" class="app-brand__logo" />
-      <div class="app-brand__text">
-        <h1>KPI Dashboard</h1>
-        <p>One Car Now</p>
-      </div>
     </div>
+    <!-- navegação principal DENTRO da barra roxa (mesmo padrão do Portal OCN) -->
+    <nav class="main-tabs">
+      <button class="main-tab active" data-sec="operacao">Vehicles</button>
+      <button class="main-tab" data-sec="comercial">Clients</button>
+      <button class="main-tab" data-sec="rh">Human Resources</button>
+      <button class="main-tab" data-sec="ue">Unit Economics</button>
+      <button class="main-tab" data-sec="finance">Finance</button>
+    </nav>
     <div class="app-user">
       <div class="header-meta">updated <span id="hojeLabel">—</span></div>
       <button class="app-freeze-btn" id="btnFreeze" style="display:none" title="Pause/resume automatic data updates"><i class="ti ti-snowflake"></i> <span id="btnFreezeLabel">Freeze</span></button>
@@ -59,14 +63,6 @@
     </div>
   </div>
 
-  <!-- ===================== MAIN TABS ===================== -->
-  <nav class="main-tabs">
-    <button class="main-tab active" data-sec="operacao"><i class="ti ti-settings-2"></i> Vehicles</button>
-    <button class="main-tab" data-sec="comercial"><i class="ti ti-chart-bar"></i> Clients</button>
-    <button class="main-tab" data-sec="rh"><i class="ti ti-users"></i> Human Resources</button>
-    <button class="main-tab" data-sec="ue"><i class="ti ti-trending-up"></i> Unit Economics</button>
-    <button class="main-tab" data-sec="finance"><i class="ti ti-cash"></i> Finance</button>
-  </nav>
 
   <main class="content">
     <!-- ===================== VEHICLES ===================== -->

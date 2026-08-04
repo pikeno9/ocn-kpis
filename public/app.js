@@ -2243,22 +2243,16 @@
     }
     function computePnl(opts) {
       opts = opts || {};
-      // CENÁRIO: máscara de premissas por cima do modelo. Nada aqui é número guardado — o P&L é
-      // recalculado com os overrides, então o cenário continua válido quando os dados mudam.
-      const ov = opts.ov || {};
-      const has = (k) => ov[k] != null && isFinite(ov[k]);
-      const fx = has('fx') ? ov.fx : (finPar('__fin_fx__') || 5.5);
-      const taxFed = (has('taxFed') ? ov.taxFed : finPar('__fin_tax_fed__')) / 100;
-      const taxCred = (has('taxCred') ? ov.taxCred : finPar('__fin_tax_credit__')) / 100;
-      const payFeeM = (m) => (has('payFee') ? ov.payFee : finParM('__fin_payfee__', m)) / 100;
-      const decomm = (has('decomm') ? ov.decomm : finPar('__fin_decomm__')) / 100;
+      const fx = finPar('__fin_fx__') || 5.5;
+      const taxFed = finPar('__fin_tax_fed__') / 100, taxCred = finPar('__fin_tax_credit__') / 100;
+      const payFeeM = (m) => finParM('__fin_payfee__', m) / 100, decomm = finPar('__fin_decomm__') / 100;
       const WEEKLY_LINES = { 'Subscription': 1, 'Late-payment interest': 1 };   // semanal × semanas pagas
       const BILLABLE_LINES = { 'Subrental fee': 1 };                            // mensal × billable ratio
       const maints = {}; finModels.forEach((m) => { maints[m.id] = uetMaint(finModelVals[m.id] || {}, m.id); });
       const zeros = () => new Array(FIN_MONTHS).fill(0);
       const rev = {}, cogs = {}; FIN_REV_LINES.forEach((l) => rev[l] = zeros()); FIN_COGS_LINES.forEach((l) => cogs[l] = zeros());
       const delivered = zeros(), active = zeros(), secDep = zeros(), vehPur = zeros();
-      const scale = (opts.scale || 1) * (has('scale') ? ov.scale : 1); // simulador × cenário nas entregas
+      const scale = opts.scale || 1;               // simulador: multiplica as entregas do Fleet Plan
       const cohorts = opts.extra ? finCohorts.concat(opts.extra) : finCohorts; // coortes sintéticas (solver)
       for (let m = 0; m < FIN_MONTHS; m++) {
         cohorts.forEach((c) => {
@@ -2350,7 +2344,7 @@
       // Fica FORA do orçado (é um evento concreto, não fazia parte da projeção original) e sai da
       // conta quando o botão "InDrive" do P&L está desligado.
       let indriveTot = 0;
-      if (!opts.noIndrive && !ov.noIndrive && !opts.budget && indriveOn()) {
+      if (!opts.noIndrive && !opts.budget && indriveOn()) {
         indriveData.batches.forEach((b) => {
           if (String(b.date).slice(0, 4) !== String(finYear)) return;
           const m = parseInt(String(b.date).slice(5, 7), 10) - 1;
@@ -2362,7 +2356,7 @@
       }
       // visão "sem sub-rental security deposit": zera o calção E a devolução dele (refund) — os dois
       // lados da mesma moeda; deixar só um distorceria o cashflow
-      if (opts.noSd || ov.noSd) { secDep.fill(0); if (rev['Security Deposit Refund']) rev['Security Deposit Refund'].fill(0); }
+      if (opts.noSd) { secDep.fill(0); if (rev['Security Deposit Refund']) rev['Security Deposit Refund'].fill(0); }
       const grossRev = zeros(), cogsTot = zeros();
       for (let m = 0; m < FIN_MONTHS; m++) {
         FIN_REV_LINES.forEach((L) => grossRev[m] += rev[L][m]);
@@ -2386,8 +2380,7 @@
           if (m === FIN_MONTHS - 1) { th13[m] -= n * r.salary * th13f; bonus[m] -= n * r.bonus; } // 13º e bônus em dezembro
         });
       }
-      const hcK = has('hcScale') ? ov.hcScale : 1;   // cenário: multiplicador da folha
-      const hcTot = zeros(); for (let m = 0; m < FIN_MONTHS; m++) hcTot[m] = (base[m] + meal[m] + health[m] + ptax[m] + th13[m] + bonus[m]) * hcK;
+      const hcTot = zeros(); for (let m = 0; m < FIN_MONTHS; m++) hcTot[m] = base[m] + meal[m] + health[m] + ptax[m] + th13[m] + bonus[m];
       // CAC (referenciado, como no Excel): comissão = USD/carro × carros ENTREGUES no mês;
       // Ads = soma dos canais; Influenciadores = nº de perfis do mês × preço por perfil.
       const newDelivered = zeros(); cohorts.forEach((c) => { const cm = cohMonth(c) - FIN_YOFF(); if (cm >= 0 && cm < FIN_MONTHS) newDelivered[cm] += c.qty * scale; });
@@ -2397,10 +2390,9 @@
         (finCac.ads || []).forEach((a) => { adsTot[m] -= Number((a.v || [])[m]) || 0; });
         (finCac.inf || []).forEach((t) => { infTot[m] -= (Number((t.profiles || [])[m]) || 0) * (t.price || 0); });
       }
-      const cacK = has('cacScale') ? ov.cacScale : 1, sgaK = has('sgaScale') ? ov.sgaScale : 1;
-      const cacTot = zeros(); for (let m = 0; m < FIN_MONTHS; m++) cacTot[m] = (commission[m] + adsTot[m] + infTot[m]) * cacK;
+      const cacTot = zeros(); for (let m = 0; m < FIN_MONTHS; m++) cacTot[m] = commission[m] + adsTot[m] + infTot[m];
       // SG&A – Admin: soma dos itens de cada tabela (Rent & Utilities / Professional Services / IT)
-      const sumItems = (list) => { const a = zeros(); (list || []).forEach((it) => { for (let m = 0; m < FIN_MONTHS; m++) a[m] -= (Number((it.v || [])[m]) || 0) * sgaK; }); return a; };
+      const sumItems = (list) => { const a = zeros(); (list || []).forEach((it) => { for (let m = 0; m < FIN_MONTHS; m++) a[m] -= Number((it.v || [])[m]) || 0; }); return a; };
       const rentTot = sumItems(finSga.rent), profTot = sumItems(finSga.prof), itTot = sumItems(finSga.it);
       const sga = zeros(); for (let m = 0; m < FIN_MONTHS; m++) sga[m] = hcTot[m] + rentTot[m] + profTot[m] + itTot[m];
       const opex = zeros(); for (let m = 0; m < FIN_MONTHS; m++) opex[m] = cacTot[m] + sga[m]; // #2: secDep saiu daqui (foi pro COGS)
@@ -2440,7 +2432,7 @@
       const simOn = live && pnlSimApply && pnlSimScale !== 100;
       // baseOpts = as opções que geraram P; guardadas p/ quem precisa recalcular em cima da MESMA
       // base (ex.: o cartão "+1 car today"). Fica null nas versões congeladas — lá não há motor.
-      const baseOpts = snap ? null : { budget, noSd: pnlNoSd, noIndrive: pnlNoIdr, scale: simOn ? pnlSimScale / 100 : 1, ov: scen ? scen.ov : null };
+      const baseOpts = snap ? null : { budget, noSd: pnlNoSd, noIndrive: pnlNoIdr, scale: simOn ? pnlSimScale / 100 : 1 };
       const P = snap || computePnl(baseOpts);
       const sum = (a) => a.reduce((s, x) => s + (x || 0), 0);
       const gmPct = P.grossRev.map((v, m) => (v ? (P.gm[m] / v) * 100 : null));
@@ -2516,32 +2508,6 @@
     }
     // ---------- seletor de versão do P&L (dropdown próprio, não o <select> nativo) ----------
     // Agrupa Live · Budget · Cenários · Congeladas e mostra o que cada um É, não só o nome.
-    const SCEN_FIELDS = [
-      { k: 'scale', label: 'Deliveries', hint: '× on the Fleet Plan', unit: '×', dflt: 1, min: 0.05, max: 10, step: 0.05 },
-      { k: 'fx', label: 'FX', hint: 'R$ per US$', unit: '', dflt: null, min: 1, max: 20, step: 0.05, from: () => finPar('__fin_fx__') || 5.5 },
-      { k: 'taxFed', label: 'Federal tax', hint: 'on gross revenue', unit: '%', dflt: null, min: 0, max: 60, step: 0.1, from: () => finPar('__fin_tax_fed__') },
-      { k: 'taxCred', label: 'Tax credit', hint: 'on gross revenue', unit: '%', dflt: null, min: 0, max: 60, step: 0.1, from: () => finPar('__fin_tax_credit__') },
-      { k: 'payFee', label: 'Processing fee', hint: 'flat, all months', unit: '%', dflt: null, min: 0, max: 20, step: 0.1, from: () => finParM('__fin_payfee__', 0) },
-      { k: 'decomm', label: 'Decommissioning', hint: 'monthly fleet drop', unit: '%', dflt: null, min: 0, max: 20, step: 0.1, from: () => finPar('__fin_decomm__') },
-      { k: 'cacScale', label: 'CAC', hint: '× on acquisition', unit: '×', dflt: 1, min: 0, max: 10, step: 0.05 },
-      { k: 'sgaScale', label: 'SG&A admin', hint: '× on rent/services/IT', unit: '×', dflt: 1, min: 0, max: 10, step: 0.05 },
-      { k: 'hcScale', label: 'Payroll', hint: '× on headcount cost', unit: '×', dflt: 1, min: 0, max: 10, step: 0.05 },
-    ];
-    const scenBase = (f) => (f.from ? f.from() : f.dflt);
-    // resumo curto do que o cenário muda — vira o chip ao lado do seletor
-    function scenSummary(s) {
-      if (!s || !s.ov) return '';
-      const out = [];
-      SCEN_FIELDS.forEach((f) => {
-        const v = s.ov[f.k]; if (v == null) return;
-        const base = scenBase(f);
-        if (base != null && Math.abs(v - base) < 1e-9) return;
-        out.push(f.label + ' ' + (f.unit === '×' ? String(Math.round(v * 100) / 100).replace('.', ',') + '×' : String(Math.round(v * 100) / 100).replace('.', ',') + f.unit));
-      });
-      if (s.ov.noSd) out.push('no deposit');
-      if (s.ov.noIndrive) out.push('no InDrive');
-      return out.join(' · ');
-    }
     function verPicker() {
       const scen = pnlScenarios.find((x) => x.id === pnlVersion);
       const frozen = pnlVersions.find((x) => x.id === pnlVersion);
@@ -2574,87 +2540,116 @@
         e.stopPropagation();
         if (pop.hidden) { pop.hidden = false; btn.classList.add('open'); setTimeout(() => document.addEventListener('click', out), 0); } else close();
       });
-      pop.querySelectorAll('.pnl-vp-o').forEach((b) => b.addEventListener('click', () => { pnlVersion = b.dataset.v; close(); renderPnl(); }));
+      pop.querySelectorAll('.pnl-vp-o').forEach((b) => b.addEventListener('click', () => { close(); selectVersion(b.dataset.v); }));
     }
 
-    // ---------- cenário: máscara de premissas ----------
-    function openScenModal(scen) {
-      const ov = Object.assign({}, (scen && scen.ov) || {});
-      const ov0 = Object.assign({}, ov);
-      const ovl = document.createElement('div'); ovl.className = 'ue-modal-overlay';
-      ovl.innerHTML = `<div class="ue-modal ue-modal-scen"></div>`;
-      document.body.appendChild(ovl);
-      const box = ovl.querySelector('.ue-modal-scen');
-      const close = () => ovl.remove();
-      function draw() {
-        const P0 = computePnl({ noSd: pnlNoSd, noIndrive: pnlNoIdr });
-        const P1 = computePnl({ noSd: pnlNoSd, noIndrive: pnlNoIdr, ov });
-        const eoy = (P) => (P.accCf || [])[FIN_MONTHS - 1] || 0;
-        const d = eoy(P1) - eoy(P0);
-        box.innerHTML =
-          `<div class="ue-modal-title">${scen ? 'Edit scenario' : 'New scenario'}</div>` +
-          `<div class="ue-modal-sub">A mask over the assumptions — nothing is frozen here. The P&amp;L is recomputed with these values every time you open it, so the scenario keeps up with new data.</div>` +
-          `<label class="scen-name"><span>Name</span><input id="scenName" type="text" maxlength="60" placeholder="e.g. Slower ramp, cheaper CAC" value="${escH((scen && scen.name) || '')}"></label>` +
-          `<div class="scen-grid">` + SCEN_FIELDS.map((f) => {
-            const base = scenBase(f);
-            const val = ov[f.k] != null ? ov[f.k] : base;
-            const changed = ov[f.k] != null && base != null && Math.abs(ov[f.k] - base) > 1e-9;
-            return `<div class="scen-f${changed ? ' on' : ''}">` +
-              `<div class="scen-f-top"><label>${escH(f.label)}</label>` +
-                `<span class="scen-f-v">${String(Math.round(val * 100) / 100).replace('.', ',')}${f.unit}</span></div>` +
-              `<input type="range" data-k="${f.k}" min="${f.min}" max="${f.max}" step="${f.step}" value="${val}">` +
-              `<div class="scen-f-b">${escH(f.hint)} · base ${String(Math.round(base * 100) / 100).replace('.', ',')}${f.unit}` +
-                (changed ? ` <button type="button" class="scen-rst" data-k="${f.k}">reset</button>` : '') + `</div></div>`;
-          }).join('') + `</div>` +
-          `<div class="scen-toggles">` +
-            `<label class="scen-t"><input type="checkbox" data-b="noSd"${ov.noSd ? ' checked' : ''}><span>Drop the sub-rental deposit (and its refund)</span></label>` +
-            `<label class="scen-t"><input type="checkbox" data-b="noIndrive"${ov.noIndrive ? ' checked' : ''}><span>Drop the InDrive benefit</span></label>` +
-          `</div>` +
-          `<div class="scen-out"><span>End-of-year cash vs Live</span><b class="${d >= 0 ? 'up' : 'down'}">${d >= 0 ? '+' : '−'}US$ ${fmtQty(Math.abs(d))}</b>` +
-            `<i>US$ ${fmtQty(eoy(P1))} against US$ ${fmtQty(eoy(P0))}</i></div>` +
-          `<div class="ue-modal-actions">` +
-            `<button type="button" class="ue-modal-cancel">Cancel</button>` +
-            `<button type="button" class="ue-modal-save" id="scenSave">${scen ? 'Save changes' : 'Create scenario'}</button></div>`;
-        box.querySelectorAll('input[type=range]').forEach((inp) => {
-          inp.addEventListener('input', () => {
-            const f = SCEN_FIELDS.find((x) => x.k === inp.dataset.k);
-            const el = inp.parentElement.querySelector('.scen-f-v');
-            if (el) el.textContent = String(Math.round(Number(inp.value) * 100) / 100).replace('.', ',') + f.unit;
-          });
-          inp.addEventListener('change', () => { ov[inp.dataset.k] = Number(inp.value); draw(); });
-        });
-        box.querySelectorAll('.scen-rst').forEach((b) => b.addEventListener('click', () => { delete ov[b.dataset.k]; draw(); }));
-        box.querySelectorAll('input[type=checkbox]').forEach((c) => c.addEventListener('change', () => { if (c.checked) ov[c.dataset.b] = true; else delete ov[c.dataset.b]; draw(); }));
-        box.querySelector('.ue-modal-cancel').addEventListener('click', close);
-        box.querySelector('#scenSave').addEventListener('click', save);
+    // ---------- CENÁRIOS: memória das MESMAS entradas que o Live edita ----------
+    // Um cenário não tem painel próprio de premissas. Ao selecioná-lo, as entradas globais
+    // (finCfg / finSga / finCac / finCohorts / finHc) são trocadas pela cópia dele — daí em
+    // diante o ⚙ Assumptions, as abas de SG&A e CAC e o Fleet Plan editam O CENÁRIO, e cada
+    // gravação vai para o documento dele em vez dos endpoints do Live.
+    let scenActive = null;   // cenário selecionado (objeto) ou null quando estamos no Live
+    let finLiveSnap = null;  // cópia das entradas do Live, guardada enquanto um cenário está ativo
+    const clone = (o) => JSON.parse(JSON.stringify(o == null ? null : o));
+    const finInputs = () => ({ cfg: clone(finCfg), sga: clone(finSga), cac: clone(finCac), cohorts: clone(finCohorts), hc: clone(finHc) });
+    function setFinInputs(d) {
+      if (!d) return;
+      if (d.cfg) finCfg = clone(d.cfg);
+      if (d.sga) finSga = clone(d.sga);
+      if (d.cac) finCac = clone(d.cac);
+      if (d.cohorts) finCohorts = clone(d.cohorts);
+      if (d.hc) finHc = clone(d.hc);
+    }
+    // troca de versão: entra/sai do cenário trocando as entradas em memória
+    function selectVersion(v) {
+      const next = pnlScenarios.find((x) => x.id === v) || null;
+      if (next && !scenActive) finLiveSnap = finInputs();          // guarda o Live uma vez só
+      if (next) {
+        if (!next.data || !next.data.cfg) next.data = clone(finLiveSnap || finInputs()); // cenário novo nasce igual ao Live
+        setFinInputs(next.data);
+      } else if (scenActive && finLiveSnap) {
+        setFinInputs(finLiveSnap); finLiveSnap = null;             // volta ao Live
       }
-      async function save() {
-        const name = (box.querySelector('#scenName').value || '').trim();
-        if (!name) { box.querySelector('#scenName').focus(); return; }
-        const btn = box.querySelector('#scenSave'); btn.disabled = true; btn.textContent = 'Saving…';
+      scenActive = next;
+      pnlVersion = v;
+      finActCache = {};
+      renderPnl(); renderFleetPlan(); renderCac(); renderAdmin(); renderAssump(); renderHc();
+    }
+    // grava o cenário ativo (chamado por todos os saves do Finance no lugar dos endpoints do Live)
+    let scenTimer = null;
+    function persistScen() {
+      if (!scenActive) return false;
+      scenActive.data = finInputs();
+      clearTimeout(scenTimer);
+      scenTimer = setTimeout(async () => {
         try {
-          const body = { name, ov };
-          if (scen) body.id = scen.id;
-          const r = await fetch('/api/finance/scenarios', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(body) });
+          const r = await fetch('/api/finance/scenarios', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: scenActive.id, data: scenActive.data }) });
           const d = await r.json().catch(() => ({}));
-          if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
-          pnlScenarios = d.scenarios; pnlVersion = d.saved;
-          close(); renderPnl();
-        } catch (e) { btn.disabled = false; btn.textContent = scen ? 'Save changes' : 'Create scenario'; alert('Could not save: ' + e.message); }
-      }
-      ovl.addEventListener('click', (e) => { if (e.target === ovl) close(); });
-      draw();
-      const n = box.querySelector('#scenName'); if (n && !scen) n.focus();
-      void ov0;
+          if (d && d.scenarios) {
+            const keep = scenActive.id;
+            pnlScenarios = d.scenarios;
+            scenActive = pnlScenarios.find((x) => x.id === keep) || scenActive;
+          }
+        } catch (e) { /* mantém em memória; a próxima gravação tenta de novo */ }
+      }, 400);
+      return true;
+    }
+    // resumo do que este cenário tem de diferente do Live — vira o chip ao lado do seletor
+    function scenSummary(s) {
+      if (!s || !s.data || !s.data.cfg) return '';
+      const live = (scenActive && s.id === scenActive.id) ? finLiveSnap : null;
+      if (!live) return 'saved ' + String(s.savedAt || '').slice(0, 10);
+      const out = [];
+      const LBL = { __fin_fx__: 'FX', __fin_tax_fed__: 'federal tax', __fin_tax_credit__: 'tax credit', __fin_decomm__: 'decommissioning', __fin_13th__: '13th' };
+      Object.keys(Object.assign({}, live.cfg, s.data.cfg)).forEach((k) => {
+        if (String(live.cfg[k]) === String(s.data.cfg[k])) return;
+        const base = String(k).split('@@')[0];
+        const nm = LBL[base] || (base === '__fin_payfee__' ? 'processing fee' : base.replace(/^__fin_|__$/g, '').replace(/_/g, ' '));
+        if (!out.includes(nm)) out.push(nm);
+      });
+      const tot = (o) => JSON.stringify(o || {}).length;
+      if (tot(live.sga) !== tot(s.data.sga)) out.push('SG&A');
+      if (tot(live.cac) !== tot(s.data.cac)) out.push('CAC');
+      if ((live.cohorts || []).length !== (s.data.cohorts || []).length ||
+          (live.cohorts || []).reduce((a, c) => a + c.qty, 0) !== (s.data.cohorts || []).reduce((a, c) => a + c.qty, 0)) out.push('fleet plan');
+      if (tot(live.hc) !== tot(s.data.hc)) out.push('headcount');
+      return out.length ? 'changed: ' + out.slice(0, 4).join(', ') + (out.length > 4 ? '…' : '') : 'same as Live';
+    }
+    // criar cenário = só dar um nome. Ele nasce com uma cópia do Live e passa a ser editado
+    // pelos MESMOS controles (⚙ Assumptions, abas de SG&A/CAC, Fleet Plan).
+    async function newScenario() {
+      const name = (window.prompt('Name this scenario (it starts as a copy of Live, and you edit it with the normal controls):', '') || '').trim();
+      if (!name) return;
+      try {
+        const r = await fetch('/api/finance/scenarios', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ name, data: finInputs() }) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
+        pnlScenarios = d.scenarios;
+        selectVersion(d.saved);
+      } catch (e) { alert('Could not create: ' + e.message); }
+    }
+    async function renameScenario(scen) {
+      if (!scen) return;
+      const name = (window.prompt('Rename the scenario:', scen.name) || '').trim();
+      if (!name || name === scen.name) return;
+      try {
+        const r = await fetch('/api/finance/scenarios', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: scen.id, name }) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
+        pnlScenarios = d.scenarios;
+        scenActive = pnlScenarios.find((x) => x.id === scen.id) || scenActive;
+        renderPnl();
+      } catch (e) { alert('Could not rename: ' + e.message); }
     }
     async function deleteScenario(scen) {
       if (!scen) return;
-      if (!window.confirm('Delete the scenario "' + scen.name + '"?')) return;
+      if (!window.confirm('Delete the scenario "' + scen.name + '"? Its assumptions are lost; Live is untouched.')) return;
       try {
         const r = await fetch('/api/finance/scenarios/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: scen.id }) });
         const d = await r.json().catch(() => ({}));
         if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
-        pnlScenarios = d.scenarios; pnlVersion = 'live'; renderPnl();
+        pnlScenarios = d.scenarios;
+        selectVersion('live');
       } catch (e) { alert('Could not delete: ' + e.message); }
     }
     function renderPnlControls(live) {
@@ -2666,8 +2661,9 @@
       h += '<div class="pnl-years">' + [FIN_BASE_YEAR, FIN_BASE_YEAR + 1].map((y) =>
         `<button class="pnl-yr${finYear === y ? ' on' : ''}" data-y="${y}">${y}</button>`).join('') + '</div>';
       h += verPicker();
-      if (isAdmin && live) h += '<button id="pnlSaveVer" class="pnl-btn" title="Freeze this P&L under a name (board presentation)">📌 Freeze</button>';
-      if (isAdmin) h += `<button id="pnlNewScen" class="pnl-btn pnl-scen-new" title="${scen ? 'Edit the assumptions of this scenario' : 'Create a scenario: a mask over the assumptions, recomputed live'}">${scen ? '✎ Edit scenario' : '＋ Scenario'}</button>`;
+      if (isAdmin && live) h += '<button id="pnlSaveVer" class="pnl-btn pnl-freeze" title="Save these numbers under a name — a read-only snapshot for the board">Freeze</button>';
+      if (isAdmin && !scen) h += '<button id="pnlNewScen" class="pnl-btn pnl-scen-new" title="Create a scenario: a copy of Live that you edit with the normal controls">＋ Scenario</button>';
+      if (isAdmin && scen) h += '<button id="pnlRenScen" class="pnl-btn" title="Rename this scenario">Rename</button>';
       if (isAdmin && !live && !budget && !scen) h += '<button id="pnlDelVer" class="pnl-btn pnl-del" title="Delete this frozen version">🗑</button>';
       if (isAdmin && scen) h += '<button id="pnlDelScen" class="pnl-btn pnl-del" title="Delete this scenario">🗑</button>';
       if (live) h += `<button id="pnlNoSdBtn" class="pnl-btn${pnlNoSd ? ' on' : ''}" title="What-if view without the sub-rental security deposit (and its refund)">No deposit</button>`;
@@ -2676,7 +2672,7 @@
       h += '<button id="pnlAssump" class="pnl-btn" title="Tax rates, processing fee (global and per month), FX and other assumptions">⚙ Assumptions</button>';
       h += '<button id="pnlInfo" class="pnl-btn pnl-info" title="Where each line comes from and how it updates">?</button>';
       if (budget) h += `<span class="pnl-budge">◆ Budget · per-car standard from the Theoric UE · no actuals</span>`;
-      else if (scen) h += `<span class="pnl-scenchip">◇ Scenario · ${escH(scenSummary(scen) || 'same as Live')}</span>`;
+      else if (scen) h += `<span class="pnl-scenchip">◇ Editing this scenario — ⚙ Assumptions, SG&amp;A, CAC and Fleet Plan all write here · ${escH(scenSummary(scen))}</span>`;
       else if (!live) { const v = pnlVersions.find((x) => x.id === pnlVersion); h += `<span class="pnl-frozen">📌 Frozen${v && v.savedAt ? ' · ' + v.savedAt.slice(0, 10) : ''}${v && v.snapshot && v.snapshot.noSd ? ' · no deposit' : ''}</span>`; }
       if (pnlActualsThrough != null) h += `<span class="pnl-act">actuals → ${monthLbl(pnlActualsThrough)}</span>`;
       if (live && pnlSimApply && pnlSimScale !== 100) h += `<span class="pnl-simchip">⚠ simulated · deliveries at ${pnlSimScale}%</span>`;
@@ -2688,7 +2684,8 @@
       const ab = document.getElementById('pnlAssump'); if (ab) ab.addEventListener('click', openAssumpModal);
       const ib = document.getElementById('pnlInfo'); if (ib) ib.addEventListener('click', openPnlInfo);
       wireVerPicker();
-      const ns = document.getElementById('pnlNewScen'); if (ns) ns.addEventListener('click', () => openScenModal(scen));
+      const ns = document.getElementById('pnlNewScen'); if (ns) ns.addEventListener('click', newScenario);
+      const rs = document.getElementById('pnlRenScen'); if (rs) rs.addEventListener('click', () => renameScenario(scen));
       const ds = document.getElementById('pnlDelScen'); if (ds) ds.addEventListener('click', () => deleteScenario(scen));
       const nb = document.getElementById('pnlNoSdBtn'); if (nb) nb.addEventListener('click', () => { pnlNoSd = !pnlNoSd; renderPnl(); });
       const idb = document.getElementById('pnlIdrBtn'); if (idb) idb.addEventListener('click', () => { pnlNoIdr = !pnlNoIdr; renderPnl(); });
@@ -2724,6 +2721,8 @@
     }
     async function saveAssump(k, raw) {
       const num = parseInput(raw);
+      // cenário ativo: grava no documento DELE, não na config global do Live
+      if (scenActive) { if (num == null) delete finCfg[k + '@@0']; else finCfg[k + '@@0'] = num; persistScen(); renderPnl(); renderAssump(); return; }
       try {
         if (num == null) { await fetch('/api/ue/value/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: '__fin_cfg__', line: k, period: 0 }) }); delete finCfg[k + '@@0']; }
         else { await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: '__fin_cfg__', line: k, period: 0, value: num, kind: 'proj' }) }); finCfg[k + '@@0'] = num; }
@@ -2775,6 +2774,30 @@
         else if (wasNeg) return m;
       }
       return null;
+    }
+    // O breakeven não precisa acontecer no ano exibido. Se não vier neste, roda o ano SEGUINTE
+    // (que já herda o caixa acumulado deste) e devolve em que mês de lá ele cai — antes o painel
+    // só sabia dizer "not in 2026" e parava aí.
+    // rótulo de mês independente do finYear corrente (o hero pode citar o ano seguinte)
+    const MON3_OF = (m) => FIN_MON3[m] || String(m + 1);
+    // caixa acumulado no fim do ano SEGUINTE — recalcula com as mesmas opções
+    function nextYearEoy(baseOpts) {
+      if (!baseOpts || finYear >= FIN_BASE_YEAR + 1) return null;
+      const keep = finYear;
+      try { finYear = keep + 1; return (computePnl(baseOpts).accCf || [])[FIN_MONTHS - 1] || 0; }
+      catch (e) { return null; } finally { finYear = keep; }
+    }
+    function pnlBreakevenAhead(P, baseOpts) {
+      const here = pnlBreakeven(P);
+      if (here != null) return { year: finYear, m: here };
+      if (!baseOpts || finYear >= FIN_BASE_YEAR + 1) return null;
+      const keep = finYear;
+      try {
+        finYear = keep + 1;
+        const nx = computePnl(baseOpts);
+        const m = pnlBreakeven(nx);
+        return m == null ? null : { year: keep + 1, m, eoy: (nx.accCf || [])[FIN_MONTHS - 1] || 0 };
+      } catch (e) { return null; } finally { finYear = keep; }
     }
     function pnlKpis(P) {
       const sum = (a) => (a || []).reduce((s, x) => s + (x || 0), 0);
@@ -2828,15 +2851,29 @@
       // ---- painel enxuto: 1 destaque (breakeven) + métricas em faixa, sem repetir big numbers ----
       const beOk = K.beIdx != null;
       let h = '<div class="pnl-panel">';
-      h += '<div class="pnl-hero' + (beOk ? ' ok' : ' pend') + '">' +
+      // se não vira neste ano, procura no seguinte em vez de só dizer "not in 2026"
+      const beAhead = beOk ? null : pnlBreakevenAhead(P, baseOpts);
+      const beLbl = beOk ? monthLbl(K.beIdx)
+        : (beAhead ? MON3_OF(beAhead.m) + '-' + String(beAhead.year).slice(2) : 'not in ' + finYear + '/' + (finYear + 1));
+      const beSub = beOk ? 'accumulated cash turns positive'
+        : (beAhead ? 'not in ' + finYear + ' — it turns positive in ' + beAhead.year
+                   : 'accumulated cash stays negative through ' + (finYear + 1));
+      h += '<div class="pnl-hero' + (beOk ? ' ok' : (beAhead ? ' next' : ' pend')) + '">' +
         '<span class="pnl-hero-cap">Breakeven</span>' +
-        '<span class="pnl-hero-v">' + (beOk ? monthLbl(K.beIdx) : 'not in ' + finYear) + '</span>' +
-        '<span class="pnl-hero-s">' + (beOk ? 'accumulated cash turns positive' : 'accumulated cash stays negative all year') + '</span>' +
+        '<span class="pnl-hero-v">' + beLbl + '</span>' +
+        '<span class="pnl-hero-s">' + beSub + '</span>' +
       '</div>';
       const row = (lbl, val, sub, tone) => '<div class="pnl-m ' + (tone || '') + '"><span class="pnl-m-l">' + lbl + '</span><b class="pnl-m-v">' + val + '</b><span class="pnl-m-s">' + sub + '</span></div>';
       h += '<div class="pnl-mrow">' +
         row('Peak funding', money(K.peak), K.peakM != null ? 'deepest at ' + monthLbl(K.peakM) : 'no dip', 'warn') +
-        row('End-of-year cash', money(K.eoy), 'acc. at ' + monthLbl(FIN_MONTHS - 1), K.eoy >= 0 ? 'good' : 'warn') +
+        (() => {
+          // "End-of-year cash" repetia o Peak funding sempre que o pior mês era dezembro (é o caso
+          // enquanto o caixa só afunda). Mostra o fechamento do ano SEGUINTE, que é informação nova.
+          const nx = nextYearEoy(baseOpts);
+          return nx == null
+            ? row('Cash at ' + monthLbl(FIN_MONTHS - 1), money(K.eoy), 'end of ' + finYear, K.eoy >= 0 ? 'good' : 'warn')
+            : row('Cash end of ' + (finYear + 1), money(nx), 'one year past this view', nx >= 0 ? 'good' : 'warn');
+        })() +
         (() => {
           const mg = marginalCarEoy(P, baseOpts, MARG_MODEL);
           if (!mg) return row('+1 car today', '—', 'frozen version');
@@ -2928,6 +2965,7 @@
     }
     async function savePnlFee(m, raw) {
       const num = parseInput(raw);
+      if (scenActive) { finCfg['__fin_payfee__@@' + m] = (num == null ? 0 : num); persistScen(); renderPnl(); renderAssump(); return; }
       try {
         if (num == null && m !== 0) { await fetch('/api/ue/value/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: '__fin_cfg__', line: '__fin_payfee__', period: m }) }); delete finCfg['__fin_payfee__@@' + m]; }
         else { const v = num == null ? 0 : num; await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: '__fin_cfg__', line: '__fin_payfee__', period: m, value: v, kind: 'proj' }) }); finCfg['__fin_payfee__@@' + m] = v; }
@@ -2953,6 +2991,7 @@
 
     // ---------- Fleet Plan (coortes dinâmicas) ----------
     async function saveCohorts() {
+      if (scenActive) { persistScen(); return; }
       try {
         const r = await fetch('/api/finance/cohorts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ cohorts: finCohorts }) });
         const d = await r.json().catch(() => ({}));
@@ -3063,6 +3102,7 @@
 
     // ---------- Headcount (cargos + plano mensal) ----------
     async function saveHc() {
+      if (scenActive) { persistScen(); return; }
       hcSyncPlan();
       try { const r = await fetch('/api/finance/hc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ hc: finHc }) }); const d = await r.json().catch(() => ({})); if (d && d.hc) finHc = d.hc; } catch (e) {}
       renderHc(); renderAdmin(); renderPnl();   // renderAdmin: atualiza o totalizador de SG&A
@@ -3251,6 +3291,7 @@
 
     // ---------- SG&A – Admin: Rent & Utilities / Professional Services / IT (uma tabela cada) ----------
     async function saveSga() {
+      if (scenActive) { persistScen(); return; }
       try { const r = await fetch('/api/finance/sga', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ sga: finSga }) }); const d = await r.json().catch(() => ({})); if (d && d.sga) finSga = d.sga; } catch (e) {}
       renderAdmin(); renderPnl();
     }
@@ -3288,6 +3329,7 @@
 
     // ---------- CAC & Marketing: comissão (referenciada) + Ads + influenciadores ----------
     async function saveCac() {
+      if (scenActive) { persistScen(); return; }
       try { const r = await fetch('/api/finance/cac', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ cac: finCac }) }); const d = await r.json().catch(() => ({})); if (d && d.cac) finCac = d.cac; } catch (e) {}
       renderCac(); renderPnl();
     }

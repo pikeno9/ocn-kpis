@@ -460,22 +460,19 @@ app.post('/api/theoric/models/delete', requireGiga, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ---------- Finance: CENÁRIOS do P&L (máscara de premissas, recalculada ao vivo) ----------
-// Diferente da versão congelada: aqui não se guarda número nenhum, só os overrides. O P&L é
-// recalculado com eles a cada abertura, então o cenário acompanha os dados novos.
-// [{ id, name, savedAt, ov: { scale, fx, taxFed, taxCred, payFee, decomm, cacScale, sgaScale,
-//                            hcScale, noSd, noIndrive } }]
-const SCEN_NUM = { scale: [0.05, 10], fx: [1, 20], taxFed: [0, 60], taxCred: [0, 60], payFee: [0, 20], decomm: [0, 20], cacScale: [0, 10], sgaScale: [0, 10], hcScale: [0, 10] };
-function sanitizeOv(raw) {
-  const ov = {}, b = (raw && typeof raw === 'object') ? raw : {};
-  for (const [k, [lo, hi]] of Object.entries(SCEN_NUM)) {
-    if (b[k] == null || b[k] === '') continue;
-    const n = Number(b[k]);
-    if (isFinite(n)) ov[k] = Math.min(hi, Math.max(lo, n));
-  }
-  if (b.noSd) ov.noSd = true;
-  if (b.noIndrive) ov.noIndrive = true;
-  return ov;
+// ---------- Finance: CENÁRIOS do P&L ----------
+// Um cenário é uma MEMÓRIA das mesmas entradas que o Live edita — premissas (__fin_cfg__),
+// SG&A, CAC, fleet plan e headcount. Não guarda resultado nenhum: o P&L é recalculado com
+// essas entradas, então o cenário continua válido quando o motor muda.
+// [{ id, name, savedAt, data: { cfg:{}, sga:{}, cac:{}, cohorts:[], hc:{} } }]
+const SCEN_KEYS = ['cfg', 'sga', 'cac', 'cohorts', 'hc'];
+function sanitizeScenData(raw) {
+  const b = (raw && typeof raw === 'object') ? raw : {};
+  const out = {};
+  for (const k of SCEN_KEYS) if (b[k] != null) out[k] = b[k];
+  const str = JSON.stringify(out);
+  if (str.length > 400000) throw new Error('cenário grande demais');
+  return JSON.parse(str);
 }
 app.get('/api/finance/scenarios', requireGiga, async (req, res) => {
   try { const d = await store.getDoc('fin_scenarios'); res.json({ scenarios: Array.isArray(d && d.scenarios) ? d.scenarios : [] }); }
@@ -483,21 +480,20 @@ app.get('/api/finance/scenarios', requireGiga, async (req, res) => {
 });
 app.post('/api/finance/scenarios', requireGiga, async (req, res) => {
   const b = req.body || {};
-  const name = String(b.name || '').trim().slice(0, 60);
-  if (!name) return res.status(400).json({ error: 'nome do cenário é obrigatório' });
+  const id = String(b.id || '');
   try {
     const d = await store.getDoc('fin_scenarios');
     const list = Array.isArray(d && d.scenarios) ? d.scenarios.slice() : [];
-    const ov = sanitizeOv(b.ov);
-    const id = String(b.id || '');
     const cur = id ? list.find((x) => x.id === id) : null;
-    if (cur) { cur.name = name; cur.ov = ov; cur.savedAt = new Date().toISOString(); }
-    else {
-      if (list.length >= 30) return res.status(400).json({ error: 'limite de 30 cenários' });
-      list.push({ id: 's' + Date.now(), name, ov, savedAt: new Date().toISOString() });
-    }
+    if (!cur && !String(b.name || '').trim()) return res.status(400).json({ error: 'nome do cenário é obrigatório' });
+    if (!cur && list.length >= 30) return res.status(400).json({ error: 'limite de 30 cenários' });
+    const target = cur || { id: 's' + Date.now(), name: '', data: {} };
+    if (b.name != null && String(b.name).trim()) target.name = String(b.name).trim().slice(0, 60);
+    if (b.data != null) target.data = sanitizeScenData(b.data);
+    target.savedAt = new Date().toISOString();
+    if (!cur) list.push(target);
     await store.setDoc('fin_scenarios', { scenarios: list }, req.user.login);
-    res.json({ ok: true, scenarios: list, saved: cur ? cur.id : list[list.length - 1].id });
+    res.json({ ok: true, scenarios: list, saved: target.id });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/finance/scenarios/delete', requireGiga, async (req, res) => {

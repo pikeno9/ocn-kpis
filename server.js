@@ -407,6 +407,57 @@ app.post('/api/finance/cac', requireGiga, async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ---------- InDrive: levas de benefício por placa (entra no Initial Fee do UE) ----------
+// { value: R$ por placa, batches: [{ date: 'YYYY-MM-DD', plates: ['ABC1D23', ...] }] }
+app.get('/api/indrive', requireGiga, async (req, res) => {
+  try { const d = await store.getDoc('indrive'); res.json({ indrive: (d && typeof d === 'object') ? d : { value: 0, batches: [] } }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/indrive', requireGiga, async (req, res) => {
+  const b = (req.body && req.body.indrive) || {};
+  const value = Math.max(0, Number(b.value) || 0);
+  const batches = (Array.isArray(b.batches) ? b.batches : []).slice(0, 60).map((x) => ({
+    date: /^\d{4}-\d{2}-\d{2}$/.test(String(x.date || '')) ? String(x.date) : null,
+    plates: [...new Set((Array.isArray(x.plates) ? x.plates : []).map((pl) => String(pl).toUpperCase().replace(/[^A-Z0-9]/g, '')).filter((pl) => pl.length >= 6 && pl.length <= 8))].slice(0, 2000),
+  })).filter((x) => x.date && x.plates.length);
+  try { await store.setDoc('indrive', { value, batches }, req.user.login); res.json({ ok: true, indrive: { value, batches } }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ---------- Theoric: editar (nome/cor/foto) e excluir um modelo ----------
+app.post('/api/theoric/models/update', requireGiga, async (req, res) => {
+  const b = req.body || {};
+  const id = String(b.id || '');
+  try {
+    const stored = await store.getDoc('theoric_models');
+    const list = (Array.isArray(stored) && stored.length) ? stored.slice() : THEORIC_SEED.slice();
+    const m = list.find((x) => x.id === id);
+    if (!m) return res.status(404).json({ error: 'modelo não encontrado' });
+    if (b.name != null) m.name = String(b.name).trim().slice(0, 60) || m.name;
+    if (b.color != null && /^#[0-9a-f]{6}$/i.test(String(b.color))) m.color = String(b.color);
+    if (b.photo != null) {
+      const u = String(b.photo).trim().slice(0, 400);
+      if (!u) delete m.photo;                                   // vazio remove
+      else if (/^(https?:)?\/\//.test(u) || /^[\w./-]+\.(png|jpe?g|webp|svg)$/i.test(u)) m.photo = u;
+      else return res.status(400).json({ error: 'foto deve ser uma URL http(s) ou um caminho de imagem' });
+    }
+    await store.setDoc('theoric_models', list, req.user.login);
+    res.json({ ok: true, models: list });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/theoric/models/delete', requireGiga, async (req, res) => {
+  const id = String((req.body && req.body.id) || '');
+  try {
+    const stored = await store.getDoc('theoric_models');
+    const list = (Array.isArray(stored) && stored.length) ? stored.slice() : THEORIC_SEED.slice();
+    const next = list.filter((m) => m.id !== id);
+    if (next.length === list.length) return res.status(404).json({ error: 'modelo não encontrado' });
+    if (!next.length) return res.status(400).json({ error: 'é preciso manter ao menos um modelo' });
+    await store.setDoc('theoric_models', next, req.user.login);
+    res.json({ ok: true, models: next });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ---------- Finance: versões congeladas do P&L (apresentação p/ board) ----------
 // [{ id, name, savedAt, snapshot: {...números calculados} }] — snapshot é read-only, guardado como veio.
 app.get('/api/finance/pnl-versions', requireGiga, async (req, res) => {

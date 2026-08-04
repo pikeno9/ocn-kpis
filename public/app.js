@@ -1822,6 +1822,49 @@
   const UET_PERIODS = 14; // M0..M13
   const UET_RECUR = 12;    // recorrências mensais (M1..M12)
   const UET_WPM = 52 / 12; // semanas por mês (~4,333)
+
+  // ---------- InDrive: benefício por placa, recebido em LEVAS (uma data + uma lista de placas) ----------
+  // Fonte única: alimenta a linha "Initial Fee / Vehicle Sell" no UE real e no P&L (que tem um
+  // botão para tirar o efeito da conta, igual ao "No deposit").
+  let indriveData = { value: 0, batches: [] }, indriveLoaded = false;
+  async function loadIndrive() {
+    if (indriveLoaded) return indriveData;
+    indriveLoaded = true;
+    try {
+      const r = await fetch('/api/indrive', { credentials: 'include', cache: 'no-store' });
+      if (r.ok) { const d = await r.json(); if (d && d.indrive) indriveData = { value: Number(d.indrive.value) || 0, batches: d.indrive.batches || [] }; }
+    } catch (e) { /* segue sem InDrive */ }
+    return indriveData;
+  }
+  const indriveOn = () => indriveData.value > 0 && indriveData.batches.length > 0;
+  // TIR (IRR) dos fluxos M0..Mn — taxa POR PERÍODO (o "mês" de 4,333 semanas do UE).
+  // O fluxo do UE não é convencional (troca de sinal mais de uma vez: M0 negativo, meses positivos,
+  // M13 com compra/venda do veículo), então bracketar direto nas pontas falha. Varremos o VPL numa
+  // grade de taxas, pegamos o PRIMEIRO intervalo com troca de sinal e refinamos por bissecção —
+  // é a menor raiz ≥ −99%, que é a que faz sentido econômico. null = nenhuma raiz na faixa.
+  function irrOf(flows) {
+    const f = (flows || []).map((v) => Number(v) || 0);
+    if (f.length < 2) return null;
+    if (!f.some((v) => v > 0) || !f.some((v) => v < 0)) return null; // sem entrada ou sem saída: não existe TIR
+    const npv = (r) => f.reduce((s, v, i) => s + v / Math.pow(1 + r, i), 0);
+    const LO = -0.99, HI = 10, N = 600, step = (HI - LO) / N;
+    let a = LO, fa = npv(a);
+    for (let i = 1; i <= N; i++) {
+      const b = LO + i * step, fb = npv(b);
+      if (isFinite(fa) && isFinite(fb) && fa * fb <= 0) {
+        let lo = a, hi = b, flo = fa;
+        for (let k = 0; k < 120; k++) {
+          const mid = (lo + hi) / 2, fm = npv(mid);
+          if (flo * fm <= 0) hi = mid; else { lo = mid; flo = fm; }
+        }
+        const r = (lo + hi) / 2;
+        return isFinite(r) ? r : null;
+      }
+      a = b; fa = fb;
+    }
+    return null;
+  }
+
   // MESMA estrutura de linhas do UE real: leaf (inflow/outflow) + calc (totalizadores)
   const UET_LINES = [
     { label: 'Subscription', group: 'inflow' },
@@ -1913,6 +1956,7 @@
   let finEdit = false; // "Edit mode" do Finance (compartilhado por todas as abas) — começa somente leitura
   let sgaTab = 'hc', cacTab = 'comm'; // abas de 3º nível dentro de SG&A e CAC & Marketing
   let pnlNoSd = false; // P&L: excluir o sub-rental security deposit da visão
+  let pnlNoIdr = false; // P&L: tirar o efeito da InDrive da conta (mesma mecânica do "No deposit")
   let pnlCollapsed = new Set(['grev', 'tax', 'cogs', 'opex', 'cac', 'sga', 'hc']); // grupos recolhidos (padrão: fechados)
   let pnlVersions = [], pnlVersion = 'live';
   let pnlSimScale = 100; // simulador de frota: % das entregas do Fleet Plan
@@ -2210,7 +2254,9 @@
           const billable = mondays ? weeks / mondays : 0;
           // valor por veículo na idade `age`: PERFIL DA FROTA DE REFERÊNCIA (premissas do UE real);
           // fallback para o Theoric quando o perfil não tem a linha (ex.: caixinha ainda vazia)
-          const prof = refProfiles && refProfiles[c.model];
+          // Orçado (Budget): ignora os perfis das frotas de referência e usa SÓ o UE Teórico do modelo
+          // — é a projeção "de origem", com o padrão por carro que definimos, sem realizado nenhum.
+          const prof = (!opts.budget && refProfiles) ? refProfiles[c.model] : null;
           const val = (L, age_) => {
             if (prof && prof[L]) { const pv = prof[L][age_]; return pv || null; }
             const lo = lineOf(L); return lo ? uetEff(vals, c.model, lo, age_, maint) : null;
@@ -2241,7 +2287,7 @@
       const curM = hojeIso.slice(0, 4) === String(finYear) ? parseInt(hojeIso.slice(5, 7), 10) - 1 : (parseInt(hojeIso.slice(0, 4), 10) > finYear ? FIN_MONTHS - 1 : -1);
       const ACT = finActCache[finYear] || (finActCache[finYear] = finActuals());
       let actualsThrough = null;
-      if (ACT.any && !opts.noActuals) {
+      if (ACT.any && !opts.noActuals && !opts.budget) {
         // mês VIGENTE = realizado até hoje + fração restante do mês projetada pelo modelo
         // (senão agosto no dia 3 mostraria só 3 dias de receita e pareceria um buraco)
         const dimCal = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
@@ -2275,6 +2321,20 @@
           }
         }
         actualsThrough = curM;
+      }
+      // ---- InDrive: benefício por placa, em levas com data. Entra no Initial Fee do mês da leva.
+      // Fica FORA do orçado (é um evento concreto, não fazia parte da projeção original) e sai da
+      // conta quando o botão "InDrive" do P&L está desligado.
+      let indriveTot = 0;
+      if (!opts.noIndrive && !opts.budget && indriveOn()) {
+        indriveData.batches.forEach((b) => {
+          if (String(b.date).slice(0, 4) !== String(finYear)) return;
+          const m = parseInt(String(b.date).slice(5, 7), 10) - 1;
+          if (!(m >= 0 && m < FIN_MONTHS)) return;
+          const v = ((b.plates || []).length * indriveData.value) / fx;
+          rev['Initial Fee / Vehicle Sell'][m] += v;
+          indriveTot += v;
+        });
       }
       // visão "sem sub-rental security deposit": zera o calção E a devolução dele (refund) — os dois
       // lados da mesma moeda; deixar só um distorceria o cashflow
@@ -2324,7 +2384,7 @@
       const headcount = zeros(); for (let m = 0; m < FIN_MONTHS; m++) (finHc.roles || []).forEach((r) => { headcount[m] += hcOf(r, m); });
       const payFeePct = new Array(FIN_MONTHS).fill(0).map((_, m) => finParM('__fin_payfee__', m));
       return { delivered, active, rev, cogs, secDep, grossRev, fed, cred, taxes, netRev, cogsTot, payProc, gm,
-        base, meal, health, ptax, th13, bonus, hcTot, commission, adsTot, infTot, cacTot, rentTot, profTot, itTot, sga, opex, netCf, accCf, newDelivered, headcount, payFeePct, actualsThrough, vehPur };
+        base, meal, health, ptax, th13, bonus, hcTot, commission, adsTot, infTot, cacTot, rentTot, profTot, itTot, sga, opex, netCf, accCf, newDelivered, headcount, payFeePct, actualsThrough, vehPur, indriveTot };
     }
 
     // ---------- P&L ----------
@@ -2333,10 +2393,13 @@
     let pnlActualsThrough = null; // último mês calendário coberto por dados realizados
     function renderPnl() {
       const el = document.getElementById('pnlTable'); if (!el) return;
-      const snap = (pnlVersion === 'live') ? null : pnlSnap();
-      const live = !snap;
-      const simOn = live !== false && pnlSimApply && pnlSimScale !== 100;
-      const P = snap || computePnl({ noSd: pnlNoSd, scale: simOn ? pnlSimScale / 100 : 1 });
+      // 3 modos: Live (realizado + projeção), Budget (orçado: só UE Teórico, sem realizado) e as
+      // versões congeladas (snapshot salvo). Budget e congelada não aceitam o simulador de frota.
+      const budget = pnlVersion === 'budget';
+      const snap = (pnlVersion === 'live' || budget) ? null : pnlSnap();
+      const live = !snap && !budget;
+      const simOn = live && pnlSimApply && pnlSimScale !== 100;
+      const P = snap || computePnl({ budget, noSd: pnlNoSd, noIndrive: pnlNoIdr, scale: simOn ? pnlSimScale / 100 : 1 });
       const sum = (a) => a.reduce((s, x) => s + (x || 0), 0);
       const gmPct = P.grossRev.map((v, m) => (v ? (P.gm[m] / v) * 100 : null));
       // árvore de linhas (grupos colapsáveis) — #1
@@ -2411,7 +2474,9 @@
     }
     function renderPnlControls(live) {
       const ctl = document.getElementById('pnlControls'); if (!ctl) return;
-      const opts = ['<option value="live"' + (pnlVersion === 'live' ? ' selected' : '') + '>● Live</option>']
+      const budget = pnlVersion === 'budget';
+      const opts = ['<option value="live"' + (pnlVersion === 'live' ? ' selected' : '') + '>● Live</option>',
+        '<option value="budget"' + (budget ? ' selected' : '') + '>◆ Budget</option>']
         .concat(pnlVersions.map((v) => `<option value="${v.id}"${pnlVersion === v.id ? ' selected' : ''}>${escH(v.name)}</option>`)).join('');
       let h = '<div class="pnl-bar">';
       // seletor de ANO (2026 · 2027) — o P&L e o Fleet Plan seguem o ano escolhido
@@ -2419,12 +2484,14 @@
         `<button class="pnl-yr${finYear === y ? ' on' : ''}" data-y="${y}">${y}</button>`).join('') + '</div>';
       h += `<select id="pnlVer" class="pnl-sel" title="Version">${opts}</select>`;
       if (isAdmin && live) h += '<button id="pnlSaveVer" class="pnl-btn" title="Freeze this P&L under a name (board presentation)">＋ Version</button>';
-      if (isAdmin && !live) h += '<button id="pnlDelVer" class="pnl-btn pnl-del" title="Delete this frozen version">🗑</button>';
+      if (isAdmin && !live && !budget) h += '<button id="pnlDelVer" class="pnl-btn pnl-del" title="Delete this frozen version">🗑</button>';
       if (live) h += `<button id="pnlNoSdBtn" class="pnl-btn${pnlNoSd ? ' on' : ''}" title="What-if view without the sub-rental security deposit (and its refund)">No deposit</button>`;
+      if (live && indriveOn()) h += `<button id="pnlIdrBtn" class="idr-btn idr-btn-sm${pnlNoIdr ? ' off' : ' on'}" title="${pnlNoIdr ? 'InDrive is OUT of the P&L — click to bring it back' : 'Click to remove the InDrive benefit from the P&L'}"><span class="idr-mark">iD</span><span class="idr-txt">InDrive</span><span class="idr-state">${pnlNoIdr ? 'off' : 'on'}</span></button>`;
       h += `<button id="pnlExpand" class="pnl-btn" title="${pnlCollapsed.size ? 'Expand all groups' : 'Collapse all groups'}">${pnlCollapsed.size ? '⤢' : '⤡'}</button>`;
       h += '<button id="pnlAssump" class="pnl-btn" title="Tax rates, processing fee (global and per month), FX and other assumptions">⚙ Assumptions</button>';
       h += '<button id="pnlInfo" class="pnl-btn pnl-info" title="Where each line comes from and how it updates">?</button>';
-      if (!live) { const v = pnlVersions.find((x) => x.id === pnlVersion); h += `<span class="pnl-frozen">📌 Frozen${v && v.savedAt ? ' · ' + v.savedAt.slice(0, 10) : ''}${v && v.snapshot && v.snapshot.noSd ? ' · no deposit' : ''}</span>`; }
+      if (budget) h += `<span class="pnl-budge">◆ Budget · per-car standard from the Theoric UE · no actuals</span>`;
+      else if (!live) { const v = pnlVersions.find((x) => x.id === pnlVersion); h += `<span class="pnl-frozen">📌 Frozen${v && v.savedAt ? ' · ' + v.savedAt.slice(0, 10) : ''}${v && v.snapshot && v.snapshot.noSd ? ' · no deposit' : ''}</span>`; }
       if (pnlActualsThrough != null) h += `<span class="pnl-act">actuals → ${monthLbl(pnlActualsThrough)}</span>`;
       if (live && pnlSimApply && pnlSimScale !== 100) h += `<span class="pnl-simchip">⚠ simulated · deliveries at ${pnlSimScale}%</span>`;
       h += '</div>';
@@ -2436,6 +2503,7 @@
       const ib = document.getElementById('pnlInfo'); if (ib) ib.addEventListener('click', openPnlInfo);
       const sel = document.getElementById('pnlVer'); if (sel) sel.addEventListener('change', () => { pnlVersion = sel.value; renderPnl(); });
       const nb = document.getElementById('pnlNoSdBtn'); if (nb) nb.addEventListener('click', () => { pnlNoSd = !pnlNoSd; renderPnl(); });
+      const idb = document.getElementById('pnlIdrBtn'); if (idb) idb.addEventListener('click', () => { pnlNoIdr = !pnlNoIdr; renderPnl(); });
       const eb = document.getElementById('pnlExpand'); if (eb) eb.addEventListener('click', () => { if (pnlCollapsed.size) pnlCollapsed.clear(); else pnlCollapsed = new Set(PNL_GROUPS); renderPnl(); });
       const sv = document.getElementById('pnlSaveVer'); if (sv) sv.addEventListener('click', savePnlVersion);
       const dv = document.getElementById('pnlDelVer'); if (dv) dv.addEventListener('click', deletePnlVersion);
@@ -2489,6 +2557,8 @@
         ['HC Payroll', 'SG&A → Headcount: one row per employee × the cost table', 'Manual'],
         ['SG&A (Rent · Prof · IT)', 'SG&A tabs, item by item, month by month', 'Manual'],
         ['CAC', 'Commission = USD/car × deliveries of the month · Paid media and influencers from the CAC tabs', 'Manual + Fleet Plan'],
+        ['InDrive', 'Benefit per plate × plates of each batch, on the month of the batch date, inside Initial Fee. The iD button takes it out of the whole P&L', 'Manual (iD panel)'],
+        ['◆ Budget', 'Fleet Plan × the Theoric UE per car — the projection we started from. No actuals, no reference fleets, and no InDrive; it moves when you change Fleet Plan, SG&A or CAC. This is the grey dotted line in the Dashboard', 'Fleet Plan + Theoric UE'],
       ];
       const ov = document.createElement('div');
       ov.className = 'ue-modal-overlay';
@@ -2575,7 +2645,7 @@
       if (simEl) simEl.innerHTML = !live ? '' :
         '<div class="pnl-sim">' +
           '<div class="pnl-sim-top">' +
-            '<div class="pnl-sim-head"><span class="pnl-sim-ic">🚗</span><span class="pnl-sim-lbl">Fleet simulator</span></div>' +
+            '<div class="pnl-sim-head"><span class="pnl-sim-lbl">Fleet simulator</span></div>' +
             '<input type="range" id="pnlSimScale" min="25" max="400" step="5" value="' + pnlSimScale + '">' +
             '<span class="pnl-sim-val" id="pnlSimVal">' + pnlSimScale + '%</span>' +
             '<label class="pnl-sim-mask"><input type="checkbox" id="pnlSimApply"' + (pnlSimApply ? ' checked' : '') + '><span>apply to the table</span></label>' +
@@ -2593,10 +2663,10 @@
           const d = (a, b) => (b - a);
           const sc = (lbl, val, delta, tone) => '<div class="pnl-sc ' + (tone || '') + '"><span class="pnl-sc-l">' + lbl + '</span><b class="pnl-sc-v">' + val + '</b><span class="pnl-sc-d">' + delta + '</span></div>';
           document.getElementById('pnlSimOut').innerHTML =
-            sc('Breakeven', KS.beIdx != null ? monthLbl(KS.beIdx) : '—', K.beIdx != null && KS.beIdx != null ? (KS.beIdx === K.beIdx ? 'same as plan' : ((KS.beIdx < K.beIdx ? '▲ ' : '▼ ') + Math.abs(KS.beIdx - K.beIdx) + ' mo ' + (KS.beIdx < K.beIdx ? 'earlier' : 'later'))) : 'vs plan', KS.beIdx != null ? 'good' : 'warn') +
-            sc('Peak funding', money(KS.peak), fmt(d(K.peak, KS.peak)) + ' vs plan', 'warn') +
-            sc('End-of-year cash', money(KS.eoy), fmt(d(K.eoy, KS.eoy)) + ' vs plan', KS.eoy >= 0 ? 'good' : 'warn') +
-            sc('Cars delivered', Math.round(KS.totDeliv), (KS.totDeliv >= K.totDeliv ? '+' : '') + Math.round(KS.totDeliv - K.totDeliv) + ' vs plan', 'neutral');
+            sc('Breakeven', KS.beIdx != null ? monthLbl(KS.beIdx) : '—', K.beIdx != null && KS.beIdx != null ? (KS.beIdx === K.beIdx ? 'same as current' : ((KS.beIdx < K.beIdx ? '▲ ' : '▼ ') + Math.abs(KS.beIdx - K.beIdx) + ' mo ' + (KS.beIdx < K.beIdx ? 'earlier' : 'later'))) : 'vs current', KS.beIdx != null ? 'good' : 'warn') +
+            sc('Peak funding', money(KS.peak), fmt(d(K.peak, KS.peak)) + ' vs current', 'warn') +
+            sc('End-of-year cash', money(KS.eoy), fmt(d(K.eoy, KS.eoy)) + ' vs current', KS.eoy >= 0 ? 'good' : 'warn') +
+            sc('Cars delivered', Math.round(KS.totDeliv), (KS.totDeliv >= K.totDeliv ? '+' : '') + Math.round(KS.totDeliv - K.totDeliv) + ' vs current', 'neutral');
         };
         if (sl) { sl.addEventListener('input', () => { pnlSimScale = +sl.value; paint(); }); paint(); }
         const ap = document.getElementById('pnlSimApply');
@@ -3066,7 +3136,8 @@
 
     // ---------- DASHBOARD: realizado + projetado vs plano (gráficos) ----------
     // Paleta validada (dataviz): Actual #5A00F8 · Forecast #A78BFA · Plan #EB6834.
-    // "Plan" = o mesmo motor SEM o override de realizado (o modelo puro das frotas de referência).
+    // "Plan" = o ORÇADO: Fleet Plan × UE Teórico por carro, sem nenhum realizado — a projeção que
+    // tínhamos de origem. É a mesma coisa que a opção "◆ Budget" do seletor de versão do P&L.
     // O "plano" tem SEMPRE a mesma cor (cinza-azulado pontilhado) em todos os gráficos — assim ele é
     // reconhecível de imediato, independente da linha escolhida.
     const DC = { act: '#5A00F8', for: '#A78BFA', plan: '#94A3B8', grid: 'rgba(120,120,140,0.10)', txt: '#6b7280' };
@@ -3093,7 +3164,7 @@
     function renderDash() {
       if (!document.getElementById('dashLineCv')) return;
       const PA = computePnl({});                    // realidade: actuals + forecast
-      const PP = computePnl({ noActuals: true });   // plano: modelo puro (sem override do realizado)
+      const PP = computePnl({ budget: true });      // orçado: Fleet Plan × UE Teórico por carro, sem realizado
       const curM = PA.actualsThrough != null ? PA.actualsThrough : -1;
       const labels = Array.from({ length: FIN_MONTHS }, (_, m) => monthLbl(m));
       const kill = (id) => { if (dashCharts[id]) { dashCharts[id].destroy(); delete dashCharts[id]; } };
@@ -3110,7 +3181,7 @@
         data: { labels, datasets: [
           { label: 'Actual', data: real, borderColor: fam.color, backgroundColor: fam.fill, borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5, tension: 0.3, fill: 'origin' },
           { label: 'Forecast', data: proj, borderColor: fam.color, borderWidth: 2.5, borderDash: [5, 4], pointRadius: 0, pointHoverRadius: 5, tension: 0.3 },
-          { label: 'Plan', data: plan, borderColor: DC.plan, borderWidth: 2, borderDash: [2, 3], pointRadius: 0, pointHoverRadius: 5, tension: 0.3 },
+          { label: 'Budget', data: plan, borderColor: DC.plan, borderWidth: 2, borderDash: [2, 3], pointRadius: 0, pointHoverRadius: 5, tension: 0.3 },
         ] },
         options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
           plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 14, boxHeight: 2, usePointStyle: false, font: { size: 10.5 }, color: DC.txt } },
@@ -3126,14 +3197,14 @@
       const diff = fyP ? ((fyA - fyP) / Math.abs(fyP)) * 100 : null;
       const setTxt = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
       setTxt('dashHeroTitle', DASH_LABEL(dashLine));
-      setTxt('dashHeroSub', fam.name + ' · solid = actual through ' + (curM >= 0 ? monthLbl(curM) : '—') + ' · dotted = forecast · grey = plan');
+      setTxt('dashHeroSub', fam.name + ' · solid = actual through ' + (curM >= 0 ? monthLbl(curM) : '—') + ' · dotted = forecast · grey = budget (Theoric UE per car)');
       const dot = document.getElementById('dashDot'); if (dot) { dot.style.backgroundColor = fam.color; dot.style.color = fam.color; }
       const st = document.getElementById('dashHeroStats');
       if (st) st.innerHTML =
         '<div class="dash-stat"><span>Actual to date</span><b>US$ ' + fmtQty(actSum) + '</b></div>' +
         '<div class="dash-stat"><span>Full year (A+F)</span><b>US$ ' + fmtQty(fyA) + '</b></div>' +
-        '<div class="dash-stat"><span>Plan</span><b>US$ ' + fmtQty(fyP) + '</b></div>' +
-        '<div class="dash-stat ' + (diff == null ? '' : (diff >= 0 ? 'up' : 'down')) + '"><span>vs plan</span><b>' +
+        '<div class="dash-stat"><span>Budget</span><b>US$ ' + fmtQty(fyP) + '</b></div>' +
+        '<div class="dash-stat ' + (diff == null ? '' : (diff >= 0 ? 'up' : 'down')) + '"><span>vs budget</span><b>' +
         (diff == null ? '—' : (diff >= 0 ? '+' : '') + Math.round(diff) + '%') + '</b></div>';
       // ---- os dois gráficos de caixa ----
       const cashChart = (id, arrA, arrP, filled) => {
@@ -3144,7 +3215,7 @@
           data: { labels, datasets: [
             { label: 'Actual', data: a, borderColor: DC.act, backgroundColor: 'rgba(90,0,248,.07)', borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5, tension: 0.3, fill: filled ? 'origin' : false },
             { label: 'Forecast', data: f, borderColor: DC.act, borderWidth: 2.5, borderDash: [5, 4], pointRadius: 0, pointHoverRadius: 5, tension: 0.3 },
-            { label: 'Plan', data: arrP, borderColor: DC.plan, borderWidth: 2, borderDash: [2, 3], pointRadius: 0, pointHoverRadius: 5, tension: 0.3 },
+            { label: 'Budget', data: arrP, borderColor: DC.plan, borderWidth: 2, borderDash: [2, 3], pointRadius: 0, pointHoverRadius: 5, tension: 0.3 },
           ] },
           options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
             plugins: { legend: { display: false }, datalabels: { display: false },
@@ -3191,6 +3262,7 @@
       const realFleets = ((OCN.ue || {}).fleets) || [];
       await Promise.all(realFleets.map(async (f) => { realFleetParams[f.id] = await getVals(f.id); }));
       refProfiles = buildProfiles();
+      await loadIndrive();
       await loadPnlVersions();
       renderFleetPlan(); renderHc(); renderAdmin(); renderCac(); renderAssump(); renderPnl();
       const dashTab = document.querySelector('.sub-tab[data-sub="findash"]');
@@ -3249,17 +3321,84 @@
       } catch (e) {}
     }
 
+    // foto do modelo: a cadastrada pelo site (m.photo) vence a estática de config/static
+    const modelPhoto = (m) => (m && m.photo) || ((OCN.modelos && OCN.modelos[m.id] && OCN.modelos[m.id].foto) || '');
     function renderFleets() {
       let h = uetModels.map((m) => {
-        const cfg = (OCN.modelos && OCN.modelos[m.id]) || null;
-        const visual = cfg && cfg.foto ? `<img class="uet-photo" src="${escH(cfg.foto)}" alt="">` : `<span class="uet-dot" style="background:${escH(m.color || '#5A00F8')}"></span>`;
-        return `<button class="ue-fleet-btn${m.id === uetSel ? ' active' : ''}" data-id="${escH(m.id)}">${visual}<span class="n">${escH(m.name)}</span></button>`;
+        const foto = modelPhoto(m);
+        const visual = foto ? `<img class="uet-photo" src="${escH(foto)}" alt="">` : `<span class="uet-dot" style="background:${escH(m.color || '#5A00F8')}"></span>`;
+        const gear = isAdmin ? `<span class="uet-edit" data-edit="${escH(m.id)}" title="Edit or delete this model">✎</span>` : '';
+        return `<button class="ue-fleet-btn uet-mbtn${m.id === uetSel ? ' active' : ''}" data-id="${escH(m.id)}">${visual}<span class="n">${escH(m.name)}</span>${gear}</button>`;
       }).join('');
       if (isAdmin) h += '<button class="ue-fleet-btn uet-add" id="uetAdd">+ Add model</button>';
       fleetsEl.innerHTML = h;
-      fleetsEl.querySelectorAll('.ue-fleet-btn[data-id]').forEach((b) => b.addEventListener('click', async () => { uetSel = b.dataset.id; renderFleets(); await loadValues(uetSel); }));
+      fleetsEl.querySelectorAll('.ue-fleet-btn[data-id]').forEach((b) => b.addEventListener('click', async (ev) => {
+        if (ev.target && ev.target.dataset && ev.target.dataset.edit) { ev.stopPropagation(); openModelModal(ev.target.dataset.edit); return; }
+        uetSel = b.dataset.id; renderFleets(); await loadValues(uetSel);
+      }));
       const addBtn = document.getElementById('uetAdd');
       if (addBtn) addBtn.addEventListener('click', addModel);
+    }
+    // caixinha do modelo: nome, cor, foto (URL) e exclusão — com confirmação por escrito
+    function openModelModal(id) {
+      const m = uetModels.find((x) => x.id === id); if (!m) return;
+      const ov = document.createElement('div'); ov.className = 'ue-modal-overlay';
+      ov.innerHTML =
+        `<div class="ue-modal ue-modal-model">` +
+          `<div class="ue-modal-title">${escH(m.name)}</div>` +
+          `<div class="ue-modal-sub">Identity of the model in the Theoric UE and in the Fleet Plan.</div>` +
+          `<div class="umd-preview" id="umdPrev">${modelPhoto(m) ? `<img src="${escH(modelPhoto(m))}" alt="">` : `<span class="umd-nophoto">no photo</span>`}</div>` +
+          `<label class="umd-f"><span>Name</span><input id="umdName" type="text" maxlength="60" value="${escH(m.name)}"></label>` +
+          `<label class="umd-f"><span>Photo — paste an image URL (https://…)</span><input id="umdPhoto" type="text" placeholder="https://…/polo.png" value="${escH(m.photo || '')}"></label>` +
+          `<label class="umd-f umd-color"><span>Colour</span><input id="umdColor" type="color" value="${escH(m.color || '#5A00F8')}"></label>` +
+          `<div class="ue-modal-hint">Leave the photo empty to go back to the coloured dot. The image is loaded straight from the URL — it is not uploaded here.</div>` +
+          `<div class="umd-danger" id="umdDanger"></div>` +
+          `<div class="ue-modal-actions"><button type="button" class="ue-modal-cancel">Cancel</button><button type="button" class="ue-modal-save" id="umdSave">Save</button></div>` +
+        `</div>`;
+      document.body.appendChild(ov);
+      const close = () => ov.remove();
+      ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+      ov.querySelector('.ue-modal-cancel').addEventListener('click', close);
+      const ph = ov.querySelector('#umdPhoto');
+      ph.addEventListener('input', () => {
+        const u = ph.value.trim();
+        ov.querySelector('#umdPrev').innerHTML = u ? `<img src="${escH(u)}" alt="">` : `<span class="umd-nophoto">no photo</span>`;
+      });
+      ov.querySelector('#umdSave').addEventListener('click', async () => {
+        const btn = ov.querySelector('#umdSave'); btn.disabled = true; btn.textContent = 'Saving…';
+        try {
+          const body = { id, name: ov.querySelector('#umdName').value, color: ov.querySelector('#umdColor').value, photo: ph.value.trim() };
+          const r = await fetch('/api/theoric/models/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(body) });
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
+          uetModels = d.models; close(); renderFleets();
+        } catch (e) { btn.disabled = false; btn.textContent = 'Save'; alert('Could not save: ' + e.message); }
+      });
+      // exclusão em dois passos: o botão vira uma confirmação explícita dentro da própria caixinha
+      const dz = ov.querySelector('#umdDanger');
+      function drawDanger(armed) {
+        dz.classList.toggle('armed', armed);
+        dz.innerHTML = armed
+          ? `<div class="umd-confirm"><b>Delete “${escH(m.name)}”?</b>` +
+            `<span>The manual values of this model stay in the database, but it disappears from the Theoric UE and from the Fleet Plan.</span>` +
+            `<div class="umd-confirm-row"><button type="button" class="umd-keep">Keep it</button><button type="button" class="umd-yes">Yes, delete</button></div></div>`
+          : `<button type="button" class="umd-del">🗑 Delete model</button>`;
+        const del = dz.querySelector('.umd-del'); if (del) del.addEventListener('click', () => drawDanger(true));
+        const keep = dz.querySelector('.umd-keep'); if (keep) keep.addEventListener('click', () => drawDanger(false));
+        const yes = dz.querySelector('.umd-yes');
+        if (yes) yes.addEventListener('click', async () => {
+          yes.disabled = true; yes.textContent = 'Deleting…';
+          try {
+            const r = await fetch('/api/theoric/models/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id }) });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
+            uetModels = d.models;
+            if (uetSel === id) uetSel = uetModels[0] ? uetModels[0].id : null;
+            close(); renderFleets(); if (uetSel) await loadValues(uetSel);
+          } catch (e) { yes.disabled = false; yes.textContent = 'Yes, delete'; alert('Could not delete: ' + e.message); }
+        });
+      }
+      drawDanger(false);
     }
     async function addModel() {
       const name = (window.prompt('New model name:') || '').trim();
@@ -3419,6 +3558,7 @@
     let allMode = false;   // true = "All fleets": média ponderada por carros de todas as frotas (÷ N total)
     let curCars = 0;       // nº de carros da visão atual (frota ou total geral) — multiplicador do aggregate
     let ctxCars = 0;       // nº de carros do CONTEXTO de cálculo (frota corrente; no all-mode, a frota da vez)
+    let ctxPlates = [];    // placas do CONTEXTO de cálculo — usado pelo InDrive (benefício por placa)
     let fleetCtx = null;   // all-mode: contexto por frota (params/entradas/derivados) p/ combinar célula a célula
     const viewMult = () => (plateView ? 1 : (viewAgg ? (curCars || 1) : 1)); // usado só pelo orçado (referência por modelo)
     let entered = {}; // "line@@period" -> {value, kind} — valores manuais em R$ (moeda principal)
@@ -3563,6 +3703,24 @@
     function activeCarsAt(m) {
       const frac = activeFracArr[m] != null ? activeFracArr[m] : 1;
       return Math.max(1, Math.round(frac * (ctxCars || 1)));
+    }
+    // InDrive: R$ TOTAL que cai no período `p` do UE, contando só as placas do contexto (frota ou
+    // placa selecionada). A data da leva vira mês do UE pelo mesmo eixo de 4,333 semanas das demais
+    // linhas; leva anterior ao início da frota cai no M0 e leva depois do M13 fica de fora.
+    function indriveRS(p) {
+      if (!indriveOn() || !curIni) return 0;
+      const set = plateView ? new Set([plateView]) : new Set(ctxPlates);
+      if (!set.size) return 0;
+      let tot = 0;
+      indriveData.batches.forEach((b) => {
+        const d = new Date(b.date + 'T12:00:00');
+        let mo = Math.ceil(((d - curIni) / 86400000) / (SEMANAS_MES * 7));
+        if (mo < 0) mo = 0;
+        if (mo > PMAX || mo !== p) return;
+        let n = 0; (b.plates || []).forEach((pl) => { if (set.has(pl)) n++; });
+        tot += n * indriveData.value;
+      });
+      return tot;
     }
     // Maintenance por dados reais: REALIZADO = revisões concluídas (API da frota: última revisão com data;
     // anteriores inferidas pelo ritmo de km da placa) × preço do site de revisões; PROJETADO = próximas
@@ -3970,8 +4128,13 @@
         return { rs: period === PMAX ? secDepMag() * (1 + rp) : 0 }; // devolução corrigida, no M13
       }
       if (line === 'Vehicle Purchase' && par('__vehicle__') > 0) return { rs: period === PMAX ? -par('__vehicle__') : 0 };
-      if (line === 'Initial Fee / Vehicle Sell' && par('__vehicle__') > 0) {
-        return { rs: period === PMAX ? par('__vehicle__') * 1.03 : 0 }; // venda = 103% da compra, no M13
+      if (line === 'Initial Fee / Vehicle Sell') {
+        const veh = par('__vehicle__');
+        const idr = indriveRS(period) / (plateView ? 1 : (ctxCars || 1)); // benefício InDrive das placas do contexto
+        // com a caixinha de compra preenchida a linha é toda nossa (venda = 103% da compra, no M13);
+        // sem ela, só os meses COM leva de InDrive saem do orçado — os demais continuam na referência
+        if (veh > 0) return { rs: (period === PMAX ? veh * 1.03 : 0) + idr };
+        if (idr) return { rs: idr };
       }
       // demais linhas (Subscription, Maintenance...): sem cálculo automático — só orçado + entradas manuais
       const orc = orcVal(line, period);
@@ -4011,7 +4174,7 @@
     }
     // all-mode: contexto por frota — cada frota tem params/entradas/eixo de meses/perdas/pagamentos próprios
     function applyCtx(c) {
-      model = c.f.model; params = c.params; entered = c.entered; curIni = c.ini; ctxCars = c.f.cars || 0;
+      model = c.f.model; params = c.params; entered = c.entered; curIni = c.ini; ctxCars = c.f.cars || 0; ctxPlates = c.f.placas || [];
       elapsed = c.elapsed; realizedFull = c.realizedFull; lossMonthByPlate = c.lossMonthByPlate; activeFracArr = c.activeFracArr;
       subsRS = c.subsRS || []; subsJurosRS = c.subsJurosRS || []; subsReady = !!c.subsReady;
       maintRealRS = c.maintRealRS || []; maintProjRS = c.maintProjRS || []; maintReady = !!c.maintReady;
@@ -4232,7 +4395,7 @@
         ['Late-payment interest', 'Same matrix (actual interest) + contract version (v1/v2 5% · v3+ 20%) + late % slider', 'Auto, daily'],
         ['Traffic fines (inflow)', 'Fines API (billing panel) — what clients pay us', 'Auto, daily'],
         ['Termination fee', 'Sheet import_jud (total charge − fines/tolls) + recovery % slider · lands in M13', 'Auto, daily'],
-        ['Initial Fee / Vehicle Sell', '✎ box (103% of purchase) · M13', 'Manual'],
+        ['Initial Fee / Vehicle Sell', '✎ box (103% of purchase) · M13 · plus the InDrive benefit (iD button): value per plate × plates of the batch, on the month of the batch date', 'Manual + iD panel'],
         ['Security Deposit Refund', 'Derived: deposit × (1 + % p.a. field) · M13', 'Manual'],
         ['Subrental fee', '✎ monthly amount; 12 installments always on the 26th (M2–M13)', 'Manual'],
         ['Insurance', '✎ boxes (total / installments)', 'Manual'],
@@ -4300,6 +4463,91 @@
       });
     }
 
+    // InDrive: uma leva = uma data + a lista de placas que recebem o benefício naquela data.
+    // O valor por placa é o MESMO em todas as levas (campo único no topo). As placas são coladas
+    // como texto solto — qualquer separador (espaço, vírgula, quebra de linha) serve.
+    function openIndriveModal(f) {
+      const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+      // cópia de trabalho: só grava no Save
+      let draft = { value: indriveData.value, batches: indriveData.batches.map((b) => ({ date: b.date, plates: (b.plates || []).slice() })) };
+      if (!draft.batches.length) draft.batches = [{ date: (U.hoje || new Date().toISOString().slice(0, 10)), plates: [] }];
+      const ov = document.createElement('div');
+      ov.className = 'ue-modal-overlay';
+      ov.innerHTML = `<div class="ue-modal ue-modal-idr"></div>`;
+      document.body.appendChild(ov);
+      const box = ov.querySelector('.ue-modal-idr');
+      const close = () => ov.remove();
+      const norm = (raw) => [...new Set(String(raw).toUpperCase().split(/[^A-Z0-9]+/).filter((p) => p.length >= 6 && p.length <= 8))];
+      const knownPlates = new Set((U.fleets || []).flatMap((x) => x.placas || []));
+      function draw() {
+        const totPl = draft.batches.reduce((s, b) => s + b.plates.length, 0);
+        const known = draft.batches.reduce((s, b) => s + b.plates.filter((p) => knownPlates.has(p)).length, 0);
+        box.innerHTML =
+          `<div class="idr-head"><span class="idr-mark idr-mark-lg">iD</span>` +
+            `<div><div class="ue-modal-title" style="margin:0">InDrive benefit</div>` +
+            `<div class="ue-modal-sub" style="margin:2px 0 0">Revenue we receive per plate, delivered in batches. It lands on the <b>Initial Fee / Vehicle Sell</b> line, on the month of each batch date.</div></div></div>` +
+          `<div class="idr-topline">` +
+            `<label class="idr-field"><span>Benefit per plate</span><span class="idr-inwrap"><b>R$</b>` +
+              `<input id="idrValue" type="text" inputmode="decimal" value="${draft.value ? String(draft.value).replace('.', ',') : ''}" placeholder="0,00"></span></label>` +
+            `<div class="idr-sum"><div><b>${draft.batches.length}</b><span>batches</span></div>` +
+              `<div><b>${totPl}</b><span>plates</span></div>` +
+              `<div class="idr-sum-tot"><b>R$ ${(totPl * (draft.value || 0)).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</b><span>total</span></div></div>` +
+          `</div>` +
+          (totPl && known < totPl ? `<div class="idr-warn">${totPl - known} plate${totPl - known > 1 ? 's are' : ' is'} not in any fleet — they are kept, but only plates of the current fleet show up in this table.</div>` : '') +
+          `<div class="idr-batches">` + draft.batches.map((b, i) =>
+            `<div class="idr-batch" data-i="${i}">` +
+              `<div class="idr-batch-head">` +
+                `<span class="idr-batch-n">Batch ${i + 1}</span>` +
+                `<label class="idr-date"><span>Date</span><input type="date" data-i="${i}" class="idr-d" value="${esc(b.date || '')}"></label>` +
+                `<span class="idr-chip">${b.plates.length} plate${b.plates.length === 1 ? '' : 's'}</span>` +
+                `<button type="button" class="idr-del" data-i="${i}" title="Remove this batch">✕</button>` +
+              `</div>` +
+              `<textarea class="idr-ta" data-i="${i}" rows="3" placeholder="Paste the plates here — any separator works (space, comma, line break)">${esc(b.plates.join(' '))}</textarea>` +
+            `</div>`).join('') +
+          `</div>` +
+          `<button type="button" class="idr-add" id="idrAdd">＋ Add batch</button>` +
+          `<div class="ue-modal-hint">Plates are normalised (uppercase, no punctuation) and de-duplicated inside each batch. Same value for every batch.</div>` +
+          `<div class="ue-modal-actions"><button type="button" class="ue-modal-cancel">Cancel</button><button type="button" class="ue-modal-save">Save</button></div>`;
+        // valor por placa
+        const vin = box.querySelector('#idrValue');
+        vin.addEventListener('change', () => { const n = parseInput(vin.value); draft.value = (n == null || isNaN(n)) ? 0 : Math.max(0, n); draw(); });
+        box.querySelectorAll('.idr-d').forEach((inp) => inp.addEventListener('change', () => { draft.batches[+inp.dataset.i].date = inp.value; }));
+        box.querySelectorAll('.idr-ta').forEach((ta) => {
+          const commit = () => { draft.batches[+ta.dataset.i].plates = norm(ta.value); draw(); };
+          ta.addEventListener('blur', commit);
+          ta.addEventListener('paste', () => setTimeout(commit, 0));
+        });
+        box.querySelectorAll('.idr-del').forEach((b) => b.addEventListener('click', () => { draft.batches.splice(+b.dataset.i, 1); if (!draft.batches.length) draft.batches = [{ date: (U.hoje || ''), plates: [] }]; draw(); }));
+        box.querySelector('#idrAdd').addEventListener('click', () => {
+          const last = draft.batches[draft.batches.length - 1];
+          const d = last && last.date ? new Date(last.date + 'T12:00:00') : new Date();
+          d.setMonth(d.getMonth() + 1);
+          draft.batches.push({ date: d.toISOString().slice(0, 10), plates: [] });
+          draw();
+        });
+        box.querySelector('.ue-modal-cancel').addEventListener('click', close);
+        box.querySelector('.ue-modal-save').addEventListener('click', save);
+      }
+      async function save() {
+        // pega o que estiver nas caixas de texto sem depender do blur
+        box.querySelectorAll('.idr-ta').forEach((ta) => { draft.batches[+ta.dataset.i].plates = norm(ta.value); });
+        const vin = box.querySelector('#idrValue');
+        if (vin) { const n = parseInput(vin.value); draft.value = (n == null || isNaN(n)) ? 0 : Math.max(0, n); }
+        const payload = { value: draft.value, batches: draft.batches.filter((b) => b.date && b.plates.length) };
+        const btn = box.querySelector('.ue-modal-save'); btn.disabled = true; btn.textContent = 'Saving…';
+        try {
+          const r = await fetch('/api/indrive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ indrive: payload }) });
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
+          indriveData = { value: Number(d.indrive.value) || 0, batches: d.indrive.batches || [] };
+          close();
+          loadFleet();
+        } catch (e) { btn.disabled = false; btn.textContent = 'Save'; alert('Could not save: ' + e.message); }
+      }
+      ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+      draw();
+    }
+
     // painel de visões: Fleet (unitary) = por veículo · Fleet (aggregate) = soma de todas as placas · uma placa
     function renderPlates(f) {
       const platesEl = document.getElementById('uePlates');
@@ -4358,7 +4606,7 @@
       const f = allMode ? allFleet() : U.fleets.find((x) => x.id === current);
       model = f.model;
       plateView = null; viewAgg = false; // trocar de frota volta para a visão unitária
-      curCars = f.cars || 0; ctxCars = f.cars || 0;
+      curCars = f.cars || 0; ctxCars = f.cars || 0; ctxPlates = f.placas || [];
       const foto = allMode ? null : (OCN.modelos[f.model] || {}).foto;
       fleetsEl.querySelectorAll('.ue-fleet-btn').forEach((b) => b.classList.toggle('active', b.dataset.id === current));
       // carrega valores (entradas manuais + params) — all-mode busca de todas as frotas em paralelo
@@ -4443,6 +4691,10 @@
               `<button class="ue-clean2${cleanView ? ' on' : ''}" id="ueClean" title="Hide the budget comparison and show one combined number per month">✨ Clean view</button>` +
             `</div>` +
             `<button class="ue-tool-btn" id="ueParts" title="Replacement intervals and cost per part">⚙ Parts</button>` +
+            `<button class="idr-btn${indriveOn() ? ' on' : ''}" id="ueIndrive" title="InDrive benefit per plate — batches feed the Initial Fee line">` +
+              `<span class="idr-mark">iD</span><span class="idr-txt">InDrive</span>` +
+              (indriveOn() ? `<span class="idr-count">${indriveData.batches.reduce((s, b) => s + (b.plates || []).length, 0)}</span>` : '') +
+            `</button>` +
             (isAdmin ? `<label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Manual mode</span></label>` : '') +
             `<button class="ue-tool-btn" id="ueRefresh" title="Re-fetches the spreadsheet data">↻ Refresh</button>` +
             `<button class="ue-tool-btn ue-info-btn" id="ueInfo" title="Where each line comes from and how it updates">?</button>` +
@@ -4459,6 +4711,8 @@
       if (infoBtn) infoBtn.addEventListener('click', openInfoModal);
       const partsBtn = document.getElementById('ueParts');
       if (partsBtn) partsBtn.addEventListener('click', () => openPartsModal(f));
+      const idrBtn = document.getElementById('ueIndrive');
+      if (idrBtn) idrBtn.addEventListener('click', () => openIndriveModal(f));
       const cleanBtn = document.getElementById('ueClean');
       if (cleanBtn) cleanBtn.addEventListener('click', () => { cleanView = !cleanView; loadFleet(); });
       if (isAdmin) document.getElementById('ueManual').addEventListener('change', (e) => { manualMode = e.target.checked; renderTable(f); });
@@ -4568,6 +4822,53 @@
       }
       document.getElementById('ueFoot').innerHTML =
         '<span class="ue-tag ue-tag-real">Actual</span><span class="ue-tag ue-tag-proj">Projected</span><span class="ue-tag ue-tag-orc">Budget</span>';
+      renderIrr(T);
+    }
+
+    // TIR (IRR) do contrato: fluxo de caixa líquido M0..M13 da visão atual. Mensal = taxa por
+    // período do UE (janela de 4,333 semanas); anual = (1 + mensal)^12 − 1.
+    function renderIrr(T) {
+      const el = document.getElementById('ueIrr'); if (!el) return;
+      const flows = [];
+      for (let p = 0; p <= PMAX; p++) { const c = T.net[p]; flows.push(c ? (c.hasMain ? c.eff : (c.orc || 0)) : 0); }
+      const rM = irrOf(flows);
+      const cur = currency === 'BRL' ? 'R$' : 'US$';
+      const netTot = flows.reduce((a, b) => a + b, 0);
+      const invested = -flows.filter((v) => v < 0).reduce((a, b) => a + b, 0);
+      // payback = primeiro mês em que o acumulado vira positivo
+      let acc = 0, payback = null;
+      for (let p = 0; p <= PMAX; p++) { acc += flows[p]; if (payback == null && acc > 0) payback = p; }
+      const pct = (v) => (v * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
+      const money = (v) => cur + ' ' + Math.round(Math.abs(v)).toLocaleString('pt-BR') ;
+      if (rM == null) {
+        const why = netTot < 0
+          ? `the contract does not pay the invested cash back in this view (net ${cur} ${Math.round(netTot).toLocaleString('pt-BR')} over M0–M${PMAX}), so there is no rate that zeroes the NPV.`
+          : `the net cashflow never turns negative in this view — with no outlay to discount there is no IRR.`;
+        el.innerHTML = `<div class="irr-panel irr-na"><div class="irr-na-txt"><b>IRR not defined</b><span>${why}</span></div></div>`;
+        return;
+      }
+      const rA = Math.pow(1 + rM, 12) - 1;
+      const good = rM > 0;
+      // barrinha: posição da TIR mensal numa escala de −10% a +30%
+      const gaugePct = Math.max(0, Math.min(100, ((rM * 100) + 10) / 40 * 100));
+      el.innerHTML =
+        `<div class="irr-panel${good ? '' : ' neg'}">` +
+          `<div class="irr-main">` +
+            `<div class="irr-kpi"><span class="irr-lbl">Monthly IRR</span><b class="irr-big">${pct(rM)}</b><span class="irr-sub">per UE month (4.33 weeks)</span></div>` +
+            `<div class="irr-sep"></div>` +
+            `<div class="irr-kpi"><span class="irr-lbl">Annual IRR</span><b class="irr-big irr-year">${pct(rA)}</b><span class="irr-sub">(1 + monthly)<sup>12</sup> − 1</span></div>` +
+          `</div>` +
+          `<div class="irr-side">` +
+            `<div class="irr-gauge"><div class="irr-gauge-track"><span class="irr-gauge-zero" style="left:25%"></span>` +
+              `<span class="irr-gauge-pin" style="left:${gaugePct.toFixed(1)}%"></span></div>` +
+              `<div class="irr-gauge-scale"><span>−10%</span><span>0</span><span>+30%</span></div></div>` +
+            `<div class="irr-facts">` +
+              `<div><span>Cash invested</span><b>${money(invested)}</b></div>` +
+              `<div><span>Net over the contract</span><b class="${netTot >= 0 ? 'up' : 'down'}">${netTot < 0 ? '−' : ''}${money(netTot)}</b></div>` +
+              `<div><span>Payback</span><b>${payback == null ? 'not reached' : 'M' + payback}</b></div>` +
+            `</div>` +
+          `</div>` +
+        `</div>`;
     }
 
     function openEditor(td, f) {
@@ -4626,6 +4927,7 @@
           const rp = get('__refund_pct__'); if (rp != null) refundPct = rp;
         }
       } catch (e) { /* usa defaults */ }
+      await loadIndrive();
       loadFleet();
     })();
   }

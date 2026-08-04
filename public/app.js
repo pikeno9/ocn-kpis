@@ -1865,6 +1865,11 @@
     return null;
   }
 
+  // toggle de moeda com bandeirinhas — mesmo markup no UE real e no Teórico
+  const CUR_FLAGS = (cur) =>
+    `<button class="ue-cur-btn${cur === 'BRL' ? ' active' : ''}" data-c="BRL" title="Reais (R$)"><svg viewBox="0 0 20 14" class="ue-flag"><rect width="20" height="14" rx="2" fill="#009C3B"/><path d="M10 2.2 17.5 7 10 11.8 2.5 7Z" fill="#FFDF00"/><circle cx="10" cy="7" r="2.7" fill="#002776"/></svg></button>` +
+    `<button class="ue-cur-btn${cur === 'USD' ? ' active' : ''}" data-c="USD" title="US Dollars (US$)"><svg viewBox="0 0 20 14" class="ue-flag"><rect width="20" height="14" rx="2" fill="#fff"/><g fill="#B22234"><rect y="0" width="20" height="2"/><rect y="4" width="20" height="2"/><rect y="8" width="20" height="2"/><rect y="12" width="20" height="2"/></g><rect width="9" height="6" fill="#3C3B6E"/></svg></button>`;
+
   // MESMA estrutura de linhas do UE real: leaf (inflow/outflow) + calc (totalizadores)
   const UET_LINES = [
     { label: 'Subscription', group: 'inflow' },
@@ -2399,7 +2404,10 @@
       const snap = (pnlVersion === 'live' || budget) ? null : pnlSnap();
       const live = !snap && !budget;
       const simOn = live && pnlSimApply && pnlSimScale !== 100;
-      const P = snap || computePnl({ budget, noSd: pnlNoSd, noIndrive: pnlNoIdr, scale: simOn ? pnlSimScale / 100 : 1 });
+      // baseOpts = as opções que geraram P; guardadas p/ quem precisa recalcular em cima da MESMA
+      // base (ex.: o cartão "+1 car today"). Fica null nas versões congeladas — lá não há motor.
+      const baseOpts = snap ? null : { budget, noSd: pnlNoSd, noIndrive: pnlNoIdr, scale: simOn ? pnlSimScale / 100 : 1 };
+      const P = snap || computePnl(baseOpts);
       const sum = (a) => a.reduce((s, x) => s + (x || 0), 0);
       const gmPct = P.grossRev.map((v, m) => (v ? (P.gm[m] / v) * 100 : null));
       // árvore de linhas (grupos colapsáveis) — #1
@@ -2470,7 +2478,7 @@
       }));
       pnlActualsThrough = (P.actualsThrough != null) ? P.actualsThrough : null;
       renderPnlControls(live);
-      renderPnlExtras(P, live);
+      renderPnlExtras(P, live, baseOpts);
     }
     function renderPnlControls(live) {
       const ctl = document.getElementById('pnlControls'); if (!ctl) return;
@@ -2618,7 +2626,21 @@
       }
       return { total: total / fx, payback };
     }
-    function renderPnlExtras(P, live) {
+    // Caixa MARGINAL de 1 carro entregue HOJE: quanto o caixa acumulado de dezembro muda ao
+    // colocar uma coorte extra de 1 carro na data de hoje. Responde "vale a pena mais um carro
+    // agora?" melhor que o ARPU (que era média de receita, sem custo nem tempo).
+    const MARG_MODEL = 'Tera'; // modelo padrão da frota nova
+    function marginalCarEoy(P, baseOpts, model) {
+      if (!baseOpts) return null;                                  // versão congelada: não dá p/ recalcular
+      const hojeIso = (OCN.ue && OCN.ue.hoje) || new Date().toISOString().slice(0, 10);
+      // "hoje" só existe no ano exibido; nos outros anos entra no 1º dia do ano projetado
+      const iso = hojeIso.slice(0, 4) === String(finYear) ? hojeIso : (finYear + '-01-01');
+      const extra = (baseOpts.extra || []).concat([{ id: '_marg', model, date: iso, qty: 1 }]);
+      const S = computePnl({ ...baseOpts, extra });
+      const eoy = (a) => (a || [])[FIN_MONTHS - 1] || 0;
+      return { delta: eoy(S.accCf) - eoy(P.accCf), when: iso };
+    }
+    function renderPnlExtras(P, live, baseOpts) {
       const ex = document.getElementById('pnlExtras'); if (!ex) return;
       const K = pnlKpis(P);
       const tile = (label, val, sub, cls) => `<div class="pnl-kpi${cls ? ' ' + cls : ''}"><div class="pnl-kpi-v">${val}</div><div class="pnl-kpi-l">${escH(label)}</div><div class="pnl-kpi-s">${escH(sub || '')}</div></div>`;
@@ -2635,7 +2657,11 @@
       h += '<div class="pnl-mrow">' +
         row('Peak funding', money(K.peak), K.peakM != null ? 'deepest at ' + monthLbl(K.peakM) : 'no dip', 'warn') +
         row('End-of-year cash', money(K.eoy), 'acc. at ' + monthLbl(FIN_MONTHS - 1), K.eoy >= 0 ? 'good' : 'warn') +
-        row('ARPU', money(K.arpu), 'per active car / month') +
+        (() => {
+          const mg = marginalCarEoy(P, baseOpts, MARG_MODEL);
+          if (!mg) return row('+1 car today', '—', 'frozen version');
+          return row('+1 car today', money(mg.delta), MARG_MODEL + ' → EoY cash', mg.delta >= 0 ? 'good' : 'warn');
+        })() +
         row('CAC', money(K.cacUnit), K.totDeliv + ' cars (FY)') +
         row('Gross margin', Math.round(K.gmFY) + '%', 'over gross revenue', K.gmFY >= 0 ? 'good' : 'warn') +
       '</div></div>';
@@ -2683,12 +2709,13 @@
       const ov = document.createElement('div');
       ov.className = 'ue-modal-overlay';
       ov.innerHTML =
-        `<div class="ue-modal"><div class="ue-modal-title">🎯 Breakeven target</div>` +
-        `<div class="ue-modal-sub">How many EXTRA cars (on top of the Fleet Plan) we would need to receive for the accumulated cashflow to turn positive by the target month.</div>` +
-        `<div class="ue-modal-field"><label>Target breakeven month</label><select id="beTarget" class="pnl-sel">${monthOpts(FIN_MONTHS - 1)}</select></div>` +
-        `<div class="ue-modal-field"><label>Extra cars delivered in</label><select id="beWhen" class="pnl-sel">${monthOpts(Math.min(curM + 1, FIN_MONTHS - 1))}</select></div>` +
-        `<div class="ue-modal-field"><label>Model</label><select id="beModel" class="pnl-sel">${modelOpts}</select></div>` +
-        `<div class="be-result" id="beResult">Pick the target and press Solve.</div>` +
+        `<div class="ue-modal ue-modal-be"><div class="ue-modal-title">Breakeven target</div>` +
+        `<div class="be-fields">` +
+          `<label class="be-f"><span>Breakeven by</span><div class="be-selwrap"><select id="beTarget">${monthOpts(FIN_MONTHS - 1)}</select></div></label>` +
+          `<label class="be-f"><span>Delivered in</span><div class="be-selwrap"><select id="beWhen">${monthOpts(Math.min(curM + 1, FIN_MONTHS - 1))}</select></div></label>` +
+          `<label class="be-f"><span>Model</span><div class="be-selwrap"><select id="beModel">${modelOpts}</select></div></label>` +
+        `</div>` +
+        `<div class="be-result" id="beResult"></div>` +
         `<div class="ue-modal-actions"><button type="button" class="ue-modal-cancel">Close</button><button type="button" class="ue-modal-save" id="beRun">Solve</button></div></div>`;
       document.body.appendChild(ov);
       const close = () => ov.remove();
@@ -2701,20 +2728,22 @@
         const out = ov.querySelector('#beResult');
         const iso = finYear + '-' + String(when + 1).padStart(2, '0') + '-01';
         const beWith = (extra) => pnlBreakeven(computePnl({ noSd: pnlNoSd, extra: extra > 0 ? [{ id: '_sim', model, date: iso, qty: extra }] : null }));
+        // resultado minimalista: número grande + o mês ao lado, em corpo menor
+        const card = (big, unit, side, tone) => `<div class="be-out${tone ? ' ' + tone : ''}"><b class="be-out-n">${big}</b><span class="be-out-u">${unit}</span><span class="be-out-s">${side}</span></div>`;
         const base = beWith(0);
-        if (base != null && base <= target) { out.innerHTML = `Already there: the plan breaks even at <b>${monthLbl(base)}</b> without extra cars.`; return; }
+        if (base != null && base <= target) { out.innerHTML = card('0', 'extra cars', 'already breaks even in ' + monthLbl(base), 'ok'); return; }
         // busca: passos crescentes até 3000 carros (checa monotonicidade na prática)
         let found = null;
         for (const e of [5, 10, 15, 20, 30, 40, 50, 75, 100, 150, 200, 300, 400, 500, 750, 1000, 1500, 2000, 3000]) {
           const be = beWith(e);
           if (be != null && be <= target) { found = e; break; }
         }
-        if (found == null) { out.innerHTML = `Not achievable by ${monthLbl(target)} — even <b>+3.000 ${model}s</b> delivered in ${monthLbl(when)} don't turn the accumulated cash positive in time. The constraint is per-car economics/time, not volume.`; return; }
+        if (found == null) { out.innerHTML = card('∞', 'not reachable', 'volume alone cannot get there by ' + monthLbl(target), 'warn'); return; }
         // refina para o mínimo dentro do intervalo encontrado
         let lo = 0, hi = found;
         while (hi - lo > 1) { const mid = Math.ceil((lo + hi) / 2); const be = beWith(mid); if (be != null && be <= target) hi = mid; else lo = mid; }
         const be = beWith(hi);
-        out.innerHTML = `<b>+${hi} ${model}${hi > 1 ? 's' : ''}</b> delivered in <b>${monthLbl(when)}</b> → breakeven at <b>${monthLbl(be)}</b>` + (base != null ? ` (plan alone: ${monthLbl(base)})` : ' (plan alone: no breakeven this year)');
+        out.innerHTML = card('+' + hi, model + (hi > 1 ? 's' : '') + ' in ' + monthLbl(when), 'breakeven ' + monthLbl(be), 'ok');
       });
     }
     async function savePnlFee(m, raw) {
@@ -3143,16 +3172,34 @@
     const DC = { act: '#5A00F8', for: '#A78BFA', plan: '#94A3B8', grid: 'rgba(120,120,140,0.10)', txt: '#6b7280' };
     // color-code por FAMÍLIA da linha (receita = roxo, COGS = laranja, OPEX = azul-petróleo).
     // Hues validados com o script da skill de dataviz (separação para daltonismo OK).
+    // 4 famílias validadas com o script da skill de dataviz (todas as checagens passam;
+    // pior par adjacente ΔE 15,9 em deuteranopia). O preenchimento do realizado é forte
+    // de propósito — é ele que separa visualmente o que já aconteceu do que é projeção.
     const DASH_FAM = {
-      rev: { name: 'Revenue', color: '#5A00F8', fill: 'rgba(90,0,248,.08)' },
-      cogs: { name: 'COGS', color: '#EB6834', fill: 'rgba(235,104,52,.10)' },
-      opex: { name: 'OPEX', color: '#0891B2', fill: 'rgba(8,145,178,.10)' },
+      rev: { name: 'Revenue', color: '#5A00F8', fill: 'rgba(90,0,248,.20)' },
+      cogs: { name: 'COGS', color: '#EB6834', fill: 'rgba(235,104,52,.22)' },
+      opex: { name: 'OPEX', color: '#0891B2', fill: 'rgba(8,145,178,.22)' },
+      res: { name: 'Totals & results', color: '#15803D', fill: 'rgba(21,128,61,.20)' },
     };
-    const DASH_FAMILY = (n) => (FIN_REV_LINES.includes(n) ? DASH_FAM.rev : (FIN_COGS_LINES.includes(n) ? DASH_FAM.cogs : DASH_FAM.opex));
-    const DASH_LINES = [...FIN_REV_LINES, ...FIN_COGS_LINES, 'CAC', 'SG&A', 'HC Payroll', 'OPEX'];
+    // totalizadores do P&L: cada um aponta para o array já calculado no computePnl.
+    // `neg: true` = a linha vem negativa no motor e é invertida p/ o gráfico ler "quanto gastamos".
+    const DASH_TOTALS = {
+      'Gross Revenue': { k: 'grossRev', fam: 'rev' },
+      'Net Revenue': { k: 'netRev', fam: 'rev' },
+      'Total COGS': { k: 'cogsTot', fam: 'cogs', neg: true },
+      'Gross Margin': { k: 'gm', fam: 'res' },
+      'Net cashflow': { k: 'netCf', fam: 'res' },
+      'Accumulated cash': { k: 'accCf', fam: 'res' },
+    };
+    const DASH_FAMILY = (n) => (DASH_TOTALS[n] ? DASH_FAM[DASH_TOTALS[n].fam]
+      : (FIN_REV_LINES.includes(n) ? DASH_FAM.rev : (FIN_COGS_LINES.includes(n) ? DASH_FAM.cogs : DASH_FAM.opex)));
+    const DASH_LINES = [...Object.keys(DASH_TOTALS), ...FIN_REV_LINES, ...FIN_COGS_LINES, 'CAC', 'SG&A', 'HC Payroll', 'OPEX'];
+    const DASH_GROUP = (n) => (DASH_TOTALS[n] ? 'Totals' : (FIN_REV_LINES.includes(n) ? 'Revenue' : (FIN_COGS_LINES.includes(n) ? 'COGS' : 'OPEX')));
     const DASH_LABEL = (n) => (n === 'Traffic fines (out)' ? 'Traffic fines (cost)' : n);
     // valores da linha no P&L (custos vêm positivos p/ o gráfico ler "quanto gastamos")
     function dashSeries(name, PX) {
+      const t = DASH_TOTALS[name];
+      if (t) { const a = PX[t.k] || []; return t.neg ? a.map((v) => -v) : a.slice(); }
       if (PX.rev && PX.rev[name]) return PX.rev[name];
       if (PX.cogs && PX.cogs[name]) return PX.cogs[name].map((v) => -v);
       if (name === 'CAC') return PX.cacTot.map((v) => -v);
@@ -3213,7 +3260,7 @@
         dashCharts[id] = new Chart(document.getElementById(id), {
           type: 'line',
           data: { labels, datasets: [
-            { label: 'Actual', data: a, borderColor: DC.act, backgroundColor: 'rgba(90,0,248,.07)', borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5, tension: 0.3, fill: filled ? 'origin' : false },
+            { label: 'Actual', data: a, borderColor: DC.act, backgroundColor: 'rgba(90,0,248,.20)', borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5, tension: 0.3, fill: filled ? 'origin' : false },
             { label: 'Forecast', data: f, borderColor: DC.act, borderWidth: 2.5, borderDash: [5, 4], pointRadius: 0, pointHoverRadius: 5, tension: 0.3 },
             { label: 'Budget', data: arrP, borderColor: DC.plan, borderWidth: 2, borderDash: [2, 3], pointRadius: 0, pointHoverRadius: 5, tension: 0.3 },
           ] },
@@ -3231,7 +3278,7 @@
       const sel = document.getElementById('dashLineSel');
       if (sel && !sel.options.length) {
         const groups = {};
-        DASH_LINES.forEach((n) => { const f = DASH_FAMILY(n); (groups[f.name] = groups[f.name] || []).push(n); });
+        DASH_LINES.forEach((n) => { const g = DASH_GROUP(n); (groups[g] = groups[g] || []).push(n); });
         sel.innerHTML = Object.entries(groups).map(([g, ns]) =>
           '<optgroup label="' + g + '">' + ns.map((n) => '<option value="' + escH(n) + '"' + (n === dashLine ? ' selected' : '') + '>' + escH(DASH_LABEL(n)) + '</option>').join('') + '</optgroup>').join('');
         sel.addEventListener('change', () => { dashLine = sel.value; renderDash(); });
@@ -3328,7 +3375,9 @@
         const foto = modelPhoto(m);
         const visual = foto ? `<img class="uet-photo" src="${escH(foto)}" alt="">` : `<span class="uet-dot" style="background:${escH(m.color || '#5A00F8')}"></span>`;
         const gear = isAdmin ? `<span class="uet-edit" data-edit="${escH(m.id)}" title="Edit or delete this model">✎</span>` : '';
-        return `<button class="ue-fleet-btn uet-mbtn${m.id === uetSel ? ' active' : ''}" data-id="${escH(m.id)}">${visual}<span class="n">${escH(m.name)}</span>${gear}</button>`;
+        // regime: sublocação leva tag; compra do carro é o "normal" e não recebe nada
+        const tag = m.subrental ? `<span class="uet-tag" title="Sub-rental model (we do not buy the car)">subrental</span>` : '';
+        return `<button class="ue-fleet-btn uet-mbtn${m.id === uetSel ? ' active' : ''}" data-id="${escH(m.id)}">${visual}<span class="n">${escH(m.name)}</span>${tag}${gear}</button>`;
       }).join('');
       if (isAdmin) h += '<button class="ue-fleet-btn uet-add" id="uetAdd">+ Add model</button>';
       fleetsEl.innerHTML = h;
@@ -3351,6 +3400,8 @@
           `<label class="umd-f"><span>Name</span><input id="umdName" type="text" maxlength="60" value="${escH(m.name)}"></label>` +
           `<label class="umd-f"><span>Photo — paste an image URL (https://…)</span><input id="umdPhoto" type="text" placeholder="https://…/polo.png" value="${escH(m.photo || '')}"></label>` +
           `<label class="umd-f umd-color"><span>Colour</span><input id="umdColor" type="color" value="${escH(m.color || '#5A00F8')}"></label>` +
+          `<label class="umd-toggle"><input id="umdSubr" type="checkbox"${m.subrental ? ' checked' : ''}>` +
+            `<span class="umd-toggle-txt"><b>Sub-rental model</b><i>we rent the car instead of buying it — buy models carry no tag</i></span></label>` +
           `<div class="ue-modal-hint">Leave the photo empty to go back to the coloured dot. The image is loaded straight from the URL — it is not uploaded here.</div>` +
           `<div class="umd-danger" id="umdDanger"></div>` +
           `<div class="ue-modal-actions"><button type="button" class="ue-modal-cancel">Cancel</button><button type="button" class="ue-modal-save" id="umdSave">Save</button></div>` +
@@ -3367,7 +3418,7 @@
       ov.querySelector('#umdSave').addEventListener('click', async () => {
         const btn = ov.querySelector('#umdSave'); btn.disabled = true; btn.textContent = 'Saving…';
         try {
-          const body = { id, name: ov.querySelector('#umdName').value, color: ov.querySelector('#umdColor').value, photo: ph.value.trim() };
+          const body = { id, name: ov.querySelector('#umdName').value, color: ov.querySelector('#umdColor').value, photo: ph.value.trim(), subrental: ov.querySelector('#umdSubr').checked };
           const r = await fetch('/api/theoric/models/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(body) });
           const d = await r.json().catch(() => ({}));
           if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
@@ -3425,7 +3476,7 @@
       const sl = (id, label, key, min, max, step, sfx) => `<div class="uet-ctrl"><label>${label}: <b id="${id}_v">${par(key)}${sfx}</b></label><input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${par(key)}"${en ? '' : ' disabled'}></div>`;
       ctrlEl.innerHTML =
         `<label class="ue-switch"><input type="checkbox" id="uetManual"${uetManual ? ' checked' : ''}/><span>Manual mode</span></label>` +
-        `<div class="ue-cur-toggle"><button class="ue-cur-btn${uetCurrency === 'BRL' ? ' active' : ''}" data-c="BRL">R$</button><button class="ue-cur-btn${uetCurrency === 'USD' ? ' active' : ''}" data-c="USD">US$</button></div>` +
+        `<div class="ue-cur-toggle">${CUR_FLAGS(uetCurrency)}</div>` +
         sl('uetInad', 'Default rate', '__inadimplencia__', 0, 100, 1, '%') +
         sl('uetLate', 'Late payment', '__late_pct__', 0, 100, 1, '%') +
         sl('uetKm', 'Avg. km/week', '__km_semana__', 0, 3000, 25, ' km') +
@@ -4684,10 +4735,7 @@
           `<div class="ue-head-actions">` +
             // moeda + Clean view empilhados (o Clean fica logo abaixo das bandeiras)
             `<div class="ue-actstack">` +
-              `<div class="ue-cur-toggle" id="ueCurToggle">` +
-                `<button class="ue-cur-btn${currency === 'BRL' ? ' active' : ''}" data-c="BRL" title="Reais (R$)"><svg viewBox="0 0 20 14" class="ue-flag"><rect width="20" height="14" rx="2" fill="#009C3B"/><path d="M10 2.2 17.5 7 10 11.8 2.5 7Z" fill="#FFDF00"/><circle cx="10" cy="7" r="2.7" fill="#002776"/></svg></button>` +
-                `<button class="ue-cur-btn${currency === 'USD' ? ' active' : ''}" data-c="USD" title="US Dollars (US$)"><svg viewBox="0 0 20 14" class="ue-flag"><rect width="20" height="14" rx="2" fill="#fff"/><g fill="#B22234"><rect y="0" width="20" height="2"/><rect y="4" width="20" height="2"/><rect y="8" width="20" height="2"/><rect y="12" width="20" height="2"/></g><rect width="9" height="6" fill="#3C3B6E"/></svg></button>` +
-              `</div>` +
+              `<div class="ue-cur-toggle" id="ueCurToggle">${CUR_FLAGS(currency)}</div>` +
               `<button class="ue-clean2${cleanView ? ' on' : ''}" id="ueClean" title="Hide the budget comparison and show one combined number per month">✨ Clean view</button>` +
             `</div>` +
             `<button class="ue-tool-btn" id="ueParts" title="Replacement intervals and cost per part">⚙ Parts</button>` +

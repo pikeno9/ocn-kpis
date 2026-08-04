@@ -441,6 +441,8 @@ app.post('/api/theoric/models/update', requireGiga, async (req, res) => {
       else if (/^(https?:)?\/\//.test(u) || /^[\w./-]+\.(png|jpe?g|webp|svg)$/i.test(u)) m.photo = u;
       else return res.status(400).json({ error: 'foto deve ser uma URL http(s) ou um caminho de imagem' });
     }
+    // regime do modelo: sublocação (tag) x compra do carro (padrão, sem tag)
+    if (b.subrental != null) { if (b.subrental) m.subrental = true; else delete m.subrental; }
     await store.setDoc('theoric_models', list, req.user.login);
     res.json({ ok: true, models: list });
   } catch (e) { res.status(500).json({ error: e.message }); }

@@ -465,7 +465,7 @@ html { scrollbar-gutter: stable; }
 .ue-table .hc-role:disabled { padding-left: 6px; }
 #uetTable .uet-in { width: 100%; border: 0; background: #fff; text-align: right; font-family: inherit; font-size: 10.5px; padding: 1px 2px; box-sizing: border-box; color: var(--text); outline: 1px solid var(--accent); border-radius: 3px; }
 /* ---- UE: painel de ferramentas (botões uniformes, sem poluição) ---- */
-.ue-head-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ue-head-actions { display: flex; align-items: center; gap: 16px; row-gap: 12px; flex-wrap: wrap; }
 .ue-tool-btn { font: inherit; font-size: 12px; font-weight: 600; padding: 7px 14px; border: 1px solid var(--border-2); border-radius: 999px; background: var(--surface); color: var(--text-2); cursor: pointer; white-space: nowrap; transition: border-color .12s, color .12s, box-shadow .12s, transform .12s; }
 .ue-tool-btn:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 2px 8px #7c3aed22; transform: translateY(-1px); }
 /* compat: alguns pontos antigos ainda usam .ue-clean-btn como botão genérico */
@@ -747,7 +747,7 @@ html { scrollbar-gutter: stable; }
 
 
 /* ---- ajustes de layout do cabeçalho do UE (foto menor, respiro entre barra e premissas) ---- */
-.ue-contract { margin: 10px 0 22px; }                 /* afasta a barra temporal dos controles abaixo */
+.ue-contract { margin: 26px 0 24px; }                 /* respira entre a linha de botões acima e os sliders abaixo */
 .ue-viewbar { margin: 0 0 10px; }                     /* Clean view entre a barra e as premissas */
 .ue-sliders { margin: 0 0 14px; }                     /* premissas coladas na tabela */
 .ue-fleets { margin-bottom: 10px; }
@@ -787,8 +787,11 @@ html { scrollbar-gutter: stable; }
 .pnl-sim-top input[type=range] { flex: 1; min-width: 180px; max-width: 420px; accent-color: var(--accent); cursor: pointer; }
 .pnl-sim-val { font-size: 15px; font-weight: 800; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 999px; padding: 3px 12px; }
 .pnl-sim-hint { font-size: 11.5px; color: var(--text-2); }
-/* pilha moeda + clean view no cabeçalho do UE */
+/* pilha moeda + clean view no cabeçalho do UE. O toggle de bandeiras NÃO estica com a
+   pilha (align-self: center) — esticado, sobrava um vazio branco à direita da bandeira
+   dos EUA, porque os dois botões não crescem junto com a caixa. */
 .ue-actstack { display: flex; flex-direction: column; gap: 7px; align-items: stretch; }
+.ue-actstack .ue-cur-toggle { align-self: center; }
 .ue-actstack .ue-clean2 { font-size: 11.5px; padding: 5px 12px; text-align: center; }
 /* botões de ferramenta: altura única, hover consistente, "?" centrado */
 .ue-tool-btn { display: inline-flex; align-items: center; justify-content: center; height: 34px; padding: 0 15px; box-shadow: 0 1px 2px #00000010; }
@@ -803,7 +806,8 @@ html { scrollbar-gutter: stable; }
 .pnl-sim-mask { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--text-2); cursor: pointer; white-space: nowrap; }
 .pnl-sim-mask input { accent-color: var(--accent); }
 .pnl-simchip { font-size: 11.5px; font-weight: 700; color: #b45309; background: #fef3c7; border: 1px solid #fcd34d; border-radius: 999px; padding: 3px 10px; }
-.be-result { font-size: 13px; line-height: 1.55; color: var(--text); background: color-mix(in srgb, var(--accent) 5%, var(--surface)); border: 1px solid var(--border-2); border-radius: 9px; padding: 10px 13px; margin: 4px 0 14px; }
+/* o resultado agora é o cartão .be-out (abaixo); o container é só um invólucro sem moldura */
+.be-result { margin: 0; }
 
 
 /* ===================== DASHBOARD FINANCEIRO ===================== */
@@ -845,20 +849,20 @@ html { scrollbar-gutter: stable; }
 .dash-box-hero { height: 320px; }
 
 /* aba Dashboard: sempre em destaque (não é "mais uma" sub-aba — é o painel executivo).
-   line-height:1 nos dois itens do flex para o rótulo cair no centro óptico do botão. */
+   Grafite/ardósia, fora da paleta roxa do resto da navegação. Sem ícone: assim a palavra
+   é o ÚNICO filho do flex e fica centrada de verdade, na horizontal e na vertical. */
 .sub-tab-dash {
-  padding: 8px 20px; gap: 8px; line-height: 1;
-  background: linear-gradient(135deg, #7C3AED, #5A00F8); border-color: transparent;
-  color: #fff; font-weight: 800; font-size: 13.5px; letter-spacing: .01em;
-  box-shadow: 0 3px 12px #5a00f83d, inset 0 1px 0 #ffffff2e;
+  padding: 8px 22px; line-height: 1; text-align: center;
+  background: linear-gradient(135deg, #334155, #0F172A); border-color: transparent;
+  color: #fff; font-weight: 800; font-size: 13.5px; letter-spacing: .015em;
+  box-shadow: 0 3px 12px #0f172a3d, inset 0 1px 0 #ffffff26;
   transition: transform .12s ease, box-shadow .12s ease, filter .12s ease;
 }
-.sub-tab-dash > i, .sub-tab-dash > span { display: inline-flex; align-items: center; line-height: 1; }
-.sub-tab-dash i { font-size: 16px; }
-.sub-tab-dash:hover { color: #fff; border-color: transparent; filter: brightness(1.07); transform: translateY(-1px); box-shadow: 0 6px 18px #5a00f84d, inset 0 1px 0 #ffffff33; }
+.sub-tab-dash > span { display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
+.sub-tab-dash:hover { color: #fff; border-color: transparent; filter: brightness(1.16); transform: translateY(-1px); box-shadow: 0 6px 18px #0f172a4d, inset 0 1px 0 #ffffff2e; }
 .sub-tab-dash.active {
-  background: linear-gradient(135deg, #5A00F8, #3A00A0); border-color: transparent; color: #fff;
-  box-shadow: 0 0 0 3px #5a00f82e, 0 4px 16px #3a00a047, inset 0 1px 0 #ffffff2e;
+  background: linear-gradient(135deg, #0F172A, #020617); border-color: transparent; color: #fff;
+  box-shadow: 0 0 0 3px #22d3ee42, 0 4px 16px #0206174d, inset 0 1px 0 #ffffff26;
 }
 
 /* ===================== P&L: painel de indicadores ===================== */
@@ -1022,4 +1026,52 @@ html { scrollbar-gutter: stable; }
 
 /* chip do modo Orcado no P&L */
 .pnl-budge { font-size: 12px; font-weight: 600; color: #0e7490; background: #cffafe; border-radius: 999px; padding: 3px 10px; }
+
+
+/* ============ Breakeven target: painel minimalista ============ */
+.ue-modal.ue-modal-be { width: 380px; max-width: 94vw; }
+.ue-modal-be .ue-modal-title { margin-bottom: 18px; }
+.be-fields { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+.be-f { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.be-f > span { font-size: 12px; font-weight: 600; color: var(--text-2); white-space: nowrap; }
+/* seta desenhada no wrapper: o select perde a aparencia nativa e vira uma pilula limpa */
+.be-selwrap { position: relative; flex: 0 0 168px; }
+.be-selwrap::after {
+  content: ""; position: absolute; right: 13px; top: 50%; width: 7px; height: 7px;
+  margin-top: -5px; border-right: 1.8px solid var(--text-2); border-bottom: 1.8px solid var(--text-2);
+  transform: rotate(45deg); pointer-events: none;
+}
+.be-selwrap select {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; font: inherit; font-size: 13px; font-weight: 600; color: var(--text);
+  height: 38px; padding: 0 32px 0 14px; cursor: pointer;
+  border: 1px solid var(--border-2); border-radius: 10px; background: var(--surface);
+  transition: border-color .12s, box-shadow .12s;
+}
+.be-selwrap select:hover { border-color: #cbd5e1; }
+.be-selwrap select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px #7c3aed1f; }
+.be-result:empty { display: none; }
+.be-out {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding: 16px 18px; border-radius: 12px; margin-bottom: 16px;
+  background: var(--surface-2, #f1f5f9);
+}
+.be-out.ok { background: linear-gradient(135deg, #3A00A0, #23004e); }
+.be-out.warn { background: linear-gradient(135deg, #7f1d1d, #3f0d0d); }
+.be-out-n { font-family: var(--font-display); font-size: 38px; font-weight: 800; line-height: 1; letter-spacing: -.03em; color: #fff; font-variant-numeric: tabular-nums; }
+.be-out-u { font-size: 13px; font-weight: 700; color: #ffffffd9; }
+.be-out-s { flex-basis: 100%; font-size: 11.5px; color: #ffffff9e; }
+
+/* ============ Theoric: tag de regime + switch no painel do modelo ============ */
+.uet-tag {
+  margin-left: 7px; padding: 2px 7px; border-radius: 999px;
+  font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em;
+  background: #E0F2FE; color: #0369A1; border: 1px solid #BAE6FD;
+}
+.ue-fleet-btn.active .uet-tag { background: #ffffff2e; color: #fff; border-color: #ffffff40; }
+.umd-toggle { display: flex; align-items: flex-start; gap: 10px; margin: 14px 0 4px; cursor: pointer; }
+.umd-toggle input { margin-top: 2px; width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+.umd-toggle-txt { display: flex; flex-direction: column; gap: 2px; }
+.umd-toggle-txt b { font-size: 12.5px; color: var(--text); font-weight: 700; }
+.umd-toggle-txt i { font-size: 11px; color: var(--text-2); font-style: normal; line-height: 1.4; }
 

@@ -45,7 +45,33 @@
   });
   if (meta.user) {
     const un = document.getElementById('userName'); if (un) un.textContent = meta.user.name || meta.user.login;
-    const ur = document.getElementById('userRole'); if (ur) ur.textContent = (meta.user.role || '').replace(/_/g, ' ').toUpperCase();
+    const ur = document.getElementById('userRole'); if (ur) ur.textContent = (meta.user.role || '').replace(/_/g, ' ');
+    // avatar: as fotos de perfil vêm do Portal OCN e vivem em /avatars/<login-sem-domínio>.webp.
+    // Quem não tem foto cai nas iniciais — o onerror troca a imagem pelo fallback sozinho.
+    const av = document.getElementById('profAv');
+    if (av) {
+      const login = String(meta.user.login || '').split('@')[0].toLowerCase();
+      const nome = meta.user.name || login;
+      const iniciais = nome.split(/[\s.]+/).filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('');
+      const img = new Image();
+      img.alt = nome;
+      img.onload = () => { av.innerHTML = ''; av.appendChild(img); };
+      img.onerror = () => { av.textContent = iniciais || '?'; };
+      img.src = '/avatars/' + login + '.webp';
+      av.textContent = iniciais || '?'; // fallback imediato enquanto a foto carrega
+    }
+  }
+  // menu do perfil (avatar → trocar senha / sair)
+  const profBtn = document.getElementById('profBtn'), profPop = document.getElementById('profPop');
+  if (profBtn && profPop) {
+    const closeProf = () => { profPop.hidden = true; profBtn.classList.remove('open'); document.removeEventListener('click', outProf); };
+    const outProf = (e) => { if (!document.getElementById('appProf').contains(e.target)) closeProf(); };
+    profBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (profPop.hidden) { profPop.hidden = false; profBtn.classList.add('open'); setTimeout(() => document.addEventListener('click', outProf), 0); }
+      else closeProf();
+    });
+    profPop.addEventListener('click', () => closeProf()); // qualquer item fecha o menu
   }
   const btnLogout = document.getElementById('btnLogout');
   if (btnLogout) btnLogout.addEventListener('click', async () => {
@@ -1970,6 +1996,7 @@
   let pnlSimApply = false; // máscara: aplica a simulação na PRÓPRIA tabela do P&L
   let dashCharts = {}, dashLine = 'Gross Revenue'; // gráficos do Dashboard + totalizador escolhido
   let dashSpan = 'y0';   // 'y0' = ano-base · 'y1' = ano seguinte · 'both' = os dois emendados
+  let dashDrill = null;  // linha de DETALHE aberta no hero (clique numa barra dos mixes); null = totalizador
   let finActCache = {}; // cache do realizado consolidado (por ano) — o solver chama computePnl em série // versões congeladas p/ board + versão selecionada
   const FIN_MONTHS = 12; // 2026-01 .. 2026-12
   const FIN_BASE_YEAR = 2026;                 // ano-base das coortes (índice absoluto de mês)
@@ -2730,37 +2757,92 @@
       renderPnl();
     }
     // "?" do P&L — de onde vem cada bloco e como se atualiza
+    // "?" do P&L — reescrito como um guia navegável em vez de uma tabela apertada.
+    // Estrutura: linha do tempo de como o mês é montado (realizado → mês vigente → projeção),
+    // depois as linhas agrupadas por família, cada uma expansível com a explicação longa.
     function openPnlInfo() {
-      const R = [
-        ['Delivered / Active fleet', 'Fleet Plan cohorts (calendar) − monthly decommissioning', 'Manual (calendar)'],
-        ['Subscription · Late-payment', 'Past: real payments matrix of every plate. Future: reference-fleet profile × active cars', 'Auto, daily'],
-        ['Traffic fines (in/out)', 'Past: fines API (received) and multas_consolidado (paid). Future: historical R$/day per car', 'Auto, daily'],
-        ['Termination fee', 'import_jud (total charge − fines/tolls) × recovery % slider, at contract end (M13)', 'Auto, daily'],
-        ['Maintenance', 'Past: import_rev invoices by due date. Future: km pace → revisions at −25%, paid after ~33 days', 'Auto, daily'],
-        ['Subrental · Insurance · GPS · Prep · Sticker', 'Real per-fleet boxes of the Unit Economics, on their own schedules (subrental on the 26th, etc.)', 'Manual (UE boxes)'],
-        ['Recovery · Repair', 'import_jud (towing+recovery / damages+cleaning+others) by event date', 'Auto, daily'],
-        ['Part Replacement', 'Fleet site events + ⚙ Parts panel; future from each fleet\'s km pace', 'Auto / panel'],
-        ['Taxes · Payment fee', 'Assumptions tab (federal, credit, processing fee — the fee is editable per month)', 'Manual'],
-        ['HC Payroll', 'SG&A → Headcount: one row per employee × the cost table', 'Manual'],
-        ['SG&A (Rent · Prof · IT)', 'SG&A tabs, item by item, month by month', 'Manual'],
-        ['CAC', 'Commission = USD/car × deliveries of the month · Paid media and influencers from the CAC tabs', 'Manual + Fleet Plan'],
-        ['InDrive', 'Benefit per plate × plates of each batch, on the month of the batch date, inside Initial Fee. The iD button takes it out of the whole P&L', 'Manual (iD panel)'],
-        ['◆ Budget', 'Fleet Plan × the Theoric UE per car — the projection we started from. No actuals, no reference fleets, and no InDrive; it moves when you change Fleet Plan, SG&A or CAC. This is the grey dotted line in the Dashboard', 'Fleet Plan + Theoric UE'],
+      const FAM_DOT = { rev: '#5A00F8', cogs: '#EB6834', opex: '#0891B2', eng: '#15803D' };
+      const GROUPS = [
+        { id: 'rev', name: 'Revenue', dot: FAM_DOT.rev, rows: [
+          { t: 'Subscription · Late-payment interest', src: 'Payments matrix + reference fleets', upd: 'auto',
+            d: 'Months already lived use the REAL payments matrix of every plate (principal and interest separated). Future months multiply the reference-fleet profile per car by the active fleet. Interest follows each plate’s contract version: 5% on v1/v2, 20% from v3.' },
+          { t: 'Traffic fines (in)', src: 'Fines API + contract rule', upd: 'auto',
+            d: 'Cash the clients actually paid, on the payment date. The projection applies the contract rule — GROSS fine × (1 + premium), 10% on v1/v2 and 20% from v3 — over the same universe of fines as the outflow line, so the two sides always talk about the same infractions.' },
+          { t: 'Termination fee', src: 'import_jud + recovery % slider', upd: 'auto',
+            d: 'Total charged on early terminations (import_jud, column K minus fines/tolls) × the recovery % slider of the UE. Lands at contract end (M13 of each cohort).' },
+          { t: 'Initial fee / vehicle sell + InDrive', src: '✎ box · iD panel', upd: 'manual',
+            d: 'Sale at 103% of the purchase price, at M13. The InDrive benefit adds value per plate on the month of each batch date — the iD button on the P&L bar removes it from the whole statement.' },
+          { t: 'Security deposit refund', src: 'Derived from the deposit', upd: 'manual',
+            d: 'The sub-rental deposit going back at M13, corrected by the % p.a. field. The "No deposit" button removes deposit AND refund together — they are two sides of the same coin.' },
+        ]},
+        { id: 'cogs', name: 'COGS', dot: FAM_DOT.cogs, rows: [
+          { t: 'Maintenance', src: 'import_rev + km pace', upd: 'auto',
+            d: 'Past: real invoices by due date. Future: each fleet’s km pace schedules the next revisions, priced from the revisions site with the 25% discount, paid ~33 days later — which is why the line reaches M13.' },
+          { t: 'Traffic fines (out)', src: 'multas_consolidado', upd: 'auto',
+            d: 'What we pay LM: the NET fine (with discount, ~80% of gross) × 1.05, on our due date. The margin of the fines business comes from this asymmetry: we charge over the gross, we pay over the net.' },
+          { t: 'Subrental · Insurance · GPS · Prep · Sticker', src: 'UE boxes per fleet', upd: 'manual',
+            d: 'The real per-fleet boxes of the Unit Economics, each on its own schedule — sub-rental always on the 26th (12 installments from the month after delivery), insurance split in N installments, GPS at M0 + monthly, preparation and sticker at M0.' },
+          { t: 'Recovery · Repair cost', src: 'import_jud', upd: 'auto',
+            d: 'Towing + recovery on one line, damages + cleaning + others on the other, by event date. Tera’s projection borrows Fleet 1’s history while its own numbers mature.' },
+          { t: 'Part Replacement', src: 'Fleet site + ⚙ Parts panel', upd: 'auto',
+            d: 'Real events from the fleet site (natural wear only — atypical damage is charged to the client). Future replacements come from each plate’s km pace against the intervals and costs set in the ⚙ Parts panel.' },
+        ]},
+        { id: 'opex', name: 'OPEX', dot: FAM_DOT.opex, rows: [
+          { t: 'HC Payroll', src: 'SG&A → Headcount', upd: 'manual',
+            d: 'One row per employee × the cost table: base salary, meal, health, payroll taxes, and the 13th + bonus landing in december. The Dashboard’s HC Payroll view opens each of these components.' },
+          { t: 'SG&A (Rent · Professional services · IT)', src: 'SG&A tabs', upd: 'manual',
+            d: 'Item by item, month by month, exactly as filled in the three admin tables.' },
+          { t: 'CAC', src: 'CAC tabs + Fleet Plan', upd: 'mixed',
+            d: 'Commission = USD per car × vehicles delivered in the month (referenced to the Fleet Plan, so scaling deliveries scales commission). Paid media and influencers come from their own tabs.' },
+        ]},
+        { id: 'eng', name: 'Engine & globals', dot: FAM_DOT.eng, rows: [
+          { t: 'Fleet (delivered / active)', src: 'Fleet Plan cohorts', upd: 'manual',
+            d: 'Each cohort enters on its calendar date (pro-rata in the delivery month) and decays by the monthly decommissioning rate. Every per-car line multiplies by this active count.' },
+          { t: 'Actuals override', src: 'All revenue/cost sources', upd: 'auto',
+            d: 'Months up to today replace the model with consolidated ACTUALS of the whole fleet. The current month is a blend: what already happened plus the model for the remaining days — so early in the month revenue does not look like a cliff.' },
+          { t: 'Taxes · Payment processing', src: '⚙ Assumptions', upd: 'manual',
+            d: 'Federal tax and credit as % of gross revenue; the processing fee has a global value and can be overridden month by month inside the Assumptions panel.' },
+          { t: 'FX and the year link', src: '⚙ Assumptions', upd: 'manual',
+            d: 'Everything is computed in R$ and shown in USD at the FX assumption. 2027 is a continuation, not a restart: its accumulated cash opens with 2026’s closing balance.' },
+          { t: 'Versions: Live · Budget · Scenarios · Frozen', src: 'Version picker', upd: 'mixed',
+            d: 'Live = actuals + forecast. Budget = Fleet Plan × Theoric UE per car, no actuals — the grey dotted line of the Dashboard. A Scenario is an editable copy of Live’s inputs (assumptions, SG&A, CAC, fleet plan, headcount) recomputed on fresh data. Frozen = an immutable snapshot for the board.' },
+        ]},
       ];
+      const BADGE = { auto: ['Auto · daily 05:00', 'pi-b-auto'], manual: ['Manual', 'pi-b-man'], mixed: ['Mixed', 'pi-b-mix'] };
       const ov = document.createElement('div');
       ov.className = 'ue-modal-overlay';
       ov.innerHTML =
-        `<div class="ue-modal ue-modal-info"><div class="ue-modal-title">Where the P&amp;L numbers come from</div>` +
-        `<div class="ue-modal-sub">Months up to today use <b>actuals</b> from the whole fleet; the current month blends actuals with the remaining days. Later months are projected from the <b>reference fleets</b> (Polo=F1, Argo=F2, Tera=F6; Tera's repair/recovery from F1). Automatic sources refresh <b>daily at 05:00 (São Paulo)</b>.</div>` +
-        `<table class="ue-info-table"><thead><tr><th>Block</th><th>Source</th><th>Updates</th></tr></thead><tbody>` +
-        R.map(([a, b, c]) => `<tr><td>${a}</td><td>${b}</td><td>${c}</td></tr>`).join('') +
-        `</tbody></table>` +
-        `<div class="ue-modal-hint">Everything is converted to USD by the FX assumption (R$ ${finPar('__fin_fx__').toFixed(2).replace('.', ',')}/US$).</div>` +
-        `<div class="ue-modal-actions"><button type="button" class="ue-modal-cancel">Close</button></div></div>`;
+        `<div class="ue-modal pnl-infox">` +
+          `<div class="pi-head"><div><div class="ue-modal-title" style="margin:0">Where the P&amp;L numbers come from</div>` +
+            `<div class="ue-modal-sub" style="margin:4px 0 0">Click a line to read how it is built. Reference fleets: Polo = Fleet 1 · Argo = Fleet 2 · Tera = Fleet 6.</div></div>` +
+            `<button type="button" class="pi-close" title="Close">✕</button></div>` +
+          // linha do tempo: como um mês vira número
+          `<div class="pi-tl">` +
+            `<div class="pi-tl-seg past"><b>Past months</b><span>consolidated actuals of the whole fleet</span></div>` +
+            `<div class="pi-tl-seg now"><b>Current month</b><span>actuals so far + model for the remaining days</span></div>` +
+            `<div class="pi-tl-seg fut"><b>Future</b><span>reference fleets × active cars, in USD at the FX assumption</span></div>` +
+          `</div>` +
+          GROUPS.map((g) =>
+            `<div class="pi-g"><div class="pi-g-h"><i style="background:${g.dot}"></i>${escH(g.name)}</div>` +
+            g.rows.map((r, i) => {
+              const [bl, bc] = BADGE[r.upd];
+              return `<div class="pi-row" data-k="${g.id}${i}">` +
+                `<div class="pi-row-top"><span class="pi-row-t">${escH(r.t)}</span>` +
+                  `<span class="pi-row-src">${escH(r.src)}</span>` +
+                  `<span class="pi-b ${bc}">${bl}</span><span class="pi-chev">▸</span></div>` +
+                `<div class="pi-row-d" hidden>${escH(r.d)}</div></div>`;
+            }).join('') + `</div>`).join('') +
+        `</div>`;
       document.body.appendChild(ov);
       const close = () => ov.remove();
       ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
-      ov.querySelector('.ue-modal-cancel').addEventListener('click', close);
+      ov.querySelector('.pi-close').addEventListener('click', close);
+      ov.querySelectorAll('.pi-row').forEach((row) => row.addEventListener('click', () => {
+        const d = row.querySelector('.pi-row-d');
+        const open = d.hidden;
+        d.hidden = !open;
+        row.classList.toggle('open', open);
+      }));
     }
     // breakeven de VERDADE: ignora os meses antes da operação começar (jan/26 não conta) e exige
     // que o acumulado tenha ficado negativo antes de virar — senão "mês 1 sem operação" parece breakeven
@@ -3423,6 +3505,26 @@
     // paleta de séries para os gráficos de composição (mix). Ordem fixa, nunca ciclada:
     // as 4 famílias validadas + 4 apoios da mesma escala, todas em pares adjacentes distinguíveis.
     const DASH_MIX = ['#5A00F8', '#EB6834', '#0891B2', '#15803D', '#A78BFA', '#F59E0B', '#0E7490', '#DB2777'];
+    // linhas de DETALHE que não são chave direta de rev/cogs no P&L — cada uma sabe se extrair.
+    // É o que faz o drill-down funcionar: clicar numa barra de qualquer mix abre a série no hero.
+    const DASH_EXTRA = {
+      'Security deposit': (PX) => (PX.secDep || []).map((v) => -v),
+      'Vehicle purchase': (PX) => (PX.vehPur || []).map((v) => -v),
+      'Rent & utilities': (PX) => (PX.rentTot || []).map((v) => -v),
+      'Professional services': (PX) => (PX.profTot || []).map((v) => -v),
+      'IT': (PX) => (PX.itTot || []).map((v) => -v),
+      'HC payroll': (PX) => (PX.hcTot || []).map((v) => -v),
+      'Base salary': (PX) => (PX.base || []).map((v) => -v),
+      'Meal allowance': (PX) => (PX.meal || []).map((v) => -v),
+      'Health plan': (PX) => (PX.health || []).map((v) => -v),
+      'Payroll taxes': (PX) => (PX.ptax || []).map((v) => -v),
+      '13th salary': (PX) => (PX.th13 || []).map((v) => -v),
+      'Bonus': (PX) => (PX.bonus || []).map((v) => -v),
+    };
+    // família (cor) de uma linha de detalhe — receita roxa, COGS laranja, o resto é OPEX
+    const DASH_DETAIL_FAM = (k) => (FIN_REV_LINES.includes(k) ? DASH_FAM.rev
+      : (FIN_COGS_LINES.includes(k) || k === 'Security deposit' || k === 'Vehicle purchase') ? DASH_FAM.cogs : DASH_FAM.opex);
+    const DRILL_LABEL = (k) => (k === 'Initial Fee / Vehicle Sell' ? 'Initial fee / sale' : (k === 'Traffic fines (out)' ? 'Traffic fines' : k));
     // valores da linha no P&L (custos vêm positivos p/ o gráfico ler "quanto gastamos")
     function dashSeries(name, PX) {
       const t = DASH_TOTALS[name];
@@ -3433,6 +3535,7 @@
       if (name === 'SG&A') return PX.sga.map((v) => -v);
       if (name === 'OPEX') return PX.opex.map((v) => -v);
       if (name === 'HC Payroll') return PX.hcTot.map((v) => -v);
+      if (DASH_EXTRA[name]) return DASH_EXTRA[name](PX);
       return new Array(FIN_MONTHS).fill(0);
     }
     // ---- fábricas de gráfico dos cartões de baixo ----------------------------------------
@@ -3475,10 +3578,10 @@
       const other = rest[0].data.map((_, i) => rest.reduce((s, r) => s + (r.data[i] || 0), 0));
       return keep.concat([{ label: 'Other (' + rest.length + ')', data: other, rest: rest.map((r) => r.label) }]);
     }
-    // ranking anual das linhas — é aqui que as pequenas ficam legíveis
+    // ranking anual das linhas — é aqui que as pequenas ficam legíveis (e clicáveis, via `key`)
     function rankRows(series, colors) {
       const fy = (a) => a.reduce((x, y) => x + (y || 0), 0);
-      return series.map((x, i) => ({ label: x.label, v: fy(x.data) })).filter((x) => Math.abs(x.v) > 0.5)
+      return series.map((x, i) => ({ label: x.label, key: x.key, v: fy(x.data) })).filter((x) => Math.abs(x.v) > 0.5)
         .sort((a, b) => b.v - a.v).map((r, i) => ({ ...r, color: colors[i % colors.length] }));
     }
     function renderDash() {
@@ -3503,9 +3606,12 @@
       const NM = labels.length;                    // 12 ou 24 colunas
       const curM = PA.actualsThrough != null ? PA.actualsThrough : -1;
       const kill = (id) => { if (dashCharts[id]) { dashCharts[id].destroy(); delete dashCharts[id]; } };
-      const fam = DASH_FAMILY(dashLine);
-      const sum = (a) => (a || []).reduce((s, x) => s + (x || 0), 0);
       const combo = dashLine === 'Combinations';
+      // drill: uma linha de detalhe (clicada num mix) toma o lugar do totalizador no hero;
+      // os cartões de baixo continuam os do totalizador, então dá para pular de linha em linha.
+      const drill = (!combo && dashDrill) ? dashDrill : null;
+      const fam = drill ? DASH_DETAIL_FAM(drill) : DASH_FAMILY(dashLine);
+      const sum = (a) => (a || []).reduce((s, x) => s + (x || 0), 0);
       const zz = () => new Array(NM).fill(0);
       const divv = (a, b) => a.map((v, m) => (b[m] ? v / b[m] : null));   // per-car, % etc: sem dividir por zero
       const cum = (a) => { let s = 0; return a.map((v) => (s += (v || 0))); };
@@ -3538,7 +3644,8 @@
           { label: 'Net cashflow', color: DASH_FAM.res.color },
         ]);
       } else {
-        const serie = dashSeries(dashLine, PA);
+        const heroKey = drill || dashLine;
+        const serie = dashSeries(heroKey, PA);
         const real = serie.map((v, m) => (m <= curM ? v : null));
         const proj = serie.map((v, m) => (m >= curM ? v : null)); // repete o corte: sem buraco
         dashCharts.dashLineCv = new Chart(document.getElementById('dashLineCv'), {
@@ -3546,7 +3653,7 @@
           data: { labels, datasets: [
             { label: 'Actual', data: real, borderColor: fam.color, backgroundColor: fam.fill, borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5, tension: 0.3, fill: 'origin' },
             { label: 'Forecast', data: proj, borderColor: fam.color, borderWidth: 2.5, borderDash: [5, 4], pointRadius: 0, pointHoverRadius: 5, tension: 0.3 },
-            { label: 'Budget', data: dashSeries(dashLine, PP), borderColor: DC.plan, borderWidth: 2, borderDash: [2, 3], pointRadius: 0, pointHoverRadius: 5, tension: 0.3 },
+            { label: 'Budget', data: dashSeries(heroKey, PP), borderColor: DC.plan, borderWidth: 2, borderDash: [2, 3], pointRadius: 0, pointHoverRadius: 5, tension: 0.3 },
           ] },
           options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
             plugins: { legend: { display: false }, datalabels: { display: false }, tooltip: DASH_TIP() },
@@ -3562,7 +3669,15 @@
 
       // ---------- cabeçalho do hero ----------
       const setTxt = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
-      setTxt('dashHeroTitle', DASH_LABEL(dashLine));
+      const ht = document.getElementById('dashHeroTitle');
+      if (ht) {
+        // no drill o título ganha um "←" para voltar ao totalizador
+        ht.innerHTML = drill
+          ? `<button type="button" class="dash-back" id="dashBack" title="Back to ${escH(dashLine)}">←</button>${escH(DRILL_LABEL(drill))}`
+          : escH(DASH_LABEL(dashLine));
+        const bk = document.getElementById('dashBack');
+        if (bk) bk.addEventListener('click', () => { dashDrill = null; renderDash(); });
+      }
       const dot = document.getElementById('dashDot'); if (dot) { dot.style.backgroundColor = fam.color; dot.style.color = fam.color; }
       const st = document.getElementById('dashHeroStats');
       if (combo) {
@@ -3574,10 +3689,11 @@
           '<div class="dash-stat"><span>OPEX (FY)</span><b>US$ ' + fmtQty(-sum(PA.opex)) + '</b></div>' +
           '<div class="dash-stat ' + (gmPct >= 0 ? 'up' : 'down') + '"><span>Gross margin</span><b>' + Math.round(gmPct) + '%</b></div>';
       } else {
-        const serie = dashSeries(dashLine, PA);
-        const actSum = sum(serie.slice(0, curM + 1)), fyA = sum(serie), fyP = sum(dashSeries(dashLine, PP));
+        const heroKey = drill || dashLine;
+        const serie = dashSeries(heroKey, PA);
+        const actSum = sum(serie.slice(0, curM + 1)), fyA = sum(serie), fyP = sum(dashSeries(heroKey, PP));
         const diff = fyP ? ((fyA - fyP) / Math.abs(fyP)) * 100 : null;
-        setTxt('dashHeroSub', fam.name + ' · solid = actual through ' + (curM >= 0 ? monthLbl(curM) : '—') + ' · dotted = forecast · grey = budget (Theoric UE per car)');
+        setTxt('dashHeroSub', (drill ? 'part of ' + dashLine + ' · ' : fam.name + ' · ') + 'solid = actual through ' + (curM >= 0 ? monthLbl(curM) : '—') + ' · dotted = forecast · grey = budget (Theoric UE per car)');
         if (st) st.innerHTML =
           '<div class="dash-stat"><span>Actual to date</span><b>US$ ' + fmtQty(actSum) + '</b></div>' +
           '<div class="dash-stat"><span>Full year (A+F)</span><b>US$ ' + fmtQty(fyA) + '</b></div>' +
@@ -3588,12 +3704,15 @@
 
       // ---------- cartões de baixo: mudam com o totalizador escolhido ----------
       // cada builder devolve { title, sub, legend?, draw(id) }
+      // clicar num segmento com `key` abre aquela linha no gráfico principal (drill-down)
       const stacked = (series, top) => (id) => {
         const live = topSeries(series, top || 5);
         dashCharts[id] = new Chart(document.getElementById(id), {
           type: 'bar',
           data: { labels, datasets: live.map((s, i) => ({ label: s.label, data: s.data, backgroundColor: DASH_MIX[i % DASH_MIX.length], borderRadius: 3, borderSkipped: false })) },
           options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+            onClick: (e, els) => { const s = els.length && live[els[0].datasetIndex]; if (s && s.key) { dashDrill = s.key; renderDash(); } },
+            onHover: (e, els) => { const s = els.length && live[els[0].datasetIndex]; e.native.target.style.cursor = (s && s.key) ? 'pointer' : 'default'; },
             plugins: { legend: { display: false }, datalabels: { display: false }, tooltip: DASH_TIP() },
             scales: { x: { stacked: true, grid: { display: false }, ticks: { color: DC.txt, font: { size: 9.5 } } },
               y: { stacked: true, grid: { color: DC.grid }, ticks: { color: DC.txt, font: { size: 9.5 }, callback: (v) => fmtQty(v) } } } },
@@ -3627,6 +3746,8 @@
           type: 'bar',
           data: { labels: rows.map((r) => r.label), datasets: [{ data: rows.map((r) => r.v), backgroundColor: rows.map((r) => r.color), borderRadius: 3, borderSkipped: false }] },
           options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+            onClick: (e, els) => { const r = els.length && rows[els[0].index]; if (r && r.key) { dashDrill = r.key; renderDash(); } },
+            onHover: (e, els) => { const r = els.length && rows[els[0].index]; e.native.target.style.cursor = (r && r.key) ? 'pointer' : 'default'; },
             plugins: { legend: { display: false }, datalabels: { display: false },
               tooltip: { backgroundColor: '#1b0040', padding: 9, cornerRadius: 8, bodyFont: { size: 11 },
                 callbacks: { label: (c) => 'US$ ' + fmtQty(c.parsed.x) } } },
@@ -3636,15 +3757,17 @@
         return '';
       };
 
-      const revSeries = (P) => FIN_REV_LINES.map((L) => ({ label: L === 'Initial Fee / Vehicle Sell' ? 'Initial fee / sale' : L, data: (P.rev[L] || zz()).slice() }));
-      const cogsSeries = (P) => FIN_COGS_LINES.map((L) => ({ label: L === 'Traffic fines (out)' ? 'Traffic fines' : L, data: (P.cogs[L] || zz()).map((v) => -v) }))
-        .concat([{ label: 'Security deposit', data: (P.secDep || zz()).map((v) => -v) }, { label: 'Vehicle purchase', data: (P.vehPur || zz()).map((v) => -v) }]);
+      // `key` = nome real da linha no motor — é ele que o clique manda para o hero
+      const revSeries = (P) => FIN_REV_LINES.map((L) => ({ label: DRILL_LABEL(L), key: L, data: (P.rev[L] || zz()).slice() }));
+      const cogsSeries = (P) => FIN_COGS_LINES.map((L) => ({ label: DRILL_LABEL(L), key: L, data: (P.cogs[L] || zz()).map((v) => -v) }))
+        .concat([{ label: 'Security deposit', key: 'Security deposit', data: (P.secDep || zz()).map((v) => -v) },
+                 { label: 'Vehicle purchase', key: 'Vehicle purchase', data: (P.vehPur || zz()).map((v) => -v) }]);
 
       let cards;
       if (dashLine === 'Gross Revenue') {
         cards = [
-          { title: 'Revenue mix', sub: 'top lines by the year; the rest grouped as "Other"', draw: stacked(revSeries(PA), 4) },
-          { title: 'Every revenue line, full year', sub: 'the small ones, readable', draw: hbars(rankRows(revSeries(PA), DASH_MIX)) },
+          { title: 'Revenue mix', sub: 'top lines by the year; the rest grouped as "Other" · click a block to open it above', draw: stacked(revSeries(PA), 4) },
+          { title: 'Every revenue line, full year', sub: 'the small ones, readable · click a bar to open it above', draw: hbars(rankRows(revSeries(PA), DASH_MIX)) },
           { title: 'Revenue per active car', sub: 'gross revenue ÷ active fleet · actual vs budget', draw: lines([
             { label: 'Actual + forecast', data: divv(PA.grossRev, PA.active), color: DASH_FAM.rev.color, fill: DASH_FAM.rev.fill },
             { label: 'Budget', data: divv(PP.grossRev, PP.active), color: DC.plan, dash: true, w: 2 },
@@ -3652,8 +3775,8 @@
         ];
       } else if (dashLine === 'COGS') {
         cards = [
-          { title: 'Cost mix', sub: 'top blocks by the year; the rest grouped as "Other"', draw: stacked(cogsSeries(PA), 4) },
-          { title: 'Every cost line, full year', sub: 'the small ones, readable', draw: hbars(rankRows(cogsSeries(PA), DASH_MIX)) },
+          { title: 'Cost mix', sub: 'top blocks by the year; the rest grouped as "Other" · click a block to open it above', draw: stacked(cogsSeries(PA), 4) },
+          { title: 'Every cost line, full year', sub: 'the small ones, readable · click a bar to open it above', draw: hbars(rankRows(cogsSeries(PA), DASH_MIX)) },
           { title: 'Cost per active car', sub: 'total COGS ÷ active fleet · actual vs budget', draw: lines([
             { label: 'Actual + forecast', data: divv(PA.cogsTot.map((v) => -v), PA.active), color: DASH_FAM.cogs.color, fill: DASH_FAM.cogs.fill },
             { label: 'Budget', data: divv(PP.cogsTot.map((v) => -v), PP.active), color: DC.plan, dash: true, w: 2 },
@@ -3672,12 +3795,12 @@
         ];
       } else if (dashLine === 'OPEX') {
         cards = [
-          { title: 'OPEX mix', sub: 'acquisition, people and the running of the company', draw: stacked([
-            { label: 'CAC', data: PA.cacTot.map((v) => -v) },
-            { label: 'HC payroll', data: PA.hcTot.map((v) => -v) },
-            { label: 'Rent & utilities', data: PA.rentTot.map((v) => -v) },
-            { label: 'Professional services', data: PA.profTot.map((v) => -v) },
-            { label: 'IT', data: PA.itTot.map((v) => -v) },
+          { title: 'OPEX mix', sub: 'acquisition, people and the running of the company · click a block to open it above', draw: stacked([
+            { label: 'CAC', key: 'CAC', data: PA.cacTot.map((v) => -v) },
+            { label: 'HC payroll', key: 'HC payroll', data: PA.hcTot.map((v) => -v) },
+            { label: 'Rent & utilities', key: 'Rent & utilities', data: PA.rentTot.map((v) => -v) },
+            { label: 'Professional services', key: 'Professional services', data: PA.profTot.map((v) => -v) },
+            { label: 'IT', key: 'IT', data: PA.itTot.map((v) => -v) },
           ]) },
           { title: 'OPEX over revenue', sub: 'how much of each dollar of revenue the structure eats', draw: lines([
             { label: 'Actual + forecast', data: divv(PA.opex.map((v) => -v), PA.grossRev).map((v) => (v == null ? null : v * 100)), color: DASH_FAM.opex.color, fill: DASH_FAM.opex.fill },
@@ -3685,7 +3808,17 @@
           ], pctFmt) },
         ];
       } else if (dashLine === 'HC Payroll') {
+        // as variáveis DENTRO da folha: salário, benefícios, encargos e os pontuais de dezembro
+        const hcSeries = (P) => [
+          { label: 'Base salary', key: 'Base salary', data: (P.base || zz()).map((v) => -v) },
+          { label: 'Payroll taxes', key: 'Payroll taxes', data: (P.ptax || zz()).map((v) => -v) },
+          { label: 'Meal allowance', key: 'Meal allowance', data: (P.meal || zz()).map((v) => -v) },
+          { label: 'Health plan', key: 'Health plan', data: (P.health || zz()).map((v) => -v) },
+          { label: '13th salary', key: '13th salary', data: (P.th13 || zz()).map((v) => -v) },
+          { label: 'Bonus', key: 'Bonus', data: (P.bonus || zz()).map((v) => -v) },
+        ];
         cards = [
+          { title: 'Payroll mix', sub: 'salary, taxes, benefits and the december one-offs · click a block to open it above', draw: stacked(hcSeries(PA), 5) },
           { title: 'Headcount', sub: 'people on the payroll at the end of each month', draw: bars(PA.headcount, DASH_FAM.opex.color, (v) => Math.round(v) + ' people') },
           { title: 'Cost per head', sub: 'payroll ÷ headcount — salary, meal, health, taxes and 13th', draw: lines([
             { label: 'Actual + forecast', data: divv(PA.hcTot.map((v) => -v), PA.headcount), color: DASH_FAM.opex.color, fill: DASH_FAM.opex.fill },
@@ -3732,7 +3865,7 @@
       // pinta os cartões
       const grid = document.getElementById('dashGrid');
       if (grid) {
-        ['dashC0', 'dashC1'].forEach(kill);
+        ['dashC0', 'dashC1', 'dashC2'].forEach(kill); // até 3 cartões por totalizador
         grid.innerHTML = cards.map((c, i) =>
           `<div class="dash-card"><div class="dash-title">${escH(c.title)}</div><div class="dash-sub">${escH(c.sub)}</div>` +
           `<div class="dash-legwrap" id="dashL${i}"></div><div class="dash-box"><canvas id="dashC${i}"></canvas></div></div>`).join('');
@@ -3760,7 +3893,7 @@
         const closeP = () => { pp.hidden = true; pb.classList.remove('open'); document.removeEventListener('click', outP); };
         const outP = (e) => { if (!pick.contains(e.target)) closeP(); };
         pb.addEventListener('click', (e) => { e.stopPropagation(); if (pp.hidden) { pp.hidden = false; pb.classList.add('open'); setTimeout(() => document.addEventListener('click', outP), 0); } else closeP(); });
-        pp.querySelectorAll('.dash-pk-o').forEach((b) => b.addEventListener('click', () => { dashLine = b.dataset.v; closeP(); renderDash(); }));
+        pp.querySelectorAll('.dash-pk-o').forEach((b) => b.addEventListener('click', () => { dashLine = b.dataset.v; dashDrill = null; closeP(); renderDash(); }));
       }
       // filtros: ano-base · ano seguinte · os dois emendados
       const ft = document.getElementById('dashFilters');

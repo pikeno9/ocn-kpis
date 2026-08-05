@@ -38,12 +38,18 @@
     <div class="app-user">
       <div class="header-meta">updated <span id="hojeLabel">—</span></div>
       <button class="app-freeze-btn" id="btnFreeze" style="display:none" title="Pause/resume automatic data updates"><i class="ti ti-snowflake"></i> <span id="btnFreezeLabel">Freeze</span></button>
-      <div class="app-user__info">
-        <div class="email" id="userName">—</div>
-        <div class="role" id="userRole"></div>
+      <!-- perfil no padrão do Portal OCN: avatar + nome + papel + menu -->
+      <div class="app-prof" id="appProf">
+        <button class="app-prof-btn" id="profBtn" type="button">
+          <span class="app-prof-av" id="profAv"></span>
+          <span class="app-prof-txt"><b id="userName">—</b><i id="userRole"></i></span>
+          <span class="app-prof-car">▾</span>
+        </button>
+        <div class="app-prof-pop" id="profPop" hidden>
+          <button type="button" id="btnChangePw"><i class="ti ti-key"></i> Change password</button>
+          <button type="button" id="btnLogout" class="app-prof-out"><i class="ti ti-logout"></i> Log out</button>
+        </div>
       </div>
-      <button class="app-user__logout app-pw-btn" id="btnChangePw" title="Change your password"><i class="ti ti-key"></i> <span>Change password</span></button>
-      <button class="app-user__logout" id="btnLogout">Log out</button>
     </div>
   </header>
 

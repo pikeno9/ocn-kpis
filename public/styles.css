@@ -1295,3 +1295,15 @@ html { scrollbar-gutter: stable; }
   .pi-row-src { display: none; }
 }
 
+
+/* ---- P&L: linha discreta de segundas-feiras (entre a frota e o cabecalho de meses) ---- */
+.pnl-monrow th {
+  background: #2a0a63 !important; color: #ffffff8c !important;
+  font-size: 9.5px !important; font-weight: 600 !important; letter-spacing: .03em;
+  padding-top: 3px !important; padding-bottom: 3px !important; text-transform: none !important;
+}
+.pnl-monrow .ue-rowlabel { color: #ffffff70 !important; font-weight: 600 !important; }
+/* moeda + esconder projetado na barra do P&L: alturas iguais aos demais controles */
+.pnl-cur { height: 30px; align-self: center; }
+.pnl-cur .ue-cur-btn { padding: 0 10px; }
+.pnl-bar .ue-projbtn { height: 30px; font-size: 11.5px; padding: 0 11px; }

@@ -1988,6 +1988,8 @@
   let sgaTab = 'hc', cacTab = 'comm'; // abas de 3º nível dentro de SG&A e CAC & Marketing
   let pnlNoSd = false; // P&L: excluir o sub-rental security deposit da visão
   let pnlNoIdr = false; // P&L: tirar o efeito da InDrive da conta (mesma mecânica do "No deposit")
+  let pnlCur = 'USD';   // moeda de EXIBIÇÃO do P&L (o motor calcula em R$ e divide pelo câmbio)
+  let pnlShowProj = true; // false = só realizado, igual ao "Actuals only" do UE
   // padrão: Gross Revenue e OPEX abertos (é o que se olha primeiro); o resto fechado
   let pnlCollapsed = new Set(['tax', 'cogs', 'cac', 'sga', 'hc']);
   let pnlVersions = [], pnlVersion = 'live';
@@ -2081,7 +2083,11 @@
     //   seguem a idade do contrato, sem pro-rata (como no Excel).
     // - Frota ativa decai pelo decomissionamento mensal (default 0,725%/mês).
     // - Mês de entrega = M1 do UE (recorrências), e os one-offs do M0 caem junto nele.
-    const FIN_MONDAYS = (() => { const a = []; for (let mo = 0; mo < 12; mo++) { let n = 0; const d = new Date(finYear, mo, 1); while (d.getMonth() === mo) { if (d.getDay() === 1) n++; d.setDate(d.getDate() + 1); } a.push(n); } return a; })(); // 2026: [4,4,5,4,4,5,4,5,4,4,5,4]
+    // Segundas-feiras (dia de cobrança) de cada mês do ano EXIBIDO. Era uma const avaliada uma
+    // única vez no boot, que congelava o calendário de 2026: ao virar para 2027 o modelo continuava
+    // usando 2026 e errava mai/27 e jun/27 numa semana cheia cada (2026: 4,4,5,4,4,5... · 2027:
+    // 4,4,5,4,5,4...). Agora é função do ano — o total do ano é 52 nos dois, o erro era de mês.
+    const MONDAYS_OF = (y) => { const a = []; for (let mo = 0; mo < 12; mo++) { let n = 0; const d = new Date(y, mo, 1); while (d.getMonth() === mo) { if (d.getDay() === 1) n++; d.setDate(d.getDate() + 1); } a.push(n); } return a; };
     // segundas-feiras de um mês no dia >= `fromDay` (semanas pagas a partir do recebimento)
     const mondaysOnOrAfter = (moAbs, fromDay) => { const yy = FIN_BASE_YEAR + Math.floor(moAbs / 12), mo = ((moAbs % 12) + 12) % 12; let n = 0; const d = new Date(yy, mo, 1); while (d.getMonth() === mo) { if (d.getDay() === 1 && d.getDate() >= fromDay) n++; d.setDate(d.getDate() + 1); } return n; };
     const cohMonth = (c) => (c.date ? ((parseInt(c.date.slice(0, 4), 10) - FIN_BASE_YEAR) * 12 + parseInt(c.date.slice(5, 7), 10) - 1) : (c.month || 0));
@@ -2273,6 +2279,7 @@
       const fx = finPar('__fin_fx__') || 5.5;
       const taxFed = finPar('__fin_tax_fed__') / 100, taxCred = finPar('__fin_tax_credit__') / 100;
       const payFeeM = (m) => finParM('__fin_payfee__', m) / 100, decomm = finPar('__fin_decomm__') / 100;
+      const FIN_MONDAYS = MONDAYS_OF(finYear);   // calendário do ano EXIBIDO (não do ano-base)
       const WEEKLY_LINES = { 'Subscription': 1, 'Late-payment interest': 1 };   // semanal × semanas pagas
       const BILLABLE_LINES = { 'Subrental fee': 1 };                            // mensal × billable ratio
       const maints = {}; finModels.forEach((m) => { maints[m.id] = uetMaint(finModelVals[m.id] || {}, m.id); });
@@ -2462,10 +2469,25 @@
       const baseOpts = snap ? null : { budget, noSd: pnlNoSd, noIndrive: pnlNoIdr, scale: simOn ? pnlSimScale / 100 : 1 };
       const P = snap || computePnl(baseOpts);
       const sum = (a) => a.reduce((s, x) => s + (x || 0), 0);
+      // ---- moeda de exibição: o motor calcula em R$ e divide pelo câmbio, então voltar para BRL
+      // é só multiplicar de novo. Um fator único aplicado na formatação mantém tabela, painel de
+      // indicadores e simulador sempre na mesma moeda.
+      const curK = pnlCur === 'BRL' ? (finPar('__fin_fx__') || 5.5) : 1;
+      const cs = pnlCur === 'BRL' ? 'R$' : 'US$';
+      const fmtC = (v) => (v == null) ? '' : fmt(v * curK);
+      const money = (v) => (v < 0 ? '−' : '') + cs + ' ' + fmtNum(Math.abs(v) * curK);
+      // ---- "Actuals only": zera os meses ainda não realizados em TODA a cadeia, para o total não
+      // continuar somando o que a visão está escondendo (mesma regra do UE).
+      const actThru = (P.actualsThrough != null) ? P.actualsThrough : -1;
+      const cut = (arr, isAcc) => {
+        if (pnlShowProj || !arr) return arr;
+        if (actThru < 0) return arr.map(() => 0);
+        return arr.map((v, m) => (m <= actThru ? v : (isAcc ? arr[actThru] : 0)));
+      };
       const gmPct = P.grossRev.map((v, m) => (v ? (P.gm[m] / v) * 100 : null));
       // árvore de linhas (grupos colapsáveis) — #1
       const N = [];
-      const push = (label, arr, cls, o) => N.push(Object.assign({ label, arr, cls: cls || 'ue-leaf', ancestors: [] }, o || {}));
+      const push = (label, arr, cls, o) => N.push(Object.assign({ label, arr: cut(arr, !!(o && o.isAcc)), cls: cls || 'ue-leaf', ancestors: [] }, o || {}));
       // Color code por NÍVEL: L1 = resultados (Gross/Net Revenue, Gross Margin, Net cashflow),
       // L2 = blocos (COGS, Payment processing, OPEX), L3 = componentes, L4 = detalhe dentro de um L3.
       push('Gross Revenue', P.grossRev, 'pnl-l1', { group: 'grev' });
@@ -2506,7 +2528,13 @@
         html += `<th title="${act} active cars · ${nw} delivered this month"><span class="pnl-fl-act">${act || '–'}</span>${nw ? `<span class="pnl-fl-new">+${nw}</span>` : ''}</th>`;
       }
       html += `<th class="ue-totalcol"><span class="pnl-fl-act">${Math.round(P.delivered[FIN_MONTHS - 1] || 0)}</span></th></tr>`;
-      html += '<tr><th class="ue-rowlabel">P&amp;L (USD)</th>';
+      // segundas-feiras do mês: é o multiplicador das linhas semanais (assinatura e juros), então
+      // um mês de 5 segundas rende ~25% mais que um de 4. Fica discreto, só para explicar degraus.
+      const MON = MONDAYS_OF(finYear);
+      html += '<tr class="pnl-monrow"><th class="ue-rowlabel" title="Mondays in the month — the billing day. Weekly lines are multiplied by this.">Mondays</th>';
+      for (let m = 0; m < FIN_MONTHS; m++) html += `<th>${MON[m]}</th>`;
+      html += `<th class="ue-totalcol">${MON.reduce((a, b) => a + b, 0)}</th></tr>`;
+      html += `<tr><th class="ue-rowlabel">P&amp;L (${cs === 'R$' ? 'BRL' : 'USD'})</th>`;
       for (let m = 0; m < FIN_MONTHS; m++) html += `<th>${monthLbl(m)}</th>`;
       html += `<th class="ue-totalcol">FY-${String(finYear).slice(2)}E</th></tr></thead><tbody>`;
       N.forEach((n) => {
@@ -2519,9 +2547,9 @@
         tr += `<td class="ue-rowlabel" style="padding-left:${pad}px">${chev}${escH(n.label)}</td>`;
         // #2: o % vai como um número pequeno em cinza SOB o valor (sem linha própria)
         const sub = (v) => (n.pct && v != null) ? `<span class="pnl-sub">${Math.round(v)}%</span>` : '';
-        for (let m = 0; m < FIN_MONTHS; m++) tr += `<td class="ue-cell">${n.isQty ? fmtQty(n.arr[m]) : fmt(n.arr[m])}${sub(n.pct ? n.pct[m] : null)}</td>`;
+        for (let m = 0; m < FIN_MONTHS; m++) tr += `<td class="ue-cell">${n.isQty ? fmtQty(n.arr[m]) : fmtC(n.arr[m])}${sub(n.pct ? n.pct[m] : null)}</td>`;
         const tot = (n.isQty || n.isAcc) ? n.arr[FIN_MONTHS - 1] : sum(n.arr);
-        tr += `<td class="ue-cell ue-totalcol">${n.isQty ? fmtQty(tot) : fmt(tot)}${sub(n.pctTot)}</td>`;
+        tr += `<td class="ue-cell ue-totalcol">${n.isQty ? fmtQty(tot) : fmtC(tot)}${sub(n.pctTot)}</td>`;
         html += tr + '</tr>';
       });
       html += '</tbody>';
@@ -2687,6 +2715,10 @@
       // seletor de ANO (2026 · 2027) — o P&L e o Fleet Plan seguem o ano escolhido
       h += '<div class="pnl-years">' + [FIN_BASE_YEAR, FIN_BASE_YEAR + 1].map((y) =>
         `<button class="pnl-yr${finYear === y ? ' on' : ''}" data-y="${y}">${y}</button>`).join('') + '</div>';
+      // moeda de exibição (mesmo componente de bandeiras do UE) + esconder projetado
+      h += `<div class="ue-cur-toggle pnl-cur" id="pnlCurToggle">${CUR_FLAGS(pnlCur === 'BRL' ? 'BRL' : 'USD')}</div>`;
+      h += `<button id="pnlProjBtn" class="ue-projbtn${pnlShowProj ? '' : ' off'}" title="${pnlShowProj ? 'Hide everything that is still a projection and show actuals only' : 'Bring the projections back'}">` +
+        `<span class="ue-projbtn-dot"></span><span>${pnlShowProj ? 'With forecast' : 'Actuals only'}</span></button>`;
       h += verPicker();
       if (isAdmin && live) h += '<button id="pnlSaveVer" class="pnl-btn pnl-freeze" title="Save these numbers under a name — a read-only snapshot for the board">Freeze</button>';
       if (isAdmin && !scen) h += '<button id="pnlNewScen" class="pnl-btn pnl-scen-new" title="Create a scenario: a copy of Live that you edit with the normal controls">＋ Scenario</button>';
@@ -2710,6 +2742,12 @@
       }));
       const ab = document.getElementById('pnlAssump'); if (ab) ab.addEventListener('click', openAssumpModal);
       const ib = document.getElementById('pnlInfo'); if (ib) ib.addEventListener('click', openPnlInfo);
+      // bandeirinhas: o data-c do CUR_FLAGS é BRL/USD, o mesmo vocabulário do estado
+      ctl.querySelectorAll('#pnlCurToggle .ue-cur-btn').forEach((b) => b.addEventListener('click', () => {
+        pnlCur = b.dataset.c === 'BRL' ? 'BRL' : 'USD'; renderPnl();
+      }));
+      const pb2 = document.getElementById('pnlProjBtn');
+      if (pb2) pb2.addEventListener('click', () => { pnlShowProj = !pnlShowProj; renderPnl(); });
       wireVerPicker();
       const ns = document.getElementById('pnlNewScen'); if (ns) ns.addEventListener('click', newScenario);
       const rs = document.getElementById('pnlRenScen'); if (rs) rs.addEventListener('click', () => renameScenario(scen));
@@ -2844,9 +2882,10 @@
         row.classList.toggle('open', open);
       }));
     }
-    // breakeven de VERDADE: ignora os meses antes da operação começar (jan/26 não conta) e exige
-    // que o acumulado tenha ficado negativo antes de virar — senão "mês 1 sem operação" parece breakeven
-    function pnlBreakeven(P) {
+    // PAYBACK: mês em que o caixa ACUMULADO vira positivo (devolveu tudo o que foi investido).
+    // Não é o que a página mostra como breakeven — fica aqui porque o gráfico de caixa acumulado
+    // cruza o zero exatamente nesse ponto e o rótulo precisa ser honesto.
+    function pnlPayback(P) {
       const firstOp = (P.delivered || []).findIndex((d) => d > 0);
       if (firstOp < 0) return null;
       let wasNeg = false;
@@ -2857,9 +2896,26 @@
       }
       return null;
     }
+    // BREAKEVEN OPERACIONAL: o mês a partir do qual a operação passa a GERAR caixa de forma
+    // recorrente — net cashflow positivo em BE_STREAK meses seguidos. Um mês positivo isolado não
+    // conta (dezembro tem 13º, abril teve venda de veículo etc.); a exigência de sequência é o que
+    // separa "teve um mês bom" de "a recorrência virou".
+    const BE_STREAK = 2;
+    function pnlBreakeven(P) {
+      const firstOp = (P.delivered || []).findIndex((d) => d > 0);
+      if (firstOp < 0) return null;
+      const cf = P.netCf || [];
+      for (let m = Math.max(0, firstOp); m + BE_STREAK - 1 < FIN_MONTHS; m++) {
+        let ok = true;
+        for (let k = 0; k < BE_STREAK; k++) if (!((cf[m + k] || 0) > 0)) { ok = false; break; }
+        if (ok) return m;
+      }
+      return null;
+    }
     // O breakeven não precisa acontecer no ano exibido. Se não vier neste, roda o ano SEGUINTE
-    // (que já herda o caixa acumulado deste) e devolve em que mês de lá ele cai — antes o painel
-    // só sabia dizer "not in 2026" e parava aí.
+    // e devolve em que mês de lá ele cai — antes o painel só sabia dizer "not in 2026" e parava aí.
+    // Atenção: a sequência pode ATRAVESSAR a virada do ano (dez positivo + jan positivo). Por isso
+    // a busca no ano seguinte também olha o último mês deste ano.
     // rótulo de mês independente do finYear corrente (o hero pode citar o ano seguinte)
     const MON3_OF = (m) => FIN_MON3[m] || String(m + 1);
     // caixa acumulado no fim do ano SEGUINTE — recalcula com as mesmas opções
@@ -2877,6 +2933,9 @@
       try {
         finYear = keep + 1;
         const nx = computePnl(baseOpts);
+        // sequência a cavalo na virada: dezembro deste ano + janeiro do seguinte
+        const cfHere = P.netCf || [], cfNext = nx.netCf || [];
+        if ((cfHere[FIN_MONTHS - 1] || 0) > 0 && (cfNext[0] || 0) > 0) return { year: keep, m: FIN_MONTHS - 1, cross: true };
         const m = pnlBreakeven(nx);
         return m == null ? null : { year: keep + 1, m, eoy: (nx.accCf || [])[FIN_MONTHS - 1] || 0 };
       } catch (e) { return null; } finally { finYear = keep; }
@@ -2895,7 +2954,7 @@
       const cacUnit = totDeliv ? (-sum(P.cacTot)) / totDeliv : 0;
       const gmFY = sum(P.grossRev) ? (sum(P.gm) / sum(P.grossRev)) * 100 : 0;
       const opexPct = sum(P.grossRev) ? (-sum(P.opex) / sum(P.grossRev)) * 100 : 0;
-      return { beIdx, peak, peakM, arpu, cacUnit, gmFY, opexPct, netFY: sum(P.netCf), eoy: (P.accCf || [])[FIN_MONTHS - 1] || 0, totDeliv, hcDec: (P.headcount || [])[FIN_MONTHS - 1] || 0 };
+      return { beIdx, pbIdx: pnlPayback(P), peak, peakM, arpu, cacUnit, gmFY, opexPct, netFY: sum(P.netCf), eoy: (P.accCf || [])[FIN_MONTHS - 1] || 0, totDeliv, hcDec: (P.headcount || [])[FIN_MONTHS - 1] || 0 };
     }
     // caixa de UM carro ao longo da vida (M0..M13), pelo perfil de referência — "quanto vale 1 carro a mais"
     function carLifetime(model) {
@@ -2929,7 +2988,9 @@
       const ex = document.getElementById('pnlExtras'); if (!ex) return;
       const K = pnlKpis(P);
       const tile = (label, val, sub, cls) => `<div class="pnl-kpi${cls ? ' ' + cls : ''}"><div class="pnl-kpi-v">${val}</div><div class="pnl-kpi-l">${escH(label)}</div><div class="pnl-kpi-s">${escH(sub || '')}</div></div>`;
-      const money = (v) => (v < 0 ? '−' : '') + 'US$ ' + fmtNum(Math.abs(v));
+      const curK = pnlCur === 'BRL' ? (finPar('__fin_fx__') || 5.5) : 1;
+      const cs = pnlCur === 'BRL' ? 'R$' : 'US$';
+      const money = (v) => (v < 0 ? '−' : '') + cs + ' ' + fmtNum(Math.abs(v) * curK);
       // ---- painel enxuto: 1 destaque (breakeven) + métricas em faixa, sem repetir big numbers ----
       const beOk = K.beIdx != null;
       let h = '<div class="pnl-panel">';
@@ -2937,9 +2998,9 @@
       const beAhead = beOk ? null : pnlBreakevenAhead(P, baseOpts);
       const beLbl = beOk ? monthLbl(K.beIdx)
         : (beAhead ? MON3_OF(beAhead.m) + '-' + String(beAhead.year).slice(2) : 'not in ' + finYear + '/' + (finYear + 1));
-      const beSub = beOk ? 'accumulated cash turns positive'
-        : (beAhead ? 'not in ' + finYear + ' — it turns positive in ' + beAhead.year
-                   : 'accumulated cash stays negative through ' + (finYear + 1));
+      const beSub = beOk ? BE_STREAK + ' months in a row generating cash, from here on'
+        : (beAhead ? 'not in ' + finYear + ' — the operation turns cash-positive in ' + beAhead.year
+                   : 'net cashflow never strings ' + BE_STREAK + ' positive months through ' + (finYear + 1));
       h += '<div class="pnl-hero' + (beOk ? ' ok' : (beAhead ? ' next' : ' pend')) + '">' +
         '<span class="pnl-hero-cap">Breakeven</span>' +
         '<span class="pnl-hero-v">' + beLbl + '</span>' +
@@ -2948,6 +3009,7 @@
       const row = (lbl, val, sub, tone) => '<div class="pnl-m ' + (tone || '') + '"><span class="pnl-m-l">' + lbl + '</span><b class="pnl-m-v">' + val + '</b><span class="pnl-m-s">' + sub + '</span></div>';
       h += '<div class="pnl-mrow">' +
         row('Peak funding', money(K.peak), K.peakM != null ? 'deepest at ' + monthLbl(K.peakM) : 'no dip', 'warn') +
+        row('Cash payback', K.pbIdx != null ? monthLbl(K.pbIdx) : '—', 'accumulated cash back to zero', K.pbIdx != null ? 'good' : '') +
         (() => {
           // "End-of-year cash" repetia o Peak funding sempre que o pior mês era dezembro (é o caso
           // enquanto o caixa só afunda). Mostra o fechamento do ano SEGUINTE, que é informação nova.
@@ -2988,7 +3050,7 @@
           const d = (a, b) => (b - a);
           const sc = (lbl, val, delta, tone) => '<div class="pnl-sc ' + (tone || '') + '"><span class="pnl-sc-l">' + lbl + '</span><b class="pnl-sc-v">' + val + '</b><span class="pnl-sc-d">' + delta + '</span></div>';
           document.getElementById('pnlSimOut').innerHTML =
-            sc('Breakeven', KS.beIdx != null ? monthLbl(KS.beIdx) : '—', K.beIdx != null && KS.beIdx != null ? (KS.beIdx === K.beIdx ? 'same as current' : ((KS.beIdx < K.beIdx ? '▲ ' : '▼ ') + Math.abs(KS.beIdx - K.beIdx) + ' mo ' + (KS.beIdx < K.beIdx ? 'earlier' : 'later'))) : 'vs current', KS.beIdx != null ? 'good' : 'warn') +
+            sc('Breakeven (op.)', KS.beIdx != null ? monthLbl(KS.beIdx) : '—', K.beIdx != null && KS.beIdx != null ? (KS.beIdx === K.beIdx ? 'same as current' : ((KS.beIdx < K.beIdx ? '▲ ' : '▼ ') + Math.abs(KS.beIdx - K.beIdx) + ' mo ' + (KS.beIdx < K.beIdx ? 'earlier' : 'later'))) : 'vs current', KS.beIdx != null ? 'good' : 'warn') +
             sc('Peak funding', money(KS.peak), fmt(d(K.peak, KS.peak)) + ' vs current', 'warn') +
             sc('End-of-year cash', money(KS.eoy), fmt(d(K.eoy, KS.eoy)) + ' vs current', KS.eoy >= 0 ? 'good' : 'warn') +
             sc('Cars delivered', Math.round(KS.totDeliv), (KS.totDeliv >= K.totDeliv ? '+' : '') + Math.round(KS.totDeliv - K.totDeliv) + ' vs current', 'neutral');
@@ -3009,6 +3071,7 @@
       ov.className = 'ue-modal-overlay';
       ov.innerHTML =
         `<div class="ue-modal ue-modal-be"><div class="ue-modal-title">Breakeven target</div>` +
+        `<div class="ue-modal-sub" style="margin:-10px 0 16px">Extra cars needed for the operation to string ${BE_STREAK} cash-positive months by the target.</div>` +
         `<div class="be-fields">` +
           `<label class="be-f"><span>Breakeven by</span><div class="be-selwrap"><select id="beTarget">${monthOpts(FIN_MONTHS - 1)}</select></div></label>` +
           `<label class="be-f"><span>Delivered in</span><div class="be-selwrap"><select id="beWhen">${monthOpts(Math.min(curM + 1, FIN_MONTHS - 1))}</select></div></label>` +
@@ -3826,7 +3889,7 @@
         ];
       } else if (dashLine === 'Net cashflow') {
         cards = [
-          { title: 'Accumulated cash', sub: (PA.carryIn && dashSpan !== 'both' ? 'carried over from ' + (spanYear - 1) + ': US$ ' + fmtQty(PA.carryIn) + ' · ' : '') + 'breakeven = crossing the zero line', draw: lines([
+          { title: 'Accumulated cash', sub: (PA.carryIn && dashSpan !== 'both' ? 'carried over from ' + (spanYear - 1) + ': US$ ' + fmtQty(PA.carryIn) + ' · ' : '') + 'crossing the zero line = cash payback', draw: lines([
             { label: 'Actual + forecast', data: PA.accCf, color: DASH_FAM.res.color, fill: DASH_FAM.res.fill },
             { label: 'Budget', data: PP.accCf, color: DC.plan, dash: true, w: 2 },
           ]) },

@@ -2286,14 +2286,19 @@
       const zeros = () => new Array(FIN_MONTHS).fill(0);
       const rev = {}, cogs = {}; FIN_REV_LINES.forEach((l) => rev[l] = zeros()); FIN_COGS_LINES.forEach((l) => cogs[l] = zeros());
       const delivered = zeros(), active = zeros(), secDep = zeros(), vehPur = zeros();
-      const scale = opts.scale || 1;               // simulador: multiplica as entregas do Fleet Plan
+      // Simulador de frota: o multiplicador vale só para as entregas que ainda NÃO aconteceram.
+      // Carro já entregue é fato consumado — mexer nele reescreveria o passado e mudaria meses que
+      // a tabela mostra como realizados.
+      const scale = opts.scale || 1;
+      const hojeCoh = (OCN.ue && OCN.ue.hoje) || new Date().toISOString().slice(0, 10);
+      const scaleOf = (c) => ((scale !== 1 && c.date && c.date <= hojeCoh) ? 1 : scale);
       const cohorts = opts.extra ? finCohorts.concat(opts.extra) : finCohorts; // coortes sintéticas (solver)
       for (let m = 0; m < FIN_MONTHS; m++) {
         cohorts.forEach((c) => {
           const cm = cohMonth(c);
           const M = FIN_YOFF() + m;                 // mês absoluto da coluna exibida (ano-base 2026)
           if (cm > M) return;
-          const qty = c.qty * scale;
+          const qty = c.qty * scaleOf(c);
           delivered[m] += qty;
           const age = M - cm;                       // 0 = mês de recebimento
           const activeN = qty * Math.pow(1 - decomm, age);
@@ -2417,7 +2422,7 @@
       const hcTot = zeros(); for (let m = 0; m < FIN_MONTHS; m++) hcTot[m] = base[m] + meal[m] + health[m] + ptax[m] + th13[m] + bonus[m];
       // CAC (referenciado, como no Excel): comissão = USD/carro × carros ENTREGUES no mês;
       // Ads = soma dos canais; Influenciadores = nº de perfis do mês × preço por perfil.
-      const newDelivered = zeros(); cohorts.forEach((c) => { const cm = cohMonth(c) - FIN_YOFF(); if (cm >= 0 && cm < FIN_MONTHS) newDelivered[cm] += c.qty * scale; });
+      const newDelivered = zeros(); cohorts.forEach((c) => { const cm = cohMonth(c) - FIN_YOFF(); if (cm >= 0 && cm < FIN_MONTHS) newDelivered[cm] += c.qty * scaleOf(c); });
       const commission = zeros(), adsTot = zeros(), infTot = zeros();
       for (let m = 0; m < FIN_MONTHS; m++) {
         commission[m] = -(finCac.perUnit || 0) * newDelivered[m];
@@ -2718,22 +2723,26 @@
       // moeda de exibição (mesmo componente de bandeiras do UE) + esconder projetado
       h += `<div class="ue-cur-toggle pnl-cur" id="pnlCurToggle">${CUR_FLAGS(pnlCur === 'BRL' ? 'BRL' : 'USD')}</div>`;
       h += `<button id="pnlProjBtn" class="ue-projbtn${pnlShowProj ? '' : ' off'}" title="${pnlShowProj ? 'Hide everything that is still a projection and show actuals only' : 'Bring the projections back'}">` +
-        `<span class="ue-projbtn-dot"></span><span>${pnlShowProj ? 'With forecast' : 'Actuals only'}</span></button>`;
+        `<span class="ue-projbtn-dot"></span><span>${pnlShowProj ? 'Forecast' : 'Actuals'}</span></button>`;
       h += verPicker();
       if (isAdmin && live) h += '<button id="pnlSaveVer" class="pnl-btn pnl-freeze" title="Save these numbers under a name — a read-only snapshot for the board">Freeze</button>';
       if (isAdmin && !scen) h += '<button id="pnlNewScen" class="pnl-btn pnl-scen-new" title="Create a scenario: a copy of Live that you edit with the normal controls">＋ Scenario</button>';
       if (isAdmin && scen) h += '<button id="pnlRenScen" class="pnl-btn" title="Rename this scenario">Rename</button>';
       if (isAdmin && !live && !budget && !scen) h += '<button id="pnlDelVer" class="pnl-btn pnl-del" title="Delete this frozen version">🗑</button>';
       if (isAdmin && scen) h += '<button id="pnlDelScen" class="pnl-btn pnl-del" title="Delete this scenario">🗑</button>';
-      if (live) h += `<button id="pnlNoSdBtn" class="pnl-btn${pnlNoSd ? ' on' : ''}" title="What-if view without the sub-rental security deposit (and its refund)">No deposit</button>`;
+      if (live) h += `<button id="pnlNoSdBtn" class="pnl-btn${pnlNoSd ? ' on' : ''}" title="What-if view without the sub-rental security deposit (and its refund)">No dep.</button>`;
       if (live && indriveOn()) h += `<button id="pnlIdrBtn" class="idr-btn idr-btn-sm${pnlNoIdr ? ' off' : ' on'}" title="${pnlNoIdr ? 'InDrive is OUT of the P&L — click to bring it back' : 'Click to remove the InDrive benefit from the P&L'}"><span class="idr-mark">iD</span><span class="idr-txt">InDrive</span><span class="idr-state">${pnlNoIdr ? 'off' : 'on'}</span></button>`;
       h += `<button id="pnlExpand" class="pnl-btn" title="${pnlCollapsed.size ? 'Expand all groups' : 'Collapse all groups'}">${pnlCollapsed.size ? '⤢' : '⤡'}</button>`;
-      h += '<button id="pnlAssump" class="pnl-btn" title="Tax rates, processing fee (global and per month), FX and other assumptions">⚙ Assumptions</button>';
+      h += '<button id="pnlAssump" class="pnl-btn pnl-ico" title="Tax rates, processing fee (global and per month), FX and other assumptions">⚙</button>';
       h += '<button id="pnlInfo" class="pnl-btn pnl-info" title="Where each line comes from and how it updates">?</button>';
       if (budget) h += `<span class="pnl-budge">◆ Budget · per-car standard from the Theoric UE · no actuals</span>`;
       else if (scen) h += `<span class="pnl-scenchip">◇ Editing this scenario — ⚙ Assumptions, SG&amp;A, CAC and Fleet Plan all write here · ${escH(scenSummary(scen))}</span>`;
       else if (!live) { const v = pnlVersions.find((x) => x.id === pnlVersion); h += `<span class="pnl-frozen">📌 Frozen${v && v.savedAt ? ' · ' + v.savedAt.slice(0, 10) : ''}${v && v.snapshot && v.snapshot.noSd ? ' · no deposit' : ''}</span>`; }
-      if (pnlActualsThrough != null) h += `<span class="pnl-act">actuals → ${monthLbl(pnlActualsThrough)}</span>`;
+      // o chip "actuals →" saiu da barra: agora fica ao lado do título da seção, onde antes
+      // estava "(USD)" — a moeda passou a ser escolhida pelas bandeiras, então o rótulo fixo saiu.
+      const actEl = document.getElementById('pnlActTitle');
+      if (actEl) actEl.innerHTML = (pnlActualsThrough != null)
+        ? `<span class="pnl-act">actuals → ${monthLbl(pnlActualsThrough)}</span>` : '';
       if (live && pnlSimApply && pnlSimScale !== 100) h += `<span class="pnl-simchip">⚠ simulated · deliveries at ${pnlSimScale}%</span>`;
       h += '</div>';
       ctl.innerHTML = h;

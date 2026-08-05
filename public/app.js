@@ -2967,17 +2967,31 @@
     }
     // caixa de UM carro ao longo da vida (M0..M13), pelo perfil de referência — "quanto vale 1 carro a mais"
     function carLifetime(model) {
-      const prof = refProfiles && refProfiles[model];
-      if (!prof) return null;
       const fx = finPar('__fin_fx__') || 5.5;
+      const vals = finModelVals[model] || {};
+      const maint = uetMaint(vals, model);
+      const prof = refProfiles && refProfiles[model];
+      // MESMA regra do computePnl, linha a linha: perfil da frota de referência quando ele tem
+      // aquela linha, senão o UE Teórico. Usar o perfil inteiro (sem fallback) dava um fluxo
+      // truncado — só as linhas que a frota real já tem — e o payback nunca fechava.
+      const val = (L, p) => {
+        if (prof && prof[L]) return prof[L][p] || 0;
+        const lo = lineOf(L);
+        return lo ? (uetEff(vals, model, lo, p, maint) || 0) : 0;
+      };
+      const LINES = FIN_REV_LINES.concat(FIN_COGS_LINES).concat(['Security Deposit', 'Vehicle Purchase']);
+      const mesA = [];
+      for (let p = 0; p < UET_PERIODS; p++) { let v = 0; LINES.forEach((L) => { v += val(L, p); }); mesA.push(v); }
+      if (!mesA.some((v) => Math.abs(v) > 0.01)) return null;
       let total = 0, cum = 0, payback = null;
+      const m0 = mesA[0] || 0;                       // buraco de entrada (calção + preparação + adesivo + GPS)
       for (let p = 0; p < UET_PERIODS; p++) {
-        let mSum = 0;
-        Object.values(prof).forEach((arr) => { mSum += arr[p] || 0; });
-        total += mSum; cum += mSum;
+        total += mesA[p]; cum += mesA[p];
         if (payback == null && p > 0 && cum >= 0) payback = p;
       }
-      return { total: total / fx, payback };
+      const pos = mesA.slice(1).filter((v) => v > 0);
+      const mediaMes = pos.length ? pos.reduce((a, b) => a + b, 0) / pos.length : 0;
+      return { total: total / fx, payback, m0: m0 / fx, mediaMes: mediaMes / fx };
     }
     // Caixa MARGINAL de 1 carro entregue HOJE: quanto o caixa acumulado de dezembro muda ao
     // colocar uma coorte extra de 1 carro na data de hoje. Responde "vale a pena mais um carro
@@ -3019,6 +3033,15 @@
       h += '<div class="pnl-mrow">' +
         row('Peak funding', money(K.peak), K.peakM != null ? 'deepest at ' + monthLbl(K.peakM) : 'no dip', 'warn') +
         row('Cash payback', K.pbIdx != null ? monthLbl(K.pbIdx) : '—', 'accumulated cash back to zero', K.pbIdx != null ? 'good' : '') +
+        (() => {
+          // Quanto tempo UM carro leva para cobrir o próprio M0 (calção + preparação + adesivo +
+          // GPS de entrada). É a peça que explica o caixa da empresa: enquanto a frota cresce, cada
+          // entrega abre um buraco novo que só fecha depois desse prazo.
+          const cl = carLifetime(MARG_MODEL) || carLifetime((finModels[0] || {}).id);
+          if (!cl || cl.payback == null) return row('Car payback', '—', 'not reached inside the contract');
+          return row('Car payback', cl.payback + (cl.payback === 1 ? ' month' : ' months'),
+            'to cover the ' + money(Math.abs(cl.m0)) + ' entry cost of one car', cl.payback <= 6 ? 'good' : 'warn');
+        })() +
         (() => {
           // "End-of-year cash" repetia o Peak funding sempre que o pior mês era dezembro (é o caso
           // enquanto o caixa só afunda). Mostra o fechamento do ano SEGUINTE, que é informação nova.

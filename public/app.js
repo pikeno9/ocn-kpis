@@ -57,9 +57,56 @@
       img.alt = nome;
       img.onload = () => { av.innerHTML = ''; av.appendChild(img); };
       img.onerror = () => { av.textContent = iniciais || '?'; };
-      img.src = '/avatars/' + login + '.webp';
+      img.src = '/avatar/' + login + '?t=' + Date.now();   // t= evita cache velho depois de trocar
       av.textContent = iniciais || '?'; // fallback imediato enquanto a foto carrega
     }
+  }
+  // ---------- trocar a foto de perfil ----------
+  // O recorte e o redimensionamento acontecem AQUI, antes de subir: a imagem vira um quadrado
+  // de 480px em webp (~20 KB). Sem isso um JPEG de celular subiria com vários MB para um
+  // avatar de 36px, e a foto fica guardada no banco, não no disco.
+  const AVATAR_PX = 480;
+  function fotoParaWebp(file) {
+    return new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onerror = () => reject(new Error('could not read the file'));
+      fr.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error('not a valid image'));
+        img.onload = () => {
+          const c = document.createElement('canvas');
+          c.width = AVATAR_PX; c.height = AVATAR_PX;
+          const ctx = c.getContext('2d');
+          const lado = Math.min(img.width, img.height);
+          // recorte centrado na horizontal; na vertical puxa um pouco para cima, onde fica o rosto
+          const sx = (img.width - lado) / 2;
+          const sy = Math.max(0, (img.height - lado) * 0.12);
+          ctx.drawImage(img, sx, sy, lado, lado, 0, 0, AVATAR_PX, AVATAR_PX);
+          let out = c.toDataURL('image/webp', 0.9);
+          if (!/^data:image\/webp/.test(out)) out = c.toDataURL('image/jpeg', 0.9); // navegador sem webp
+          resolve(out);
+        };
+        img.src = fr.result;
+      };
+      fr.readAsDataURL(file);
+    });
+  }
+  const btnPic = document.getElementById('btnChangePic'), profFile = document.getElementById('profFile');
+  if (btnPic && profFile) {
+    btnPic.addEventListener('click', () => profFile.click());
+    profFile.addEventListener('change', async () => {
+      const f = profFile.files && profFile.files[0];
+      profFile.value = '';                       // permite reenviar o mesmo arquivo depois
+      if (!f) return;
+      try {
+        const image = await fotoParaWebp(f);
+        const r = await fetch('/api/perfil/avatar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ image }) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
+        const av = document.getElementById('profAv');
+        if (av) { av.innerHTML = ''; const i = new Image(); i.src = image; av.appendChild(i); }
+      } catch (e) { alert('Could not change the photo: ' + e.message); }
+    });
   }
   // menu do perfil (avatar → trocar senha / sair)
   const profBtn = document.getElementById('profBtn'), profPop = document.getElementById('profPop');

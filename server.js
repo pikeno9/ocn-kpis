@@ -26,7 +26,7 @@ const COOKIE = 'ocn_session';
 
 app.set('trust proxy', 1);
 app.use(cookieParser());
-app.use(express.json());
+app.use(express.json({ limit: '4mb' })); // avatares vão como data URL no corpo
 
 // ---------- cache de dados ----------
 let cache = { data: null, updatedAt: null, ok: false, error: null };
@@ -586,6 +586,52 @@ app.post('/api/store/import', requireGiga, async (req, res) => {
     console.log(`[store/import] ${nv} valores + ${nd} docs importados por ${req.user.login}`);
     res.json({ ok: true, values: nv, docs: nd });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ---------- Foto de perfil ----------
+// As fotos vivem no STORE (Postgres em produção), não no disco: o filesystem do Railway é
+// efêmero e um deploy apagaria tudo. Os arquivos em public/avatars/ ficam como semente —
+// quem nunca trocou a foto continua vendo a que veio no repositório.
+const AVATAR_MIME = { 'image/webp': 'webp', 'image/png': 'png', 'image/jpeg': 'jpg' };
+const avatarKey = (login) => 'avatar_' + String(login || '').toLowerCase().replace(/[^a-z0-9._-]/g, '');
+const loginSlug = (u) => String((u && u.login) || '').split('@')[0].toLowerCase();
+
+app.get('/avatar/:login', async (req, res) => {
+  const slug = String(req.params.login || '').replace(/\.(webp|png|jpg|jpeg)$/i, '').toLowerCase().replace(/[^a-z0-9._-]/g, '');
+  if (!slug) return res.status(400).end();
+  try {
+    const d = await store.getDoc(avatarKey(slug));
+    const m = d && d.data && /^data:(image\/(?:webp|png|jpeg));base64,([A-Za-z0-9+/=]+)$/.exec(d.data);
+    if (m) {
+      res.set('Content-Type', m[1]);
+      res.set('Cache-Control', 'no-cache');   // trocou a foto, aparece na hora
+      return res.send(Buffer.from(m[2], 'base64'));
+    }
+  } catch (e) { /* cai na semente do repositório */ }
+  const f = path.join(__dirname, 'public', 'avatars', slug + '.webp');
+  return res.sendFile(f, (err) => { if (err) res.status(404).end(); });
+});
+
+// Troca a própria foto. Giga admin pode passar `login` para ajustar a de outra pessoa.
+app.post('/api/perfil/avatar', async (req, res) => {
+  const b = req.body || {};
+  const alvo = (b.login && isGigaUser(req.user)) ? String(b.login).split('@')[0].toLowerCase() : loginSlug(req.user);
+  if (!alvo) return res.status(400).json({ error: 'usuário inválido' });
+  const data = String(b.image || '');
+  const m = /^data:(image\/(?:webp|png|jpeg));base64,([A-Za-z0-9+/=]+)$/.exec(data);
+  if (!m || !AVATAR_MIME[m[1]]) return res.status(400).json({ error: 'envie uma imagem png, jpeg ou webp' });
+  const bytes = Math.floor(m[2].length * 0.75);
+  if (bytes > 2 * 1024 * 1024) return res.status(413).json({ error: 'imagem acima de 2 MB — reduza antes de enviar' });
+  try {
+    await store.setDoc(avatarKey(alvo), { data, at: new Date().toISOString() }, req.user.login);
+    res.json({ ok: true, login: alvo, bytes });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/perfil/avatar/delete', async (req, res) => {
+  const b = req.body || {};
+  const alvo = (b.login && isGigaUser(req.user)) ? String(b.login).split('@')[0].toLowerCase() : loginSlug(req.user);
+  try { await store.setDoc(avatarKey(alvo), { data: null, at: new Date().toISOString() }, req.user.login); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.use(express.static(path.join(__dirname, 'public')));

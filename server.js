@@ -396,6 +396,7 @@ app.post('/api/finance/cac', requireGiga, async (req, res) => {
   if (!b) return res.status(400).json({ error: 'cac obrigatório' });
   const cac = {
     perUnit: Math.max(0, Number(b.perUnit) || 0),
+    recPerUnit: Math.max(0, Number(b.recPerUnit) || 0), // comissão de reentrega (carro recuperado)
     ads: cleanItems(b.ads),
     inf: (Array.isArray(b.inf) ? b.inf : []).slice(0, 20).map((t) => ({
       label: String(t.label || '').slice(0, 80),

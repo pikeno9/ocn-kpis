@@ -1949,7 +1949,8 @@
     { label: 'Late-payment interest', group: 'inflow' },
     { label: 'Traffic fines', group: 'inflow' },            // espelho do UE real (sem cálculo teórico ainda)
     { label: 'Termination fee', group: 'inflow' },
-    { label: 'Initial Fee / Vehicle Sell', group: 'inflow' },
+    { label: 'Vehicle Sell', group: 'inflow' },
+    { label: 'InDrive bonus', group: 'inflow' },       // espelho (o teórico não modela o InDrive)
     { label: 'Security Deposit Refund', group: 'inflow' },
     { label: 'Total Inflow', group: 'totalInflow' },
     { label: 'Subrental fee', group: 'outflow' },
@@ -2003,7 +2004,7 @@
     switch (line) {
       case 'Subscription': return (p >= 1 && p <= UET_RECUR && par('__sub_semanal__') > 0) ? subMonthly * (1 - par('__inadimplencia__') / 100) : null;
       case 'Late-payment interest': return (p >= 1 && p <= UET_RECUR && par('__sub_semanal__') > 0) ? subMonthly * (par('__late_pct__') / 100) * (par('__sub_juros__') / 100) : null;
-      case 'Initial Fee / Vehicle Sell': return (p === PMAX && par('__vehicle__') > 0) ? par('__vehicle__') * 1.03 : null;
+      case 'Vehicle Sell': return (p === PMAX && par('__vehicle__') > 0) ? par('__vehicle__') * 1.03 : null;
       case 'Security Deposit Refund': { const dep = par('__num_alugueis__') * par('__subrental_mensal__'); return (p === PMAX && dep > 0) ? dep * (1 + par('__refund_pct__') / 100) : null; }
       case 'Subrental fee': return (p >= 1 && p <= UET_RECUR && par('__subrental_mensal__') > 0) ? -par('__subrental_mensal__') : null;
       case 'Insurance': { const total = par('__ins_total__'), N = Math.round(par('__ins_parcelas__')); return (total > 0 && N >= 1 && p >= 1 && p <= Math.min(N, UET_RECUR)) ? -(total / N) : null; }
@@ -2052,7 +2053,7 @@
   let finYear = FIN_BASE_YEAR;                 // ano exibido no P&L / Fleet Plan (2026 ou 2027)
   const FIN_YOFF = () => (finYear - FIN_BASE_YEAR) * 12;   // deslocamento em meses do ano exibido
   const FIN_ML = (i) => finYear + '-' + String(i + 1).padStart(2, '0');
-  const FIN_REV_LINES = ['Subscription', 'Late-payment interest', 'Traffic fines', 'Termination fee', 'Initial Fee / Vehicle Sell', 'Security Deposit Refund'];
+  const FIN_REV_LINES = ['Subscription', 'Late-payment interest', 'Traffic fines', 'Termination fee', 'Vehicle Sell', 'InDrive bonus', 'Security Deposit Refund'];
   const FIN_COGS_LINES = ['Subrental fee', 'Maintenance', 'Insurance', 'GPS', 'Car Preparation', 'Sticker', 'Traffic fines (out)', 'Recovery cost', 'Repair cost', 'Part Replacement'];
   const FIN_ASSUMP = [
     { k: '__fin_tax_fed__', label: 'Federal taxes (% of gross revenue)', def: 13.36 },
@@ -2081,6 +2082,18 @@
     const FIN_MON3 = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
     const monthLbl = (m) => { const p = String(FIN_ML(m)).split('-'); const mo = parseInt(p[1], 10) - 1; return (FIN_MON3[mo] || p[1]) + '-' + (p[0] || '').slice(2); }; // 2026-02 -> feb-26
     const canEditNow = () => isAdmin && finEdit;
+    // moeda de exibição do Finance (P&L, CAC, SG&A, Dashboard compartilham o mesmo estado pnlCur).
+    // O motor calcula em USD; BRL é só multiplicar pelo câmbio na hora de mostrar. As ENTRADAS
+    // continuam sempre em USD — converter campo editável convidaria a salvar R$ como US$.
+    const finCS = () => (pnlCur === 'BRL' ? 'R$' : 'US$');
+    const finCurK = () => (pnlCur === 'BRL' ? (finPar('__fin_fx__') || 5.5) : 1);
+    const finCurFlags = () => `<div class="fin-curbar"><div class="ue-cur-toggle">${CUR_FLAGS(pnlCur)}</div><span class="fin-curnote">${pnlCur === 'BRL' ? 'shown in R$ at the FX assumption — inputs stay in US$' : ''}</span></div>`;
+    function wireCurFlags(root, rerender) {
+      root.querySelectorAll('.ue-cur-btn').forEach((b) => b.addEventListener('click', () => {
+        pnlCur = b.dataset.c === 'BRL' ? 'BRL' : 'USD';
+        rerender();
+      }));
+    }
     // toggle "Edit mode" (mesmo componente em todas as abas do Finance)
     const editBar = (note) => (isAdmin ? `<div class="fin-editbar${finEdit ? ' on' : ''}"><label class="fin-switch"><input type="checkbox" class="fin-edit-cb"${finEdit ? ' checked' : ''}><span class="fin-slider"></span></label><span class="fin-switch-lbl">Edit mode</span>${note ? `<span class="fin-editnote">${note}</span>` : ''}</div>` : '');
     function wireEditBar(root) {
@@ -2093,11 +2106,12 @@
       let h = `<div class="ue-table-wrap"><table class="ue-table fin-grid fin-totals"><thead><tr><th class="ue-rowlabel">${escH(firstCol || 'Cost line')}</th>`;
       for (let m = 0; m < FIN_MONTHS; m++) h += `<th>${monthLbl(m)}</th>`;
       h += '<th class="ue-totalcol">FY-26E</th></tr></thead><tbody>';
+      const K = finCurK();   // moeda de exibição — os arrays chegam sempre em USD
       const tot = new Array(FIN_MONTHS).fill(0);
       rows.forEach((r) => {
         let fy = 0;
         h += `<tr class="ue-row"><td class="ue-rowlabel">${escH(r.label)}</td>`;
-        for (let m = 0; m < FIN_MONTHS; m++) { const v = Number(r.arr[m]) || 0; tot[m] += v; fy += v; h += `<td class="ue-cell">${v ? fmtNum(v) : '-'}</td>`; }
+        for (let m = 0; m < FIN_MONTHS; m++) { const v = (Number(r.arr[m]) || 0) * K; tot[m] += v; fy += v; h += `<td class="ue-cell">${v ? fmtNum(v) : '-'}</td>`; }
         h += `<td class="ue-cell ue-totalcol">${fy ? fmtNum(fy) : '-'}</td></tr>`;
       });
       const fyT = tot.reduce((a, b) => a + b, 0);
@@ -2139,6 +2153,14 @@
     const mondaysOnOrAfter = (moAbs, fromDay) => { const yy = FIN_BASE_YEAR + Math.floor(moAbs / 12), mo = ((moAbs % 12) + 12) % 12; let n = 0; const d = new Date(yy, mo, 1); while (d.getMonth() === mo) { if (d.getDay() === 1 && d.getDate() >= fromDay) n++; d.setDate(d.getDate() + 1); } return n; };
     const cohMonth = (c) => (c.date ? ((parseInt(c.date.slice(0, 4), 10) - FIN_BASE_YEAR) * 12 + parseInt(c.date.slice(5, 7), 10) - 1) : (c.month || 0));
     const cohDay = (c) => (c.date ? parseInt(c.date.slice(8, 10), 10) : 1);
+    // pro-rata do subrental: fração do mês de ENTRADA em que ficamos com o carro
+    // (retirada 05/04 → (30−5)/30). A 1ª parcela paga essa fração; o complemento fecha na 13ª.
+    const proSub = (c) => {
+      const moAbs = cohMonth(c);
+      const y = FIN_BASE_YEAR + Math.floor(moAbs / 12), mo = ((moAbs % 12) + 12) % 12;
+      const dim = new Date(y, mo + 1, 0).getDate();
+      return Math.max(0, Math.min(1, (dim - cohDay(c)) / dim));
+    };
     // ---- PERFIS DE REFERÊNCIA: projeção com as premissas do UE REALIZADO ----
     // Por modelo, o P&L projeta com o perfil por idade (M0..M13, R$/veículo) da frota de referência:
     // Polo = Frota 1 (mais madura), Argo = Frota 2, Tera = Frota 6 — exceto Recovery/Repair do Tera,
@@ -2218,7 +2240,7 @@
           prof['Security Deposit Refund'] = A(); prof['Security Deposit Refund'][13] = dep * (1 + refundF);
         }
         const veh = par('__vehicle__');
-        if (veh > 0) { prof['Initial Fee / Vehicle Sell'] = A(); prof['Initial Fee / Vehicle Sell'][13] = veh * 1.03; }
+        if (veh > 0) { prof['Vehicle Sell'] = A(); prof['Vehicle Sell'][13] = veh * 1.03; }
         // Maintenance: revisões a cada 10.000 km no ritmo da frota, preço do site −25%, +33d de prazo
         const prices = (U.revisoes || {})[model] || [];
         if (kmDia > 0 && prices.length) {
@@ -2300,10 +2322,17 @@
         const m0 = moOf(f.inicio);
         if (m0 != null && ini <= hojeD) { out.prep[m0] += 50 * cars; out.stick[m0] += 15 * cars; out.any = true; }
         const subr = par('__subrental_mensal__');
-        if (subr > 0) for (let i = 1; i <= 12; i++) {
-          const d = new Date(ini.getFullYear(), ini.getMonth() + i, 26, 12);
-          if (d > hojeD || d.getFullYear() !== finYear) continue;
-          out.subr[d.getMonth()] += subr * Math.max(0, cars - lostBefore(d)); out.any = true;
+        if (subr > 0) {
+          // mesma regra do UE/modelo: 1ª parcela PRO-RATA dos dias com o carro no mês de entrada;
+          // o complemento fecha os 12 meses numa 13ª cobrança, um mês depois da última parcela
+          const dimIni = new Date(ini.getFullYear(), ini.getMonth() + 1, 0).getDate();
+          const proR = Math.max(0, Math.min(1, (dimIni - ini.getDate()) / dimIni));
+          for (let i = 1; i <= 13; i++) {
+            const d = new Date(ini.getFullYear(), ini.getMonth() + i, 26, 12);
+            if (d > hojeD || d.getFullYear() !== finYear) continue;
+            const frac = i === 1 ? proR : (i === 13 ? 1 - proR : 1);
+            out.subr[d.getMonth()] += subr * frac * Math.max(0, cars - lostBefore(d)); out.any = true;
+          }
         }
         const insT = par('__ins_total__'), insN = par('__ins_parcelas__');
         if (insT > 0 && insN >= 1) for (let n = 1; n <= insN; n++) {
@@ -2321,6 +2350,17 @@
       });
       return out;
     }
+    // Carros RECUPERADOS por mês calendário do ano exibido (matriz de cobranças: contratos
+    // encerrados por "Recuperação" na semana). É a base da comissão de reentrega do CAC.
+    function recoveredByMonth() {
+      const z = new Array(FIN_MONTHS).fill(0);
+      (((OCN.payments || {}).weeks) || []).forEach((w) => {
+        if (!w.date || String(w.date).slice(0, 4) !== String(finYear)) return;
+        const m = parseInt(String(w.date).slice(5, 7), 10) - 1;
+        if (m >= 0 && m < FIN_MONTHS) z[m] += (w.counts && w.counts.recovered) || 0;
+      });
+      return z;
+    }
     function computePnl(opts) {
       opts = opts || {};
       const fx = finPar('__fin_fx__') || 5.5;
@@ -2332,7 +2372,7 @@
       const maints = {}; finModels.forEach((m) => { maints[m.id] = uetMaint(finModelVals[m.id] || {}, m.id); });
       const zeros = () => new Array(FIN_MONTHS).fill(0);
       const rev = {}, cogs = {}; FIN_REV_LINES.forEach((l) => rev[l] = zeros()); FIN_COGS_LINES.forEach((l) => cogs[l] = zeros());
-      const delivered = zeros(), active = zeros(), secDep = zeros(), vehPur = zeros();
+      const delivered = zeros(), active = zeros(), secDep = zeros(), vehPur = zeros(), refundPrin = zeros();
       // Simulador de frota: o multiplicador vale só para as entregas que ainda NÃO aconteceram.
       // Carro já entregue é fato consumado — mexer nele reescreveria o passado e mudaria meses que
       // a tabela mostra como realizados.
@@ -2351,7 +2391,17 @@
           const activeN = qty * Math.pow(1 - decomm, age);
           active[m] += activeN;
           const p = age + 1;                        // idade no UE (mês de entrega = M1)
-          if (p > UET_PERIODS - 1) return;          // além do M13: contrato encerrado
+          if (p > UET_PERIODS - 1) {
+            // "M14": a 13ª cobrança do subrental (complemento do pro-rata) cai um mês depois do
+            // fim do contrato, no dia 26 — aqui ela entra na data real de calendário
+            if (age === 13) {
+              const sv = (refProfiles && refProfiles[c.model] && refProfiles[c.model]['Subrental fee'])
+                ? refProfiles[c.model]['Subrental fee'][2]
+                : (() => { const lo = lineOf('Subrental fee'); return lo ? uetEff(finModelVals[c.model] || {}, c.model, lo, 2, maints[c.model] || {}) : null; })();
+              if (sv) cogs['Subrental fee'][m] += (sv * (1 - proSub(c)) * activeN) / fx;
+            }
+            return;                                   // além do M13: contrato encerrado
+          }
           const vals = finModelVals[c.model] || {}, maint = maints[c.model] || {};
           const mondays = FIN_MONDAYS[m];
           const weeks = age === 0 ? mondaysOnOrAfter(cm, cohDay(c)) : mondays; // semanas pagas a partir da data
@@ -2379,8 +2429,16 @@
           };
           FIN_REV_LINES.forEach((L) => add(L, rev));
           FIN_COGS_LINES.forEach((L) => add(L, cogs));
+          // 1ª parcela do subrental (mês seguinte à entrega): reduz para o PRO-RATA dos dias
+          // com o carro no mês de entrada — o add() acima somou a parcela cheia
+          if (age === 1) {
+            const sv = val('Subrental fee', 2);
+            if (sv) cogs['Subrental fee'][m] += (sv * (proSub(c) - 1) * activeN) / fx;
+          }
           if (age === 0) { const v0 = val('Security Deposit', 0); if (v0 != null) secDep[m] += (v0 * qty) / fx; }
           { const vp = val('Vehicle Purchase', p); if (vp != null) vehPur[m] += (vp * activeN) / fx; }
+          // principal do calção que volta neste mês (base do imposto: só o JURO é receita nova)
+          if (p === 13) { const d0 = val('Security Deposit', 0); if (d0 != null) refundPrin[m] += (-d0 * activeN) / fx; }
         });
       }
       // ---- MESES DECORRIDOS: troca o modelo pelo REALIZADO consolidado da frota inteira ----
@@ -2436,7 +2494,7 @@
           const m = parseInt(String(b.date).slice(5, 7), 10) - 1;
           if (!(m >= 0 && m < FIN_MONTHS)) return;
           const v = ((b.plates || []).length * indriveData.value) / fx;
-          rev['Initial Fee / Vehicle Sell'][m] += v;
+          rev['InDrive bonus'][m] += v;
           indriveTot += v;
         });
       }
@@ -2449,7 +2507,26 @@
         FIN_COGS_LINES.forEach((L) => cogsTot[m] += cogs[L][m]);
         cogsTot[m] += secDep[m] + vehPur[m]; // calção e compra do veículo entram no COGS (como no UE)
       }
-      const fed = grossRev.map((v) => -v * taxFed), cred = grossRev.map((v) => v * taxCred);
+      // ---- Federal tax sobre MARGEM nas linhas de giro/repasse, não sobre o valor cheio ----
+      // Vehicle Sell: tributa (venda − compra), já que os dois acontecem no mesmo mês da placa.
+      // Security Deposit Refund: tributa só o juro (devolução − principal pago na entrada).
+      // Traffic fines: tributa só o spread (recebido do cliente − pago à LM).
+      // Mês com margem negativa não gera imposto (trava em zero) — também não gera crédito.
+      const taxBase = zeros();
+      for (let m = 0; m < FIN_MONTHS; m++) {
+        const sell = (rev['Vehicle Sell'] && rev['Vehicle Sell'][m]) || 0;
+        const ref = (rev['Security Deposit Refund'] && rev['Security Deposit Refund'][m]) || 0;
+        const fin = (rev['Traffic fines'] && rev['Traffic fines'][m]) || 0;
+        const finOut = (cogs['Traffic fines (out)'] && cogs['Traffic fines (out)'][m]) || 0; // negativo
+        taxBase[m] = grossRev[m]
+          - sell + Math.max(0, sell + (vehPur[m] || 0))
+          - ref + Math.max(0, ref - refundPrin[m])
+          - fin + Math.max(0, fin + finOut);
+      }
+      // o CRÉDITO segue a MESMA base do imposto: crédito sobre a receita cheia com o federal na
+      // margem fazia "Taxes on sales" virar POSITIVO nos meses de venda de veículo (crédito de
+      // ~R$66k/carro sobre uma margem de ~R$2k) — imposto não pode ser fonte de receita.
+      const fed = taxBase.map((v) => -Math.max(0, v) * taxFed), cred = taxBase.map((v) => Math.max(0, v) * taxCred);
       const taxes = grossRev.map((_, m) => fed[m] + cred[m]);
       const netRev = grossRev.map((v, m) => v + taxes[m]);
       const payProc = grossRev.map((v, m) => -v * payFeeM(m));
@@ -2470,9 +2547,11 @@
       // CAC (referenciado, como no Excel): comissão = USD/carro × carros ENTREGUES no mês;
       // Ads = soma dos canais; Influenciadores = nº de perfis do mês × preço por perfil.
       const newDelivered = zeros(); cohorts.forEach((c) => { const cm = cohMonth(c) - FIN_YOFF(); if (cm >= 0 && cm < FIN_MONTHS) newDelivered[cm] += c.qty * scaleOf(c); });
+      // carro recuperado que volta para a rua paga comissão de reentrega (tabela própria no CAC)
+      const recovered = recoveredByMonth();
       const commission = zeros(), adsTot = zeros(), infTot = zeros();
       for (let m = 0; m < FIN_MONTHS; m++) {
-        commission[m] = -(finCac.perUnit || 0) * newDelivered[m];
+        commission[m] = -(finCac.perUnit || 0) * newDelivered[m] - (finCac.recPerUnit || 0) * recovered[m];
         (finCac.ads || []).forEach((a) => { adsTot[m] -= Number((a.v || [])[m]) || 0; });
         (finCac.inf || []).forEach((t) => { infTot[m] -= (Number((t.profiles || [])[m]) || 0) * (t.price || 0); });
       }
@@ -2499,7 +2578,7 @@
       const headcount = zeros(); for (let m = 0; m < FIN_MONTHS; m++) (finHc.roles || []).forEach((r) => { headcount[m] += hcOf(r, m); });
       const payFeePct = new Array(FIN_MONTHS).fill(0).map((_, m) => finParM('__fin_payfee__', m));
       return { delivered, active, rev, cogs, secDep, grossRev, fed, cred, taxes, netRev, cogsTot, payProc, gm,
-        base, meal, health, ptax, th13, bonus, hcTot, commission, adsTot, infTot, cacTot, rentTot, profTot, itTot, sga, opex, netCf, accCf, newDelivered, headcount, payFeePct, actualsThrough, vehPur, indriveTot, carryIn };
+        base, meal, health, ptax, th13, bonus, hcTot, commission, adsTot, infTot, cacTot, rentTot, profTot, itTot, sga, opex, netCf, accCf, newDelivered, headcount, payFeePct, actualsThrough, vehPur, indriveTot, carryIn, recovered };
     }
 
     // ---------- P&L ----------
@@ -2864,8 +2943,10 @@
             d: 'Cash the clients actually paid, on the payment date. The projection applies the contract rule — GROSS fine × (1 + premium), 10% on v1/v2 and 20% from v3 — over the same universe of fines as the outflow line, so the two sides always talk about the same infractions.' },
           { t: 'Termination fee', src: 'import_jud + recovery % slider', upd: 'auto',
             d: 'Total charged on early terminations (import_jud, column K minus fines/tolls) × the recovery % slider of the UE. Lands at contract end (M13 of each cohort).' },
-          { t: 'Initial fee / vehicle sell + InDrive', src: '✎ box · iD panel', upd: 'manual',
-            d: 'Sale at 103% of the purchase price, at M13. The InDrive benefit adds value per plate on the month of each batch date — the iD button on the P&L bar removes it from the whole statement.' },
+          { t: 'Vehicle sell', src: '✎ box', upd: 'manual',
+            d: 'Sale at 103% of the purchase price, at M13 of each cohort. Federal tax hits only the margin over the purchase (sell − purchase), since both land in the same month for a given plate.' },
+          { t: 'InDrive bonus', src: 'iD panel', upd: 'manual',
+            d: 'Value per plate on the month of each batch date — the iD button on the P&L bar removes it from the whole statement.' },
           { t: 'Security deposit refund', src: 'Derived from the deposit', upd: 'manual',
             d: 'The sub-rental deposit going back at M13, corrected by the % p.a. field. The "No deposit" button removes deposit AND refund together — they are two sides of the same coin.' },
         ]},
@@ -2895,7 +2976,7 @@
           { t: 'Actuals override', src: 'All revenue/cost sources', upd: 'auto',
             d: 'Months up to today replace the model with consolidated ACTUALS of the whole fleet. The current month is a blend: what already happened plus the model for the remaining days — so early in the month revenue does not look like a cliff.' },
           { t: 'Taxes · Payment processing', src: '⚙ Assumptions', upd: 'manual',
-            d: 'Federal tax and credit as % of gross revenue; the processing fee has a global value and can be overridden month by month inside the Assumptions panel.' },
+            d: 'Federal tax as % of revenue, but pass-through lines pay only over their MARGIN: vehicle sell over (sell − purchase), the deposit refund over the interest alone, and traffic fines over the spread between what clients pay us and what we pay LM. The processing fee has a global value and can be overridden month by month.' },
           { t: 'FX and the year link', src: '⚙ Assumptions', upd: 'manual',
             d: 'Everything is computed in R$ and shown in USD at the FX assumption. 2027 is a continuation, not a restart: its accumulated cash opens with 2026’s closing balance.' },
           { t: 'Versions: Live · Budget · Scenarios · Frozen', src: 'Version picker', upd: 'mixed',
@@ -3529,12 +3610,13 @@
       const el = document.getElementById('finAdminWrap'); if (!el) return;
       // totalizador de SG&A (uma linha por despesa) acima das abas
       const tot = document.getElementById('sgaTotals');
-      if (tot) tot.innerHTML = totalsTable([
+      if (tot) tot.innerHTML = finCurFlags() + totalsTable([
         { label: 'Headcount', arr: hcMonthlyCost() },
         { label: 'Rent & Utilities', arr: sumItems(finSga.rent) },
         { label: 'Professional Services', arr: sumItems(finSga.prof) },
         { label: 'IT', arr: sumItems(finSga.it) },
-      ], 'SG&A cost line');
+      ], 'SG&A cost line (' + finCS() + ')');
+      if (tot) wireCurFlags(tot, () => { renderAdmin(); renderHc(); renderPnl(); renderCac(); });
       document.querySelectorAll('#sgaTabs .sub3-tab').forEach((b) => b.classList.toggle('active', b.dataset.t3 === sgaTab));
       const hcWrap = document.getElementById('finHcWrap');
       const isHc = sgaTab === 'hc';
@@ -3563,15 +3645,18 @@
       const newDelivered = new Array(FIN_MONTHS).fill(0);
       finCohorts.forEach((c) => { const cm = cohMonth(c) - FIN_YOFF(); if (cm >= 0 && cm < FIN_MONTHS) newDelivered[cm] += c.qty; });
       const per = finCac.perUnit || 0;
+      const recovered = recoveredByMonth();
+      const recPer = finCac.recPerUnit || 0;
       const infTot = new Array(FIN_MONTHS).fill(0);
       (finCac.inf || []).forEach((it) => { for (let m = 0; m < FIN_MONTHS; m++) infTot[m] += (Number((it.profiles || [])[m]) || 0) * (it.price || 0); });
       // totalizador de CAC (uma linha por custo) acima das abas
       const tot = document.getElementById('cacTotals');
-      if (tot) tot.innerHTML = totalsTable([
-        { label: 'Sales Commission', arr: newDelivered.map((n) => n * per) },
+      if (tot) tot.innerHTML = finCurFlags() + totalsTable([
+        { label: 'Sales Commission', arr: newDelivered.map((n, m) => n * per + recovered[m] * recPer) },
         { label: 'Paid Media', arr: sumItems(finCac.ads) },
         { label: 'Digital Influencers', arr: infTot },
-      ], 'CAC cost line');
+      ], 'CAC cost line (' + finCS() + ')');
+      if (tot) wireCurFlags(tot, () => { renderCac(); renderPnl(); });
       document.querySelectorAll('#cacTabs .sub3-tab').forEach((b) => b.classList.toggle('active', b.dataset.t3 === cacTab));
       el.innerHTML = editBar();
       if (cacTab === 'ads') {
@@ -3595,13 +3680,25 @@
       for (let m = 0; m < FIN_MONTHS; m++) h += `<th>${monthLbl(m)}</th>`;
       h += '<th class="ue-totalcol">FY-26E</th></tr></thead><tbody>';
       const rowH = (label, arr) => { let s = `<tr class="ue-row ue-leaf"><td class="ue-rowlabel">${label}</td>`; let t = 0; for (let m = 0; m < FIN_MONTHS; m++) { t += arr[m]; s += `<td class="ue-cell">${arr[m] ? fmtNum(arr[m]) : '-'}</td>`; } return s + `<td class="ue-cell ue-totalcol">${t ? fmtNum(t) : '-'}</td></tr>`; };
+      const KC = finCurK();
       h += rowH('Vehicles delivered', newDelivered);
-      h += rowH('Commission (USD)', newDelivered.map((n) => n * per));
+      h += rowH('Commission (' + finCS() + ')', newDelivered.map((n2) => n2 * per * KC));
+      h += '</tbody></table></div>';
+      // ---- comissão de REENTREGA: carro recuperado que volta para a rua ----
+      h += `<div class="sub2-title" style="margin-top:20px">Redelivery Commission — recovered cars</div>` +
+        `<div class="fin-note" style="margin:6px 0 10px">USD per redelivered recovered car: <input class="hc-f hc-n" id="cacRecUnit" type="number" min="0" step="any" value="${recPer}"${canEditNow() ? '' : ' disabled'}> × cars repossessed in the month (from the billing matrix). The result adds to Sales Commission above.</div>`;
+      h += '<div class="ue-table-wrap"><table class="ue-table fin-grid"><thead><tr><th class="ue-rowlabel">Line</th>';
+      for (let m = 0; m < FIN_MONTHS; m++) h += `<th>${monthLbl(m)}</th>`;
+      h += `<th class="ue-totalcol">FY-${String(finYear).slice(2)}E</th></tr></thead><tbody>`;
+      h += rowH('Recovered cars', recovered);
+      h += rowH('Commission (' + finCS() + ')', recovered.map((c2) => c2 * recPer * KC));
       h += '</tbody></table></div>';
       head.innerHTML = h;
       el.appendChild(head);
       const pu = head.querySelector('#cacPerUnit');
       if (pu && canEditNow()) pu.addEventListener('change', () => { finCac.perUnit = Math.max(0, Number(pu.value) || 0); saveCac(); });
+      const ru = head.querySelector('#cacRecUnit');
+      if (ru && canEditNow()) ru.addEventListener('change', () => { finCac.recPerUnit = Math.max(0, Number(ru.value) || 0); saveCac(); });
       const note = document.createElement('div');
       note.className = 'fin-note';
       note.innerHTML = 'Commission is referenced to the Fleet Plan: USD per vehicle × vehicles delivered in the month.';
@@ -3666,7 +3763,7 @@
     // família (cor) de uma linha de detalhe — receita roxa, COGS laranja, o resto é OPEX
     const DASH_DETAIL_FAM = (k) => (FIN_REV_LINES.includes(k) ? DASH_FAM.rev
       : (FIN_COGS_LINES.includes(k) || k === 'Security deposit' || k === 'Vehicle purchase') ? DASH_FAM.cogs : DASH_FAM.opex);
-    const DRILL_LABEL = (k) => (k === 'Initial Fee / Vehicle Sell' ? 'Initial fee / sale' : (k === 'Traffic fines (out)' ? 'Traffic fines' : k));
+    const DRILL_LABEL = (k) => (k === 'Traffic fines (out)' ? 'Traffic fines' : k);
     // valores da linha no P&L (custos vêm positivos p/ o gráfico ler "quanto gastamos")
     function dashSeries(name, PX) {
       const t = DASH_TOTALS[name];
@@ -3689,7 +3786,7 @@
         ticks: { color: DC.txt, font: { size: 9.5 }, callback: (v) => (fmt ? fmt(v) : fmtQty(v)) } },
     });
     const DASH_TIP = (fmt) => ({ backgroundColor: '#1b0040', padding: 9, cornerRadius: 8, bodyFont: { size: 11 },
-      callbacks: { label: (c) => (c.parsed.y == null ? null : c.dataset.label + ': ' + (fmt ? fmt(c.parsed.y) : 'US$ ' + fmtQty(c.parsed.y))) } });
+      callbacks: { label: (c) => (c.parsed.y == null ? null : c.dataset.label + ': ' + (fmt ? fmt(c.parsed.y) : finCS() + ' ' + fmtQty(c.parsed.y))) } });
     // legenda em HTML (fora do canvas): a nativa desenhava o quadradinho com a COR DE FUNDO do
     // dataset — no "Actual", que é área translúcida, saía um retângulo quase invisível e o
     // tracejado da projeção não aparecia. Aqui cada item mostra o traço real da série.
@@ -3726,6 +3823,19 @@
       return series.map((x, i) => ({ label: x.label, key: x.key, v: fy(x.data) })).filter((x) => Math.abs(x.v) > 0.5)
         .sort((a, b) => b.v - a.v).map((r, i) => ({ ...r, color: colors[i % colors.length] }));
     }
+    // multiplica só o que é DINHEIRO num P&L calculado (contagens/percentuais ficam como estão)
+    const PNL_QTY_KEYS = { delivered: 1, active: 1, newDelivered: 1, headcount: 1, payFeePct: 1, actualsThrough: 1, recovered: 1 };
+    function moneyScale(P, k) {
+      if (!P || k === 1) return P;
+      const out = {};
+      Object.entries(P).forEach(([key, v]) => {
+        if (PNL_QTY_KEYS[key]) { out[key] = v; return; }
+        if (Array.isArray(v)) out[key] = v.map((x) => (typeof x === 'number' ? x * k : x));
+        else if (v && typeof v === 'object') { const o = {}; Object.entries(v).forEach(([l, a]) => { o[l] = Array.isArray(a) ? a.map((x) => x * k) : a; }); out[key] = o; }
+        else out[key] = (typeof v === 'number') ? v * k : v;
+      });
+      return out;
+    }
     function renderDash() {
       if (!document.getElementById('dashLineCv')) return;
       // span de anos: um ano só ou os dois emendados (24 colunas)
@@ -3745,6 +3855,9 @@
         PP = anoDe(spanYear, () => computePnl({ budget: true }));
         labels = anoDe(spanYear, () => Array.from({ length: FIN_MONTHS }, (_, m) => monthLbl(m)));
       }
+      // moeda: os gráficos inteiros seguem as bandeiras (mesmo estado do P&L)
+      const KD = finCurK();
+      PA = moneyScale(PA, KD); PP = moneyScale(PP, KD);
       const NM = labels.length;                    // 12 ou 24 colunas
       const curM = PA.actualsThrough != null ? PA.actualsThrough : -1;
       const kill = (id) => { if (dashCharts[id]) { dashCharts[id].destroy(); delete dashCharts[id]; } };
@@ -3826,9 +3939,9 @@
         setTxt('dashHeroSub', 'how the three blocks move together and what is left as cash · actual through ' + (curM >= 0 ? monthLbl(curM) : '—'));
         const gmPct = sum(PA.grossRev) ? (sum(PA.gm) / sum(PA.grossRev)) * 100 : 0;
         if (st) st.innerHTML =
-          '<div class="dash-stat"><span>Revenue (FY)</span><b>US$ ' + fmtQty(sum(PA.grossRev)) + '</b></div>' +
-          '<div class="dash-stat"><span>COGS (FY)</span><b>US$ ' + fmtQty(-sum(PA.cogsTot)) + '</b></div>' +
-          '<div class="dash-stat"><span>OPEX (FY)</span><b>US$ ' + fmtQty(-sum(PA.opex)) + '</b></div>' +
+          '<div class="dash-stat"><span>Revenue (FY)</span><b>' + finCS() + ' ' + fmtQty(sum(PA.grossRev)) + '</b></div>' +
+          '<div class="dash-stat"><span>COGS (FY)</span><b>' + finCS() + ' ' + fmtQty(-sum(PA.cogsTot)) + '</b></div>' +
+          '<div class="dash-stat"><span>OPEX (FY)</span><b>' + finCS() + ' ' + fmtQty(-sum(PA.opex)) + '</b></div>' +
           '<div class="dash-stat ' + (gmPct >= 0 ? 'up' : 'down') + '"><span>Gross margin</span><b>' + Math.round(gmPct) + '%</b></div>';
       } else {
         const heroKey = drill || dashLine;
@@ -3837,9 +3950,9 @@
         const diff = fyP ? ((fyA - fyP) / Math.abs(fyP)) * 100 : null;
         setTxt('dashHeroSub', (drill ? 'part of ' + dashLine + ' · ' : fam.name + ' · ') + 'solid = actual through ' + (curM >= 0 ? monthLbl(curM) : '—') + ' · dotted = forecast · grey = budget (Theoric UE per car)');
         if (st) st.innerHTML =
-          '<div class="dash-stat"><span>Actual to date</span><b>US$ ' + fmtQty(actSum) + '</b></div>' +
-          '<div class="dash-stat"><span>Full year (A+F)</span><b>US$ ' + fmtQty(fyA) + '</b></div>' +
-          '<div class="dash-stat"><span>Budget</span><b>US$ ' + fmtQty(fyP) + '</b></div>' +
+          '<div class="dash-stat"><span>Actual to date</span><b>' + finCS() + ' ' + fmtQty(actSum) + '</b></div>' +
+          '<div class="dash-stat"><span>Full year (A+F)</span><b>' + finCS() + ' ' + fmtQty(fyA) + '</b></div>' +
+          '<div class="dash-stat"><span>Budget</span><b>' + finCS() + ' ' + fmtQty(fyP) + '</b></div>' +
           '<div class="dash-stat ' + (diff == null ? '' : (diff >= 0 ? 'up' : 'down')) + '"><span>vs budget</span><b>' +
           (diff == null ? '—' : (diff >= 0 ? '+' : '') + Math.round(diff) + '%') + '</b></div>';
       }
@@ -3892,7 +4005,7 @@
             onHover: (e, els) => { const r = els.length && rows[els[0].index]; e.native.target.style.cursor = (r && r.key) ? 'pointer' : 'default'; },
             plugins: { legend: { display: false }, datalabels: { display: false },
               tooltip: { backgroundColor: '#1b0040', padding: 9, cornerRadius: 8, bodyFont: { size: 11 },
-                callbacks: { label: (c) => 'US$ ' + fmtQty(c.parsed.x) } } },
+                callbacks: { label: (c) => '' + finCS() + ' ' + fmtQty(c.parsed.x) } } },
             scales: { x: { grid: { color: DC.grid }, ticks: { color: DC.txt, font: { size: 9.5 }, callback: (v) => fmtQty(v) } },
               y: { grid: { display: false }, ticks: { color: DC.txt, font: { size: 10 } } } } },
         });
@@ -3968,7 +4081,7 @@
         ];
       } else if (dashLine === 'Net cashflow') {
         cards = [
-          { title: 'Accumulated cash', sub: (PA.carryIn && dashSpan !== 'both' ? 'carried over from ' + (spanYear - 1) + ': US$ ' + fmtQty(PA.carryIn) + ' · ' : '') + 'crossing the zero line = cash payback', draw: lines([
+          { title: 'Accumulated cash', sub: (PA.carryIn && dashSpan !== 'both' ? 'carried over from ' + (spanYear - 1) + ': ' + finCS() + ' ' + fmtQty(PA.carryIn) + ' · ' : '') + 'crossing the zero line = cash payback', draw: lines([
             { label: 'Actual + forecast', data: PA.accCf, color: DASH_FAM.res.color, fill: DASH_FAM.res.fill },
             { label: 'Budget', data: PP.accCf, color: DC.plan, dash: true, w: 2 },
           ]) },
@@ -3976,9 +4089,9 @@
         ];
       } else {
         // ---- Combinations: o que estas duas premissas fazem com o caixa ----
-        const PnoSd = dashSpan === 'both'
+        const PnoSd = moneyScale(dashSpan === 'both'
           ? concatPnl(anoDe(Y0, () => computePnl({ noSd: true })), anoDe(Y1, () => computePnl({ noSd: true })))
-          : anoDe(spanYear, () => computePnl({ noSd: true }));            // sem calção nem devolução
+          : anoDe(spanYear, () => computePnl({ noSd: true })), KD);       // sem calção nem devolução
         const insBack = cum((PA.cogs['Insurance'] || zz()).map((v) => -v)); // seguro é custo: devolver ao caixa
         const accNoIns = PA.accCf.map((v, m) => v + insBack[m]);
         const fy = (a) => sum(a);
@@ -3994,7 +4107,7 @@
         const dIns = (accNoIns[LAST] || 0) - (PA.accCf[LAST] || 0);
         cards = [
           { title: 'Security deposit & insurance — cash impact',
-            sub: 'end-of-year cash moves US$ ' + fmtQty(dSd) + ' without the deposit and US$ ' + fmtQty(dIns) + ' without insurance',
+            sub: 'end-of-year cash moves ' + finCS() + ' ' + fmtQty(dSd) + ' without the deposit and ' + finCS() + ' ' + fmtQty(dIns) + ' without insurance',
             draw: lines([
               { label: 'As modelled', data: PA.accCf, color: DASH_FAM.res.color, fill: DASH_FAM.res.fill },
               { label: 'Without the deposit', data: PnoSd.accCf, color: '#DB2777', w: 2 },
@@ -4042,14 +4155,16 @@
       if (ft) {
         const SPANS = [['y0', String(Y0)], ['y1', String(Y1)], ['both', Y0 + ' + ' + String(Y1).slice(2)]];
         ft.innerHTML = '<div class="pnl-years">' + SPANS.map(([k, lbl]) =>
-          '<button class="pnl-yr' + (dashSpan === k ? ' on' : '') + '" data-s="' + k + '">' + lbl + '</button>').join('') + '</div>';
+          '<button class="pnl-yr' + (dashSpan === k ? ' on' : '') + '" data-s="' + k + '">' + lbl + '</button>').join('') + '</div>' +
+          '<div class="ue-cur-toggle dash-cur">' + CUR_FLAGS(pnlCur) + '</div>';
         ft.querySelectorAll('.pnl-yr').forEach((b) => b.addEventListener('click', () => { dashSpan = b.dataset.s; renderDash(); }));
+        wireCurFlags(ft, () => { renderDash(); renderPnl(); });
       }
     }
 
 
     (async () => {
-      const getVals = async (fleet) => { const o = {}; try { const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(fleet), { credentials: 'include' }); const d = await r.json(); (d.values || []).forEach((v) => { o[v.line + '@@' + v.period] = v.value; }); } catch (e) {} return o; };
+      const getVals = async (fleet) => { const o = {}; try { const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(fleet), { credentials: 'include' }); const d = await r.json(); (d.values || []).forEach((v) => { const lbl = v.line === 'Initial Fee / Vehicle Sell' ? 'Vehicle Sell' : v.line; if (o[lbl + '@@' + v.period] == null) o[lbl + '@@' + v.period] = v.value; }); } catch (e) {} return o; };
       try { const r = await fetch('/api/theoric/models', { credentials: 'include' }); const d = await r.json(); finModels = d.models || []; } catch (e) { finModels = []; }
       try { const r = await fetch('/api/finance/cohorts', { credentials: 'include' }); const d = await r.json(); finCohorts = d.cohorts || []; } catch (e) { finCohorts = []; }
       try { const r = await fetch('/api/finance/hc', { credentials: 'include' }); const d = await r.json(); finHc = (d && d.hc) || { roles: [], people: [], plan: {} }; } catch (e) { finHc = { roles: [], people: [], plan: {} }; }
@@ -4218,7 +4333,7 @@
     }
     async function loadValues(id) {
       uetVals = {};
-      try { const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(fkey(id)), { credentials: 'include' }); const d = await r.json(); (d.values || []).forEach((v) => { uetVals[v.line + '@@' + v.period] = v.value; }); }
+      try { const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(fkey(id)), { credentials: 'include' }); const d = await r.json(); (d.values || []).forEach((v) => { const lbl = v.line === 'Initial Fee / Vehicle Sell' ? 'Vehicle Sell' : v.line; if (uetVals[lbl + '@@' + v.period] == null) uetVals[lbl + '@@' + v.period] = v.value; }); }
       catch (e) {}
       renderControls(); renderTable();
     }
@@ -4382,6 +4497,15 @@
     let termPct = 50;       // % da cobrança de rescisão (import_jud) que esperamos receber (slider, global)
     // Reposição de peças: a cada quantos MIL km trocar + custo por troca (painel ⚙, global)
     let partCfg = { pastilhas: { km: 15, rs: 250 }, disco: { km: 30, rs: 350 }, pneus: { km: 50, rs: 700 } };
+    // Config de peças EFETIVA da visão atual: cada frota pode ter os próprios intervalos/custos
+    // (salvos nas caixinhas da própria frota); o que ela não definir cai no padrão global (__cfg__).
+    let partCfgCur = partCfg;
+    const mergedParts = (prm) => {
+      const get = (k) => { const v = prm && prm[k]; return (v != null && v !== '') ? Number(v) : null; };
+      const it = (nome) => { const km = get('__part_' + nome + '_km__'), rs = get('__part_' + nome + '_rs__');
+        return { km: km != null ? km : partCfg[nome].km, rs: rs != null ? rs : partCfg[nome].rs }; };
+      return { pastilhas: it('pastilhas'), disco: it('disco'), pneus: it('pneus') };
+    };
     let curIni = null;            // início da frota selecionada (Date) — base do eixo de meses
     let lossMonthByPlate = {};    // placa → mês do UE em que deu perda total (corta Subrental/GPS dali em diante)
     let activeFracArr = [];       // fração de carros ativos (sem perda total) por mês — aplica no agregado
@@ -4428,7 +4552,8 @@
     // número JS → string editável pt-BR (round-trip com parseInput)
     const toInput = (v) => (v == null ? '' : String(v).replace('.', ','));
     const orcVal = (line, period) => {
-      const l = (U.orcado[model] && U.orcado[model].lines.find((x) => x.label === line));
+      const lbl = ORC_ALIAS[line] || line;
+      const l = (U.orcado[model] && U.orcado[model].lines.find((x) => x.label === lbl));
       return l ? l.values[period] : null; // period 0..12 (M0..M12)
     };
     const isLeaf = (g) => g === 'inflow' || g === 'outflow';
@@ -4519,16 +4644,29 @@
     let jurosPct = 5;
     // Subrental: 12 parcelas no dia 26, a 1ª no mês SEGUINTE ao da retirada. Devolve quantas
     // parcelas caem no período `p` do UE (normalmente 0 ou 1) — datas reais, respeitando o calendário.
-    function subrentalMonthsAt(p) {
+    // Subrental em R$ no período p. Regras:
+    //  - 12 parcelas mensais, sempre no dia 26, a 1ª no mês seguinte ao da retirada;
+    //  - a 1ª parcela é PRO-RATA dos dias com o carro no mês de entrada: retirada 05/04 →
+    //    (30−5)/30 = 0,8333 da mensalidade em 26/05;
+    //  - o complemento (1 − pro-rata) fecha os 12 meses numa 13ª cobrança, um mês depois da
+    //    última parcela ("M14", dia 26). Aqui no UE ele SOMA no M13, que é o último mês visível;
+    //    no P&L cai na data real de calendário.
+    function subrentalRSAt(p) {
       if (!curIni) return 0;
-      let n = 0;
-      for (let i = 1; i <= 12; i++) {
+      const mensal = par('__subrental_mensal__');
+      if (!(mensal > 0)) return 0;
+      const dim = new Date(curIni.getFullYear(), curIni.getMonth() + 1, 0).getDate();
+      const prorata = Math.max(0, Math.min(1, (dim - curIni.getDate()) / dim));
+      let tot = 0;
+      for (let i = 1; i <= 13; i++) {
         const d = new Date(curIni.getFullYear(), curIni.getMonth() + i, 26, 12, 0, 0);
         let mo = Math.ceil(((d - curIni) / 86400000) / (SEMANAS_MES * 7));
         if (mo < 1) mo = 1;
-        if (mo === p) n++;
+        if (mo > PMAX) mo = PMAX;                       // a 13ª ("M14") aparece somada no M13
+        if (mo !== p) continue;
+        tot += mensal * (i === 1 ? prorata : (i === 13 ? 1 - prorata : 1));
       }
-      return n;
+      return tot;
     }
     // visão por placa: 0 a partir do mês do incidente (perda total); nas visões de frota o valor unitário
     // fica CHEIO — a placa perdida sai do numerador E do denominador (base = carros ativos, activeCarsAt)
@@ -4822,7 +4960,7 @@
           const diasEv = Math.max(0, (new Date(ev.d + 'T12:00:00') - curIni) / MS);
           const kmEv = kmDiaPl > 0 ? kmDiaPl * diasEv : null;
           ev.itens.forEach((it) => {
-            const cfg = partCfg[it]; if (!cfg) return;
+            const cfg = partCfgCur[it]; if (!cfg) return;
             const minTab = PART_MIN[it] || {};
             const min = minTab[model] != null ? minTab[model] : minTab.padrao;
             let natural = true;
@@ -4840,7 +4978,7 @@
         const odo = d && d.ok && d.odo > 0 ? d.odo : kmDiaFrota * diasCorridos; // sem odômetro: estima
         const kmDia = d && d.ok && d.odo > 0 ? d.odo / diasCorridos : kmDiaFrota;
         if (kmDia <= 0) return;
-        Object.values(partCfg).forEach((cfg) => {
+        Object.values(partCfgCur).forEach((cfg) => {
           const intervalo = (cfg.km || 0) * 1000;
           if (intervalo <= 0 || !(cfg.rs > 0)) return;
           for (let k = Math.floor(odo / intervalo) + 1; k <= 60; k++) {
@@ -4953,12 +5091,8 @@
         return { rs: -(partsRealRS[period] || 0), rsProj: -(partsProjRS[period] || 0), perActive: true };
       }
       if (line === 'Subrental fee' && par('__subrental_mensal__') > 0) {
-        // 12 parcelas mensais, SEMPRE no dia 26, começando no mês seguinte ao da retirada do carro.
-        // Ex.: retirada 01/04 -> 1ª parcela 26/05 (cai no M2) e a 12ª em 26/04 do ano seguinte (M13).
-        // O usuário preenche só a mensalidade; as datas saem do calendário real.
         if (!curIni) return null;
-        const n = subrentalMonthsAt(period);
-        return { rs: n ? -par('__subrental_mensal__') * n * plateCut(period) : 0, perActive: true };
+        return { rs: -subrentalRSAt(period) * plateCut(period), perActive: true };
       }
       if (line === 'Maintenance' && maintReady) {
         if (period === 0) return { rs: 0, perActive: true };
@@ -4986,13 +5120,15 @@
         return { rs: period === PMAX ? secDepMag() * (1 + rp) : 0 }; // devolução corrigida, no M13
       }
       if (line === 'Vehicle Purchase' && par('__vehicle__') > 0) return { rs: period === PMAX ? -par('__vehicle__') : 0 };
-      if (line === 'Initial Fee / Vehicle Sell') {
-        const veh = par('__vehicle__');
-        const idr = indriveRS(period) / (plateView ? 1 : (ctxCars || 1)); // benefício InDrive das placas do contexto
-        // com a caixinha de compra preenchida a linha é toda nossa (venda = 103% da compra, no M13);
-        // sem ela, só os meses COM leva de InDrive saem do orçado — os demais continuam na referência
-        if (veh > 0) return { rs: (period === PMAX ? veh * 1.03 : 0) + idr };
+      // a antiga linha "Initial Fee / Vehicle Sell" virou DUAS: a venda do carro (103% da compra,
+      // no M13) e o bônus InDrive (levas por placa, no mês de cada leva)
+      if (line === 'Vehicle Sell' && par('__vehicle__') > 0) {
+        return { rs: period === PMAX ? par('__vehicle__') * 1.03 : 0 };
+      }
+      if (line === 'InDrive bonus') {
+        const idr = indriveRS(period) / (plateView ? 1 : (ctxCars || 1));
         if (idr) return { rs: idr };
+        if (indriveOn()) return { rs: 0 };
       }
       // demais linhas (Subscription, Maintenance...): sem cálculo automático — só orçado + entradas manuais
       const orc = orcVal(line, period);
@@ -5032,7 +5168,7 @@
     }
     // all-mode: contexto por frota — cada frota tem params/entradas/eixo de meses/perdas/pagamentos próprios
     function applyCtx(c) {
-      model = c.f.model; params = c.params; entered = c.entered; curIni = c.ini; ctxCars = c.f.cars || 0; ctxPlates = c.f.placas || [];
+      model = c.f.model; params = c.params; entered = c.entered; curIni = c.ini; ctxCars = c.f.cars || 0; ctxPlates = c.f.placas || []; partCfgCur = c.partCfg || partCfg;
       elapsed = c.elapsed; realizedFull = c.realizedFull; lossMonthByPlate = c.lossMonthByPlate; activeFracArr = c.activeFracArr;
       subsRS = c.subsRS || []; subsJurosRS = c.subsJurosRS || []; subsReady = !!c.subsReady;
       maintRealRS = c.maintRealRS || []; maintProjRS = c.maintProjRS || []; maintReady = !!c.maintReady;
@@ -5075,7 +5211,9 @@
     }
     // linhas cujo lançamento pontual foi movido para o M13 (planilha original só vai até M12) — o orçado de
     // referência sai do M12 e passa a aparecer só no M13 (substituição, não duplicação)
-    const M13_LINES = ['Vehicle Purchase', 'Initial Fee / Vehicle Sell', 'Deposit Refund'];
+    const M13_LINES = ['Vehicle Purchase', 'Vehicle Sell', 'Deposit Refund'];
+    // a PLANILHA de orçado ainda usa o rótulo combinado — as linhas novas leem dela por alias
+    const ORC_ALIAS = { 'Vehicle Sell': 'Initial Fee / Vehicle Sell' };
     // orçado (planilha, USD) na moeda de exibição; all-mode = média ponderada dos orçados por modelo
     const orcDisp = (line, period) => {
       const isM13Line = M13_LINES.includes(line);
@@ -5086,7 +5224,7 @@
       if (allMode && !plateView) {
         let sum = 0, any = false;
         U.fleets.forEach((ff) => {
-          const l = U.orcado[ff.model] && U.orcado[ff.model].lines.find((x) => x.label === line);
+          const l = U.orcado[ff.model] && U.orcado[ff.model].lines.find((x) => x.label === (ORC_ALIAS[line] || line));
           const v = l ? l.values[srcP] : null;
           if (v != null) { sum += v * ff.cars; any = true; }
         });
@@ -5289,9 +5427,10 @@
         ['Delinquency slider', 'Measured, not guessed: contracts ended as "Recuperação" ÷ weekly charges expected in the period, per fleet — the chip under the slider fills it in. It is a rate PER CHARGE because that is how it is applied', 'Auto, daily'],
         ['Traffic fines (inflow)', 'Actual: fines API (what clients really paid). Projected: contract rule — GROSS fine × (1 + premium), 10% on v1/v2 and 20% from v3', 'Auto, daily'],
         ['Termination fee', 'Sheet import_jud (total charge − fines/tolls) + recovery % slider · lands in M13', 'Auto, daily'],
-        ['Initial Fee / Vehicle Sell', '✎ box (103% of purchase) · M13 · plus the InDrive benefit (iD button): value per plate × plates of the batch, on the month of the batch date', 'Manual + iD panel'],
+        ['Vehicle Sell', '✎ box: 103% of the purchase price, at M13', 'Manual'],
+        ['InDrive bonus', 'iD panel: value per plate × plates of each batch, on the month of the batch date', 'iD panel'],
         ['Security Deposit Refund', 'Derived: deposit × (1 + % p.a. field) · M13', 'Manual'],
-        ['Subrental fee', '✎ monthly amount; 12 installments always on the 26th (M2–M13)', 'Manual'],
+        ['Subrental fee', '✎ monthly amount; installments on the 26th — the 1st is PRO-RATA of the days held in the arrival month, and the complement closes the 12 months in a 13th charge (shown inside M13)', 'Manual'],
         ['Insurance', '✎ boxes (total / installments)', 'Manual'],
         ['Car Preparation / Sticker', 'Fixed at M0 (−50 / −15 R$)', 'Static'],
         ['Maintenance', 'Sheet import_rev (real invoices by due date) + revisions site prices −25% + fleet API odometer', 'Auto, daily'],
@@ -5323,15 +5462,15 @@
       ov.className = 'ue-modal-overlay';
       ov.innerHTML =
         `<div class="ue-modal ue-modal-parts"><div class="ue-modal-title">Part Replacement — intervals &amp; costs</div>` +
-        `<div class="ue-modal-sub">One card per part: how often it wears out and what one replacement costs us.</div>` +
+        `<div class="ue-modal-sub">One card per part: how often it wears out and what one replacement costs us. ${allMode ? 'Editing the GLOBAL default (fallback for every fleet).' : 'Saved for THIS fleet only — All fleets edits the global default.'}</div>` +
         PARTS.map(([k, lbl, ic]) =>
           `<div class="ue-part-group">` +
             `<div class="ue-part-title"><span class="ue-part-ic">${ic}</span>${lbl}</div>` +
             `<div class="ue-part-row">` +
               `<label class="ue-part-field"><span class="ue-part-lbl">Replace every</span>` +
-                `<span class="ue-part-inwrap"><input type="text" inputmode="decimal" data-k="${k}" data-f="km" value="${partCfg[k].km}"/><b>× 1.000 km</b></span></label>` +
+                `<span class="ue-part-inwrap"><input type="text" inputmode="decimal" data-k="${k}" data-f="km" value="${(allMode ? partCfg : partCfgCur)[k].km}"/><b>× 1.000 km</b></span></label>` +
               `<label class="ue-part-field"><span class="ue-part-lbl">Cost per replacement</span>` +
-                `<span class="ue-part-inwrap"><b>R$</b><input type="text" inputmode="decimal" data-k="${k}" data-f="rs" value="${partCfg[k].rs}"/></span></label>` +
+                `<span class="ue-part-inwrap"><b>R$</b><input type="text" inputmode="decimal" data-k="${k}" data-f="rs" value="${(allMode ? partCfg : partCfgCur)[k].rs}"/></span></label>` +
             `</div>` +
           `</div>`
         ).join('') +
@@ -5342,15 +5481,20 @@
       ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
       ov.querySelector('.ue-modal-cancel').addEventListener('click', close);
       ov.querySelector('.ue-modal-save').addEventListener('click', async () => {
+        // POR FROTA: numa frota específica os valores vão para as caixinhas DELA (e valem só
+        // para ela); em "All fleets" editam o padrão global, que é o fallback de todo mundo.
+        const alvo = allMode ? '__cfg__' : current;
         const ops = [];
         ov.querySelectorAll('input[data-k]').forEach((inp) => {
           const val = parseFloat(String(inp.value).trim().replace(/\./g, '').replace(',', '.'));
           if (!isFinite(val) || val < 0) return;
-          partCfg[inp.dataset.k][inp.dataset.f] = val;
-          ops.push({ k: '__part_' + inp.dataset.k + '_' + inp.dataset.f + '__', value: val });
+          const k = '__part_' + inp.dataset.k + '_' + inp.dataset.f + '__';
+          if (allMode) partCfg[inp.dataset.k][inp.dataset.f] = val; else params[k] = val;
+          ops.push({ k, value: val });
         });
+        if (!allMode) partCfgCur = mergedParts(params);
         if (isAdmin) for (const o of ops) {
-          try { await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fleet: '__cfg__', line: o.k, period: 0, value: o.value, kind: 'real' }) }); } catch (e) {}
+          try { await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fleet: alvo, line: o.k, period: 0, value: o.value, kind: 'real' }) }); } catch (e) {}
         }
         close();
         renderTable(f);
@@ -5379,7 +5523,7 @@
         box.innerHTML =
           `<div class="idr-head"><span class="idr-mark idr-mark-lg">iD</span>` +
             `<div><div class="ue-modal-title" style="margin:0">InDrive benefit</div>` +
-            `<div class="ue-modal-sub" style="margin:2px 0 0">Revenue we receive per plate, delivered in batches. It lands on the <b>Initial Fee / Vehicle Sell</b> line, on the month of each batch date.</div></div></div>` +
+            `<div class="ue-modal-sub" style="margin:2px 0 0">Revenue we receive per plate, delivered in batches. It lands on the <b>InDrive bonus</b> line, on the month of each batch date.</div></div></div>` +
           `<div class="idr-topline">` +
             `<label class="idr-field"><span>Benefit per plate</span><span class="idr-inwrap"><b>R$</b>` +
               `<input id="idrValue" type="text" inputmode="decimal" value="${draft.value ? String(draft.value).replace('.', ',') : ''}" placeholder="0,00"></span></label>` +
@@ -5435,7 +5579,7 @@
           if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
           indriveData = { value: Number(d.indrive.value) || 0, batches: d.indrive.batches || [] };
           close();
-          loadFleet();
+          loadFleet(true);
         } catch (e) { btn.disabled = false; btn.textContent = 'Save'; alert('Could not save: ' + e.message); }
       }
       ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
@@ -5446,12 +5590,11 @@
     function renderPlates(f) {
       const platesEl = document.getElementById('uePlates');
       if (!platesEl) return;
-      // Modo limpo: some o GRID de placas (é ele que polui — 50 botões), mas os dois seletores de
-      // visão continuam. Como o clean view é o padrão, escondê-los deixaria as visões agregada e
-      // por placa inalcançáveis sem sair do modo limpo.
-      const plates = cleanView ? [] : (f.placas || []);
+      // O grid de placas fica visível TAMBÉM no clean view: sem ele não dava para usar o modo
+      // limpo olhando uma placa ou uma visão específica.
+      const plates = f.placas || [];
       platesEl.innerHTML =
-        (cleanView ? '' : `<div class="ue-plates-label">View by plate</div>`) + `<div class="ue-plates-grid">` +
+        `<div class="ue-plates-label">View by plate</div>` + `<div class="ue-plates-grid">` +
         `<button class="ue-plate-btn${(!plateView && !viewAgg) ? ' active' : ''}" data-view="unit">Fleet (unitary)</button>` +
         `<button class="ue-plate-btn${(!plateView && viewAgg) ? ' active' : ''}" data-view="agg">Fleet (aggregate)</button>` +
         plates.map((p) => `<button class="ue-plate-btn${plateView === p ? ' active' : ''}" data-plate="${p}">${p}</button>`).join('') +
@@ -5474,7 +5617,9 @@
           const d = await r.json();
           (d.values || []).forEach((v) => {
             if (String(v.line).startsWith('__')) { p_[v.line] = v.value; return; }
-            e_[ekey(v.line, v.period)] = { value: v.value, kind: v.kind };
+            const lbl = v.line === 'Initial Fee / Vehicle Sell' ? 'Vehicle Sell' : v.line; // rótulo antigo
+            if (lbl !== v.line && e_[ekey(lbl, v.period)]) return;   // edição nova vence a antiga
+            e_[ekey(lbl, v.period)] = { value: v.value, kind: v.kind };
           });
         }
       } catch (e) { /* segue com orçado */ }
@@ -5496,13 +5641,15 @@
         const nCars = ff.cars || 1;
         for (let p = 0; p <= PMAX; p++) { const lost = Object.values(lmp).filter((lm) => lm <= p).length; afa[p] = Math.max(0, nCars - lost) / nCars; }
       }
-      return { f: ff, params: vals.params, entered: vals.entered, ini, elapsed: el, realizedFull: Math.min(PMAX, Math.ceil(el)), lossMonthByPlate: lmp, activeFracArr: afa, subsRS: [], subsReady: false };
+      return { f: ff, params: vals.params, entered: vals.entered, partCfg: mergedParts(vals.params), ini, elapsed: el, realizedFull: Math.min(PMAX, Math.ceil(el)), lossMonthByPlate: lmp, activeFracArr: afa, subsRS: [], subsReady: false };
     }
-    async function loadFleet() {
+    async function loadFleet(keepView) {
       allMode = current === 'all';
       const f = allMode ? allFleet() : U.fleets.find((x) => x.id === current);
       model = f.model;
-      plateView = null; viewAgg = false; // trocar de frota volta para a visão unitária
+      // trocar de FROTA reseta a visão; toggles (clean view, moeda, InDrive, projeção) preservam —
+      // antes, ligar o clean view estando numa placa jogava o usuário de volta para a frota inteira
+      if (!keepView) { plateView = null; viewAgg = false; }
       curCars = f.cars || 0; ctxCars = f.cars || 0; ctxPlates = f.placas || [];
       const foto = allMode ? null : (OCN.modelos[f.model] || {}).foto;
       fleetsEl.querySelectorAll('.ue-fleet-btn').forEach((b) => b.classList.toggle('active', b.dataset.id === current));
@@ -5515,6 +5662,7 @@
         fleetCtx = null;
         const vals = await fetchFleetValues(current);
         params = vals.params; entered = vals.entered;
+        partCfgCur = mergedParts(params);   // peças: config da frota com fallback no padrão global
       }
       // meses decorridos = (hoje - início) em semanas ÷ 4,3333; M0 é sempre realizado
       const ini = f.inicio ? new Date(f.inicio + 'T12:00:00') : null;
@@ -5574,7 +5722,7 @@
         `<div class="ue-headrow">` +
           `<div class="ue-fleet-head">` +
             (foto ? `<div class="ue-car-photo"><img src="${foto}" alt="${f.modelLabel}"/></div>` : '') +
-            `<div><div class="ue-fleet-title">${f.label} — ${f.modelLabel}</div>` +
+            `<div><div class="ue-fleet-title">${f.label} — ${f.modelLabel}${plateView ? ' · ' + plateView : (viewAgg ? ' · aggregate' : '')}</div>` +
             `<div class="ue-fleet-sub">${f.cars} cars · ${U.periods}-month contract</div>` +
             `<div class="ue-fleet-sub">${subInfo}</div></div>` +
           `</div>` +
@@ -5616,19 +5764,19 @@
       // o mesmo botão faz as duas coisas: a pílula on/off liga e desliga o efeito, o resto abre o painel
       const idrBtn = document.getElementById('ueIndrive');
       if (idrBtn) idrBtn.addEventListener('click', (ev) => {
-        if (ev.target && ev.target.id === 'ueIdrToggle') { ev.stopPropagation(); idrOff = !idrOff; loadFleet(); return; }
+        if (ev.target && ev.target.id === 'ueIdrToggle') { ev.stopPropagation(); idrOff = !idrOff; loadFleet(true); return; }
         openIndriveModal(f);
       });
       const projBtn = document.getElementById('ueProj');
-      if (projBtn) projBtn.addEventListener('click', () => { showProj = !showProj; loadFleet(); });
+      if (projBtn) projBtn.addEventListener('click', () => { showProj = !showProj; loadFleet(true); });
       const cleanBtn = document.getElementById('ueClean');
-      if (cleanBtn) cleanBtn.addEventListener('click', () => { cleanView = !cleanView; loadFleet(); });
+      if (cleanBtn) cleanBtn.addEventListener('click', () => { cleanView = !cleanView; loadFleet(true); });
       const inadHist = document.getElementById('ueInadHist');
       if (inadHist) inadHist.addEventListener('click', async () => {
         const r = churnRate(); if (r == null) return;
         inadimplencia = r;
         if (isAdmin) { try { await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fleet: '__cfg__', line: '__inadimplencia__', period: 0, value: r, kind: 'proj' }) }); } catch (e) {} }
-        loadFleet();
+        loadFleet(true);
       });
       if (isAdmin && !cleanView) document.getElementById('ueManual').addEventListener('change', (e) => { manualMode = e.target.checked; renderTable(f); });
       // toggle da moeda de exibição (R$ principal · US$ convertido)
@@ -5662,13 +5810,17 @@
       const tbl = document.getElementById('ueTable');
       if (!orc) { tbl.innerHTML = '<tbody><tr><td>No budget for ' + f.modelLabel + '</td></tr></tbody>'; return; }
       // injeta a linha de juros de atraso logo após Subscription (entra no Total Inflow; principal fica na Subscription)
-      const subIdx = orc.lines.findIndex((l) => l.label === 'Subscription');
-      let lines = subIdx < 0 ? orc.lines
-        : [...orc.lines.slice(0, subIdx + 1),
+      // a linha combinada da planilha vira duas na tela (venda + InDrive); o orçado dela fica na venda
+      const baseLines = orc.lines.flatMap((l) => (l.label === 'Initial Fee / Vehicle Sell'
+        ? [{ label: 'Vehicle Sell', group: 'inflow', values: [] }, { label: 'InDrive bonus', group: 'inflow', values: [] }]
+        : [l]));
+      const subIdx = baseLines.findIndex((l) => l.label === 'Subscription');
+      let lines = subIdx < 0 ? baseLines
+        : [...baseLines.slice(0, subIdx + 1),
            { label: 'Late-payment interest', group: 'inflow', values: [] },
            { label: 'Traffic fines', group: 'inflow', values: [] },
            { label: 'Termination fee', group: 'inflow', values: [] },
-           ...orc.lines.slice(subIdx + 1)];
+           ...baseLines.slice(subIdx + 1)];
       // saídas extras no fim do bloco de outflow: multas (repasse), recuperação/reparo (import_jud)
       // e reposição de peças (site da frota)
       const lastOut = lines.map((l) => l.group).lastIndexOf('outflow');

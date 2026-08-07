@@ -1325,3 +1325,8 @@ html { scrollbar-gutter: stable; }
 /* chip do realizado ao lado do titulo da secao */
 .pnl-act-title { margin-left: 10px; vertical-align: middle; }
 .pnl-act-title .pnl-act { font-size: 11px; }
+
+/* ---- Finance: barra de moeda nas abas CAC / SG&A / Dashboard ---- */
+.fin-curbar { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; }
+.fin-curnote { font-size: 10.5px; color: var(--text-2); }
+.dash-cur { margin-left: 10px; align-self: center; background: var(--surface); }

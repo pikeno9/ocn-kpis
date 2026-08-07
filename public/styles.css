@@ -399,6 +399,10 @@ html { scrollbar-gutter: stable; }
 #pnlTable tbody tr.pnl-l1 td.ue-totalcol { background: #2C0079; }
 #pnlTable tbody tr.pnl-acc td { background: #2C0079; }
 #pnlTable tbody tr.pnl-acc td.ue-totalcol { background: #1F0057; }
+/* Net cashflow / Acc. Net cashflow: o SINAL colore o valor — verde-claro positivo, vermelho-claro
+   negativo (tons suaves, legíveis sobre o roxo escuro das linhas L1) */
+#pnlTable tbody tr.pnl-l1 td.pnl-pos { color: #A8E6BE; }
+#pnlTable tbody tr.pnl-l1 td.pnl-neg { color: #F3AEAE; }
 #pnlTable tbody tr.pnl-l2 td { background: #C4B5FD; color: var(--text); font-weight: 600; }
 #pnlTable tbody tr.pnl-l2 td.ue-totalcol { background: #B3A1F7; }
 #pnlTable tbody tr.pnl-l3 td { background: #EDE9FE; color: var(--text); font-weight: 500; }

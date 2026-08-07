@@ -2067,6 +2067,7 @@
   const FIN_ASSUMP = [
     { k: '__fin_tax_fed__', label: 'Federal taxes (% of gross revenue)', def: 13.36 },
     { k: '__fin_tax_credit__', label: 'Tax input credit (% of gross revenue)', def: 8.25 },
+    { k: '__fin_tax_fin__', label: 'Tax on financial income (% — security-deposit interest)', def: 4.65 },
     { k: '__fin_payfee__', label: 'Payment processing fee (% of gross revenue)', def: 1.5 },
     { k: '__fin_decomm__', label: 'Monthly decommissioning (% of active fleet)', def: 0.725 },
     { k: '__fin_13th__', label: '13th + vacation factor (× December salary)', def: 1.3333 },
@@ -2558,28 +2559,46 @@
       }
       // ---- Federal tax sobre MARGEM nas linhas de giro/repasse, não sobre o valor cheio ----
       // Vehicle Sell: tributa (venda − compra), já que os dois acontecem no mesmo mês da placa.
-      // Security Deposit Refund: tributa só o juro (devolução − principal pago na entrada).
       // Traffic fines: tributa só o spread (recebido do cliente − pago à LM).
+      // Subscription a partir de 2027 (nova legislação da bitributação na sublocação): tributa só a
+      // diferença entre o que o motorista paga e o que pagamos à locadora (Subscription − Subrental
+      // fee). Até 2026 a assinatura continua tributada cheia, como hoje.
+      // Security Deposit Refund: o juro do caução é RENDIMENTO FINANCEIRO — sai da base geral e
+      // paga alíquota própria (4,65% por padrão, editável no ⚙ Assumptions), sem gerar crédito.
       // Mês com margem negativa não gera imposto (trava em zero) — também não gera crédito.
-      const taxBase = zeros();
+      const netSubLaw = finYear >= 2027;
+      const taxBase = zeros(), finIncome = zeros();
       for (let m = 0; m < FIN_MONTHS; m++) {
         const sell = (rev['Vehicle Sell'] && rev['Vehicle Sell'][m]) || 0;
         const ref = (rev['Security Deposit Refund'] && rev['Security Deposit Refund'][m]) || 0;
         const fin = (rev['Traffic fines'] && rev['Traffic fines'][m]) || 0;
         const finOut = (cogs['Traffic fines (out)'] && cogs['Traffic fines (out)'][m]) || 0; // negativo
+        const sub = (rev['Subscription'] && rev['Subscription'][m]) || 0;
+        const subr = (cogs['Subrental fee'] && cogs['Subrental fee'][m]) || 0; // negativo
+        finIncome[m] = Math.max(0, ref - refundPrin[m]); // juro do caução (devolução − principal)
         taxBase[m] = grossRev[m]
           - sell + Math.max(0, sell + (vehPur[m] || 0))
-          - ref + Math.max(0, ref - refundPrin[m])
-          - fin + Math.max(0, fin + finOut);
+          - ref
+          - fin + Math.max(0, fin + finOut)
+          + (netSubLaw ? -sub + Math.max(0, sub + subr) : 0);
       }
       // o CRÉDITO segue a MESMA base do imposto: crédito sobre a receita cheia com o federal na
       // margem fazia "Taxes on sales" virar POSITIVO nos meses de venda de veículo (crédito de
       // ~R$66k/carro sobre uma margem de ~R$2k) — imposto não pode ser fonte de receita.
-      const fed = taxBase.map((v) => -Math.max(0, v) * taxFed), cred = taxBase.map((v) => Math.max(0, v) * taxCred);
+      const taxFin = finPar('__fin_tax_fin__') / 100;
+      const fed = taxBase.map((v, m) => -Math.max(0, v) * taxFed - finIncome[m] * taxFin);
+      const cred = taxBase.map((v) => Math.max(0, v) * taxCred);
       const taxes = grossRev.map((_, m) => fed[m] + cred[m]);
       const netRev = grossRev.map((v, m) => v + taxes[m]);
       const payProc = grossRev.map((v, m) => -v * payFeeM(m));
       const gm = netRev.map((v, m) => v + cogsTot[m] + payProc[m]);
+      // Receita do NEGÓCIO PRINCIPAL (aluguel): base do % da Gross Margin. Venda do carro, bônus
+      // InDrive e devolução do caução são eventos com margem própria (≈0 no caso da venda) — dentro
+      // da base eles só diluíam o percentual e escondiam a saúde da operação recorrente.
+      const coreRev = netRev.map((v, m) => v
+        - ((rev['Vehicle Sell'] && rev['Vehicle Sell'][m]) || 0)
+        - ((rev['InDrive bonus'] && rev['InDrive bonus'][m]) || 0)
+        - ((rev['Security Deposit Refund'] && rev['Security Deposit Refund'][m]) || 0));
       // ---- OPEX: HC payroll + Admin + CAC + security deposit (todos negativos) ----
       const th13f = finPar('__fin_13th__');
       const hcOf = (r, m) => ((finHc.plan && finHc.plan[r.id]) ? Number(finHc.plan[r.id][m]) || 0 : 0);
@@ -2622,7 +2641,7 @@
       // headcount total por mês (p/ o bloco de indicadores)
       const headcount = zeros(); for (let m = 0; m < FIN_MONTHS; m++) (finHc.roles || []).forEach((r) => { headcount[m] += hcOf(r, m); });
       const payFeePct = new Array(FIN_MONTHS).fill(0).map((_, m) => finParM('__fin_payfee__', m));
-      return { delivered, active, rev, cogs, secDep, grossRev, fed, cred, taxes, netRev, cogsTot, payProc, gm,
+      return { delivered, active, rev, cogs, secDep, grossRev, fed, cred, taxes, netRev, coreRev, cogsTot, payProc, gm,
         base, meal, health, ptax, th13, bonus, hcTot, commission, adsTot, infTot, cacTot, rentTot, profTot, itTot, sga, opex, netCf, accCf, newDelivered, headcount, payFeePct, actualsThrough, vehPur, indriveTot, carryIn, recovered };
     }
 
@@ -2660,7 +2679,10 @@
         if (actThru < 0) return arr.map(() => 0);
         return arr.map((v, m) => (m <= actThru ? v : (isAcc ? arr[actThru] : 0)));
       };
-      const gmPct = P.grossRev.map((v, m) => (v ? (P.gm[m] / v) * 100 : null));
+      // % da margem sobre a receita do NEGÓCIO PRINCIPAL (sem venda de carro, InDrive e refund do
+      // caução) — versões congeladas antigas não têm coreRev e caem na receita bruta de antes
+      const gmBase = P.coreRev || P.grossRev;
+      const gmPct = gmBase.map((v, m) => (v ? (P.gm[m] / v) * 100 : null));
       // árvore de linhas (grupos colapsáveis) — #1
       const N = [];
       const push = (label, arr, cls, o) => N.push(Object.assign({ label, arr: cut(arr, !!(o && o.isAcc)), cls: cls || 'ue-leaf', ancestors: [] }, o || {}));
@@ -2677,7 +2699,7 @@
       push('Sub-rental security deposit', P.secDep, 'pnl-l3', { ancestors: ['cogs'] });
       push('Vehicle Purchase', P.vehPur || [], 'pnl-l3', { ancestors: ['cogs'] });
       push('Payment processing', P.payProc, 'pnl-l2');
-      push('Gross Margin', P.gm, 'pnl-l1', { pct: gmPct, pctTot: sum(P.grossRev) ? (sum(P.gm) / sum(P.grossRev)) * 100 : null });
+      push('Gross Margin', P.gm, 'pnl-l1', { pct: gmPct, pctTot: sum(gmBase) ? (sum(P.gm) / sum(gmBase)) * 100 : null });
       push('OPEX', P.opex, 'pnl-l2', { group: 'opex' });
       push('CAC', P.cacTot, 'pnl-l3', { group: 'cac', ancestors: ['opex'] });
       push('Sales commission', P.commission, 'pnl-l3', { ancestors: ['opex', 'cac'] });
@@ -2694,8 +2716,8 @@
       push('Rent & Utilities', P.rentTot, 'pnl-l3', { ancestors: ['opex', 'sga'] });
       push('Professional Services', P.profTot, 'pnl-l3', { ancestors: ['opex', 'sga'] });
       push('IT', P.itTot, 'pnl-l3', { ancestors: ['opex', 'sga'] });
-      push('Net cashflow', P.netCf, 'pnl-l1');
-      push('Acc. Net cashflow', P.accCf, 'pnl-l1 pnl-acc', { isAcc: true });
+      push('Net cashflow', P.netCf, 'pnl-l1', { signColor: true });
+      push('Acc. Net cashflow', P.accCf, 'pnl-l1 pnl-acc', { isAcc: true, signColor: true });
 
       // faixa de frota acima dos meses: carros ativos e quantos chegaram no mês
       let html = '<thead><tr class="pnl-fleetrow"><th class="ue-rowlabel">Fleet</th>';
@@ -2723,9 +2745,11 @@
         tr += `<td class="ue-rowlabel" style="padding-left:${pad}px">${chev}${escH(n.label)}</td>`;
         // #2: o % vai como um número pequeno em cinza SOB o valor (sem linha própria)
         const sub = (v) => (n.pct && v != null) ? `<span class="pnl-sub">${Math.round(v)}%</span>` : '';
-        for (let m = 0; m < FIN_MONTHS; m++) tr += `<td class="ue-cell">${n.isQty ? fmtQty(n.arr[m]) : fmtC(n.arr[m])}${sub(n.pct ? n.pct[m] : null)}</td>`;
+        // cashflow: verde/vermelho suave conforme o sinal, para a linha "contar a história" de longe
+        const sgn = (v) => (n.signColor && v != null && Math.round(v * curK) !== 0) ? (v < 0 ? ' pnl-neg' : ' pnl-pos') : '';
+        for (let m = 0; m < FIN_MONTHS; m++) tr += `<td class="ue-cell${sgn(n.arr[m])}">${n.isQty ? fmtQty(n.arr[m]) : fmtC(n.arr[m])}${sub(n.pct ? n.pct[m] : null)}</td>`;
         const tot = (n.isQty || n.isAcc) ? n.arr[FIN_MONTHS - 1] : sum(n.arr);
-        tr += `<td class="ue-cell ue-totalcol">${n.isQty ? fmtQty(tot) : fmtC(tot)}${sub(n.pctTot)}</td>`;
+        tr += `<td class="ue-cell ue-totalcol${sgn(tot)}">${n.isQty ? fmtQty(tot) : fmtC(tot)}${sub(n.pctTot)}</td>`;
         html += tr + '</tr>';
       });
       html += '</tbody>';
@@ -3143,7 +3167,7 @@
       const arpu = opMonths.length ? opMonths.reduce((s, m) => s + (P.grossRev[m] / P.active[m]), 0) / opMonths.length : 0;
       const totDeliv = (P.delivered || [])[FIN_MONTHS - 1] || 0;
       const cacUnit = totDeliv ? (-sum(P.cacTot)) / totDeliv : 0;
-      const gmFY = sum(P.grossRev) ? (sum(P.gm) / sum(P.grossRev)) * 100 : 0;
+      const gmFY = sum(P.coreRev || P.grossRev) ? (sum(P.gm) / sum(P.coreRev || P.grossRev)) * 100 : 0;
       const opexPct = sum(P.grossRev) ? (-sum(P.opex) / sum(P.grossRev)) * 100 : 0;
       return { beIdx, pbIdx: pnlPayback(P), peak, peakM, arpu, cacUnit, gmFY, opexPct, netFY: sum(P.netCf), eoy: (P.accCf || [])[FIN_MONTHS - 1] || 0, totDeliv, hcDec: (P.headcount || [])[FIN_MONTHS - 1] || 0 };
     }
@@ -3238,7 +3262,7 @@
           return row('+1 car today', money(mg.delta), MARG_MODEL + ' → EoY cash', mg.delta >= 0 ? 'good' : 'warn');
         })() +
         row('CAC', money(K.cacUnit), K.totDeliv + ' cars (FY)') +
-        row('Gross margin', Math.round(K.gmFY) + '%', 'over gross revenue', K.gmFY >= 0 ? 'good' : 'warn') +
+        row('Gross margin', Math.round(K.gmFY) + '%', 'over rental revenue (ex. car sale / InDrive / deposit refund)', K.gmFY >= 0 ? 'good' : 'warn') +
       '</div></div>';
       ex.innerHTML = h;
       // ---- simulador de frota: fica logo ABAIXO da tabela (container próprio) ----
@@ -4010,7 +4034,7 @@
       const st = document.getElementById('dashHeroStats');
       if (combo) {
         setTxt('dashHeroSub', 'how the three blocks move together and what is left as cash · actual through ' + (curM >= 0 ? monthLbl(curM) : '—'));
-        const gmPct = sum(PA.grossRev) ? (sum(PA.gm) / sum(PA.grossRev)) * 100 : 0;
+        const gmPct = sum(PA.coreRev || PA.grossRev) ? (sum(PA.gm) / sum(PA.coreRev || PA.grossRev)) * 100 : 0;
         if (st) st.innerHTML =
           '<div class="dash-stat"><span>Revenue (FY)</span><b>' + finCS() + ' ' + fmtQty(sum(PA.grossRev)) + '</b></div>' +
           '<div class="dash-stat"><span>COGS (FY)</span><b>' + finCS() + ' ' + fmtQty(-sum(PA.cogsTot)) + '</b></div>' +

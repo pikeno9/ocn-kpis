@@ -291,6 +291,14 @@ app.post('/api/theoric/models', requireGiga, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ---------- Finance: anos suportados ----------
+// Fleet Plan / SG&A / CAC / Headcount viraram multi-ano: cada documento guardado é
+// { "2026": {...}, "2027": {...} } em vez de um objeto único. `FIN_ISO` valida datas
+// de coorte contra os dois anos (antes só aceitava 2026 — uma coorte de 2027 salva
+// caía silenciosamente em '2026-01-01').
+const FIN_BASE_YEAR = 2026;
+const FIN_YEARS = [FIN_BASE_YEAR, FIN_BASE_YEAR + 1];
+
 // ---------- Finance: plano de frota (coortes dinâmicas) ----------
 // Cada coorte = um lote: { id, model (id do modelo do Theoric), month (0..11 de 2026),
 // week (1..5 = semana do mês do recebimento — entra pro-rata), qty }.
@@ -309,7 +317,8 @@ const FIN_COHORT_SEED = [
   { id: 'F21', model: 'Polo', date: '2026-11-17', qty: 47 }, { id: 'F22', model: 'Polo', date: '2026-11-24', qty: 50 },
   { id: 'F23', model: 'Polo', date: '2026-12-01', qty: 51 },
 ];
-const FIN_ISO = (s) => (/^2026-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(String(s)) ? String(s) : null);
+const FIN_ISO_RE = new RegExp('^(' + FIN_YEARS.join('|') + ')-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$');
+const FIN_ISO = (s) => (FIN_ISO_RE.test(String(s)) ? String(s) : null);
 app.get('/api/finance/cohorts', requireGiga, async (req, res) => {
   try { const c = await store.getDoc('fin_cohorts'); res.json({ cohorts: (Array.isArray(c) && c.length) ? c : FIN_COHORT_SEED }); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -329,18 +338,11 @@ app.post('/api/finance/cohorts', requireGiga, async (req, res) => {
 
 // ---------- Finance: headcount (cargos + plano mensal) ----------
 // { roles: [{id,name,salary,meal,health,taxPct,bonus}], plan: { roleId: [12 números] } }
+// Documento guardado: { "2026": {roles,people,plan}, "2027": {...} } — cada ano é
+// independente (mesma pessoa em 2027 precisa ser recadastrada; não há "role" global).
 const FIN_SEED = require('./config/finance-seed');
-app.get('/api/finance/hc', requireGiga, async (req, res) => {
-  try {
-    const d = await store.getDoc('fin_hc');
-    // Serve the seed unless we have saved data from the current version (carrying the per-employee `people` list).
-    const isCurrent = d && Array.isArray(d.roles) && d.roles.length && Array.isArray(d.people);
-    res.json({ hc: isCurrent ? d : FIN_SEED.HC });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-app.post('/api/finance/hc', requireGiga, async (req, res) => {
-  const b = (req.body && req.body.hc) || null;
-  if (!b || !Array.isArray(b.roles)) return res.status(400).json({ error: 'hc.roles deve ser uma lista' });
+function sanitizeHc(b) {
+  if (!b || !Array.isArray(b.roles)) return null;
   const num = (v) => Math.max(0, Number(v) || 0);
   const roles = b.roles.slice(0, 100).map((r, i) => ({
     id: String(r.id || ('r' + i)).slice(0, 40),
@@ -360,12 +362,41 @@ app.post('/api/finance/hc', requireGiga, async (req, res) => {
   const plan = {};
   roles.forEach((r) => { plan[r.id] = new Array(12).fill(0); });
   people.forEach((p) => { if (!plan[p.roleId]) plan[p.roleId] = new Array(12).fill(0); for (let m = 0; m < 12; m++) plan[p.roleId][m] += p.active[m]; });
-  try { await store.setDoc('fin_hc', { roles, people, plan }, req.user.login); res.json({ ok: true, hc: { roles, people, plan } }); }
+  return { roles, people, plan };
+}
+// lê um doc multi-ano do store; migra o formato antigo (objeto único = ano-base) na primeira leitura
+async function readFinYears(key, isValidYearShape, seedForBase) {
+  const d = await store.getDoc(key);
+  const out = {};
+  if (d && FIN_YEARS.some((y) => d[y] && isValidYearShape(d[y]))) {
+    FIN_YEARS.forEach((y) => { if (d[y] && isValidYearShape(d[y])) out[y] = d[y]; });
+  } else if (d && isValidYearShape(d)) {
+    out[FIN_BASE_YEAR] = d; // formato antigo (pré multi-ano): vira o ano-base
+  }
+  if (!out[FIN_BASE_YEAR]) out[FIN_BASE_YEAR] = seedForBase;
+  return out;
+}
+app.get('/api/finance/hc', requireGiga, async (req, res) => {
+  try { res.json({ hc: await readFinYears('fin_hc', (v) => Array.isArray(v.roles) && Array.isArray(v.people), FIN_SEED.HC) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/finance/hc', requireGiga, async (req, res) => {
+  const b = (req.body && req.body.hc) || null;
+  if (!b || typeof b !== 'object') return res.status(400).json({ error: 'hc obrigatório' });
+  try {
+    const stored = await store.getDoc('fin_hc');
+    const out = (stored && FIN_YEARS.some((y) => stored[y])) ? { ...stored } : (stored && Array.isArray(stored.roles) ? { [FIN_BASE_YEAR]: stored } : {});
+    let any = false;
+    FIN_YEARS.forEach((y) => { const clean = sanitizeHc(b[y]); if (clean) { out[y] = clean; any = true; } });
+    if (!any) return res.status(400).json({ error: 'nenhum ano válido em hc' });
+    await store.setDoc('fin_hc', out, req.user.login);
+    res.json({ ok: true, hc: out });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ---------- Finance: SG&A (Rent & Utilities / Professional Services / IT, itens × 12 meses) ----------
 // { rent: [{label, v:[12]}], prof: [...], it: [...] } — valores positivos (entram negativos no P&L)
+// Documento guardado: { "2026": {rent,prof,it}, "2027": {...} }
 function cleanItems(list, max) {
   if (!Array.isArray(list)) return [];
   return list.slice(0, max || 60).map((it) => ({
@@ -373,28 +404,34 @@ function cleanItems(list, max) {
     v: Array.from({ length: 12 }, (_, i) => Math.max(0, Number((it.v || [])[i]) || 0)),
   })).filter((it) => it.label);
 }
+function sanitizeSga(b) {
+  if (!b) return null;
+  return { rent: cleanItems(b.rent), prof: cleanItems(b.prof), it: cleanItems(b.it) };
+}
 app.get('/api/finance/sga', requireGiga, async (req, res) => {
-  try { const d = await store.getDoc('fin_sga'); res.json({ sga: (d && Array.isArray(d.rent)) ? d : FIN_SEED.SGA }); }
+  try { res.json({ sga: await readFinYears('fin_sga', (v) => Array.isArray(v.rent), FIN_SEED.SGA) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/finance/sga', requireGiga, async (req, res) => {
   const b = (req.body && req.body.sga) || null;
-  if (!b) return res.status(400).json({ error: 'sga obrigatório' });
-  const sga = { rent: cleanItems(b.rent), prof: cleanItems(b.prof), it: cleanItems(b.it) };
-  try { await store.setDoc('fin_sga', sga, req.user.login); res.json({ ok: true, sga }); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+  if (!b || typeof b !== 'object') return res.status(400).json({ error: 'sga obrigatório' });
+  try {
+    const stored = await store.getDoc('fin_sga');
+    const out = (stored && FIN_YEARS.some((y) => stored[y])) ? { ...stored } : (stored && Array.isArray(stored.rent) ? { [FIN_BASE_YEAR]: stored } : {});
+    let any = false;
+    FIN_YEARS.forEach((y) => { const clean = sanitizeSga(b[y]); if (clean) { out[y] = clean; any = true; } });
+    if (!any) return res.status(400).json({ error: 'nenhum ano válido em sga' });
+    await store.setDoc('fin_sga', out, req.user.login);
+    res.json({ ok: true, sga: out });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ---------- Finance: CAC (comissão por carro entregue, Ads, influenciadores) ----------
 // { perUnit: USD/carro, ads: [{label, v:[12]}], inf: [{label, price, profiles:[12]}] }
-app.get('/api/finance/cac', requireGiga, async (req, res) => {
-  try { const d = await store.getDoc('fin_cac'); res.json({ cac: (d && d.ads) ? d : FIN_SEED.CAC }); }
-  catch (e) { res.status(500).json({ error: e.message }); }
-});
-app.post('/api/finance/cac', requireGiga, async (req, res) => {
-  const b = (req.body && req.body.cac) || null;
-  if (!b) return res.status(400).json({ error: 'cac obrigatório' });
-  const cac = {
+// Documento guardado: { "2026": {perUnit,recPerUnit,ads,inf}, "2027": {...} }
+function sanitizeCac(b) {
+  if (!b) return null;
+  return {
     perUnit: Math.max(0, Number(b.perUnit) || 0),
     recPerUnit: Math.max(0, Number(b.recPerUnit) || 0), // comissão de reentrega (carro recuperado)
     ads: cleanItems(b.ads),
@@ -404,8 +441,23 @@ app.post('/api/finance/cac', requireGiga, async (req, res) => {
       profiles: Array.from({ length: 12 }, (_, i) => Math.max(0, Number((t.profiles || [])[i]) || 0)),
     })).filter((t) => t.label),
   };
-  try { await store.setDoc('fin_cac', cac, req.user.login); res.json({ ok: true, cac }); }
+}
+app.get('/api/finance/cac', requireGiga, async (req, res) => {
+  try { res.json({ cac: await readFinYears('fin_cac', (v) => Array.isArray(v.ads), FIN_SEED.CAC) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/finance/cac', requireGiga, async (req, res) => {
+  const b = (req.body && req.body.cac) || null;
+  if (!b || typeof b !== 'object') return res.status(400).json({ error: 'cac obrigatório' });
+  try {
+    const stored = await store.getDoc('fin_cac');
+    const out = (stored && FIN_YEARS.some((y) => stored[y])) ? { ...stored } : (stored && Array.isArray(stored.ads) ? { [FIN_BASE_YEAR]: stored } : {});
+    let any = false;
+    FIN_YEARS.forEach((y) => { const clean = sanitizeCac(b[y]); if (clean) { out[y] = clean; any = true; } });
+    if (!any) return res.status(400).json({ error: 'nenhum ano válido em cac' });
+    await store.setDoc('fin_cac', out, req.user.login);
+    res.json({ ok: true, cac: out });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ---------- InDrive: levas de benefício por placa (entra no Initial Fee do UE) ----------

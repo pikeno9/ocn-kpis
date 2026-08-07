@@ -2031,7 +2031,16 @@
   // e Vehicle Purchase NÃO entram no COGS (ficam em OPEX/capex).
   let finReady = false, finCohorts = [], finModels = [], finModelVals = {}, finCfg = {};
   let realFleetParams = {}, cfgReal = {}, refProfiles = null; // caixinhas reais por frota + perfis de referência
-  let finHc = { roles: [], people: [], plan: {} }, finSga = { rent: [], prof: [], it: [] }, finCac = { perUnit: 0, ads: [], inf: [] };
+  // Headcount / SG&A / CAC agora têm um jogo de dados POR ANO (finXxxByYear). `finHc`/`finSga`/`finCac`
+  // continuam sendo o objeto de sempre — todo o código que já lê `finHc.roles`, `finSga.rent` etc.
+  // funciona sem mudar nada — mas passam a ser só um PONTEIRO para `finXxxByYear[finYear]`, trocado
+  // por `setFinYear()`/`withYear()` sempre que o ano muda. Sem isso, 2027 usava silenciosamente os
+  // mesmos custos/comissões de 2026 (não havia como digitar números diferentes para o ano seguinte).
+  const emptyHc = () => ({ roles: [], people: [], plan: {} });
+  const emptySga = () => ({ rent: [], prof: [], it: [] });
+  const emptyCac = () => ({ perUnit: 0, recPerUnit: 0, ads: [], inf: [] });
+  let finHcByYear = {}, finSgaByYear = {}, finCacByYear = {};
+  let finHc = emptyHc(), finSga = emptySga(), finCac = emptyCac();
   let finEdit = false; // "Edit mode" do Finance (compartilhado por todas as abas) — começa somente leitura
   let sgaTab = 'hc', cacTab = 'comm'; // abas de 3º nível dentro de SG&A e CAC & Marketing
   let pnlNoSd = false; // P&L: excluir o sub-rental security deposit da visão
@@ -2069,6 +2078,42 @@
     // abas de 3º nível (uma por linha de despesa) dentro de SG&A e CAC & Marketing
     document.querySelectorAll('#sgaTabs .sub3-tab').forEach((b) => b.addEventListener('click', () => { sgaTab = b.dataset.t3; renderAdmin(); }));
     document.querySelectorAll('#cacTabs .sub3-tab').forEach((b) => b.addEventListener('click', () => { cacTab = b.dataset.t3; renderCac(); }));
+    // Roda `fn` como se o ano exibido fosse `y` — troca finYear E os dados de HC/SG&A/CAC daquele
+    // ano, chama fn, desfaz tudo no finally. Usado sempre que o motor precisa olhar OUTRO ano sem
+    // sair da tela atual (o carry-in do caixa, o solver de breakeven, o Dashboard "2026+27").
+    // Sem trocar também finHc/finSga/finCac, essas chamadas recalculavam o ano vizinho com os custos
+    // do ano CORRENTE — um bug que só existiria depois que o ano virou multi-dado (este commit).
+    function withYear(y, fn) {
+      const kY = finYear, kHc = finHc, kSga = finSga, kCac = finCac;
+      finYear = y;
+      finHc = finHcByYear[y] || (finHcByYear[y] = emptyHc());
+      finSga = finSgaByYear[y] || (finSgaByYear[y] = emptySga());
+      finCac = finCacByYear[y] || (finCacByYear[y] = emptyCac());
+      try { return fn(); } finally { finYear = kY; finHc = kHc; finSga = kSga; finCac = kCac; }
+    }
+    // Troca PERSISTENTE do ano exibido (o clique no botão 2026/2027) — ao contrário de withYear,
+    // não desfaz no final: o resto da tela passa a operar sobre o ano novo até o próximo clique.
+    // Repinta TUDO que depende de ano — inclusive Fleet Plan/Headcount/SG&A/CAC, que antes eram
+    // os mesmos 12 números para os dois anos e não precisavam disso.
+    function setFinYear(y) {
+      if (finYear === y) return;
+      finYear = y;
+      finHc = finHcByYear[y] || (finHcByYear[y] = emptyHc());
+      finSga = finSgaByYear[y] || (finSgaByYear[y] = emptySga());
+      finCac = finCacByYear[y] || (finCacByYear[y] = emptyCac());
+      finSelDay = null;
+      finActCache = {};
+      refProfiles = buildProfiles();
+      hcEnsurePeople(); hcSyncPlan();
+      renderFleetPlan(); renderHc(); renderAdmin(); renderCac(); renderPnl(); renderDash();
+    }
+    // seletor de ano — mesmo visual do P&L, reaproveitado no cabeçalho de Fleet Plan/SG&A/CAC
+    function renderFinYearSwitcher(elId) {
+      const el = document.getElementById(elId); if (!el) return;
+      el.innerHTML = '<div class="pnl-years">' + [FIN_BASE_YEAR, FIN_BASE_YEAR + 1].map((y) =>
+        `<button class="pnl-yr${finYear === y ? ' on' : ''}" data-y="${y}">${y}</button>`).join('') + '</div>';
+      el.querySelectorAll('.pnl-yr').forEach((b) => b.addEventListener('click', () => setFinYear(+b.dataset.y)));
+    }
     const escH = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
     const fmtNum = (v) => Math.abs(v).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
     const fmt = (v) => (v == null) ? '' : (Math.round(v) === 0 ? '-' : (v < 0 ? '(' + fmtNum(v) + ')' : fmtNum(v)));
@@ -2105,7 +2150,7 @@
     function totalsTable(rows, firstCol) {
       let h = `<div class="ue-table-wrap"><table class="ue-table fin-grid fin-totals"><thead><tr><th class="ue-rowlabel">${escH(firstCol || 'Cost line')}</th>`;
       for (let m = 0; m < FIN_MONTHS; m++) h += `<th>${monthLbl(m)}</th>`;
-      h += '<th class="ue-totalcol">FY-26E</th></tr></thead><tbody>';
+      h += `<th class="ue-totalcol">FY-${String(finYear).slice(2)}E</th></tr></thead><tbody>`;
       const K = finCurK();   // moeda de exibição — os arrays chegam sempre em USD
       const tot = new Array(FIN_MONTHS).fill(0);
       rows.forEach((r) => {
@@ -2568,11 +2613,7 @@
       // O ano-base (2026) começa em zero; os seguintes herdam o fechamento do anterior
       // (recursivo, e a recursão para sozinha ao chegar no ano-base).
       let carryIn = 0;
-      if (finYear > FIN_BASE_YEAR) {
-        const anoAtual = finYear;
-        try { finYear = anoAtual - 1; carryIn = (computePnl(opts).accCf || [])[FIN_MONTHS - 1] || 0; }
-        finally { finYear = anoAtual; }
-      }
+      if (finYear > FIN_BASE_YEAR) carryIn = withYear(finYear - 1, () => (computePnl(opts).accCf || [])[FIN_MONTHS - 1] || 0);
       const accCf = []; let a1 = carryIn; netCf.forEach((v) => { a1 += v; accCf.push(a1); });
       // headcount total por mês (p/ o bloco de indicadores)
       const headcount = zeros(); for (let m = 0; m < FIN_MONTHS; m++) (finHc.roles || []).forEach((r) => { headcount[m] += hcOf(r, m); });
@@ -2737,14 +2778,16 @@
     let scenActive = null;   // cenário selecionado (objeto) ou null quando estamos no Live
     let finLiveSnap = null;  // cópia das entradas do Live, guardada enquanto um cenário está ativo
     const clone = (o) => JSON.parse(JSON.stringify(o == null ? null : o));
-    const finInputs = () => ({ cfg: clone(finCfg), sga: clone(finSga), cac: clone(finCac), cohorts: clone(finCohorts), hc: clone(finHc) });
+    // `sga`/`cac`/`hc` no snapshot do cenário são os dicionários POR ANO inteiros — um cenário
+    // vale para os dois anos ao mesmo tempo, cada um com a própria máscara.
+    const finInputs = () => ({ cfg: clone(finCfg), sga: clone(finSgaByYear), cac: clone(finCacByYear), cohorts: clone(finCohorts), hc: clone(finHcByYear) });
     function setFinInputs(d) {
       if (!d) return;
       if (d.cfg) finCfg = clone(d.cfg);
-      if (d.sga) finSga = clone(d.sga);
-      if (d.cac) finCac = clone(d.cac);
+      if (d.sga) { finSgaByYear = clone(d.sga); finSga = finSgaByYear[finYear] || (finSgaByYear[finYear] = emptySga()); }
+      if (d.cac) { finCacByYear = clone(d.cac); finCac = finCacByYear[finYear] || (finCacByYear[finYear] = emptyCac()); }
       if (d.cohorts) finCohorts = clone(d.cohorts);
-      if (d.hc) finHc = clone(d.hc);
+      if (d.hc) { finHcByYear = clone(d.hc); finHc = finHcByYear[finYear] || (finHcByYear[finYear] = emptyHc()); }
     }
     // troca de versão: entra/sai do cenário trocando as entradas em memória
     function selectVersion(v) {
@@ -2872,9 +2915,7 @@
       if (live && pnlSimApply && pnlSimScale !== 100) h += `<span class="pnl-simchip">⚠ simulated · deliveries at ${pnlSimScale}%</span>`;
       h += '</div>';
       ctl.innerHTML = h;
-      ctl.querySelectorAll('.pnl-yr').forEach((b) => b.addEventListener('click', () => {
-        finYear = +b.dataset.y; finActCache = {}; refProfiles = buildProfiles(); renderPnl(); renderFleetPlan(); renderCac(); renderDash();
-      }));
+      ctl.querySelectorAll('.pnl-yr').forEach((b) => b.addEventListener('click', () => setFinYear(+b.dataset.y)));
       const ab = document.getElementById('pnlAssump'); if (ab) ab.addEventListener('click', openAssumpModal);
       const ib = document.getElementById('pnlInfo'); if (ib) ib.addEventListener('click', openPnlInfo);
       // bandeirinhas: o data-c do CUR_FLAGS é BRL/USD, o mesmo vocabulário do estado
@@ -3058,9 +3099,8 @@
     // caixa acumulado no fim do ano SEGUINTE — recalcula com as mesmas opções
     function nextYearEoy(baseOpts) {
       if (!baseOpts || finYear >= FIN_BASE_YEAR + 1) return null;
-      const keep = finYear;
-      try { finYear = keep + 1; return (computePnl(baseOpts).accCf || [])[FIN_MONTHS - 1] || 0; }
-      catch (e) { return null; } finally { finYear = keep; }
+      try { return withYear(finYear + 1, () => (computePnl(baseOpts).accCf || [])[FIN_MONTHS - 1] || 0); }
+      catch (e) { return null; }
     }
     function pnlBreakevenAhead(P, baseOpts) {
       const here = pnlBreakeven(P);
@@ -3068,14 +3108,15 @@
       if (!baseOpts || finYear >= FIN_BASE_YEAR + 1) return null;
       const keep = finYear;
       try {
-        finYear = keep + 1;
-        const nx = computePnl(baseOpts);
-        // sequência a cavalo na virada: dezembro deste ano + janeiro do seguinte
-        const cfHere = P.netCf || [], cfNext = nx.netCf || [];
-        if ((cfHere[FIN_MONTHS - 1] || 0) > 0 && (cfNext[0] || 0) > 0) return { year: keep, m: FIN_MONTHS - 1, cross: true };
-        const m = pnlBreakeven(nx);
-        return m == null ? null : { year: keep + 1, m, eoy: (nx.accCf || [])[FIN_MONTHS - 1] || 0 };
-      } catch (e) { return null; } finally { finYear = keep; }
+        return withYear(keep + 1, () => {
+          const nx = computePnl(baseOpts);
+          // sequência a cavalo na virada: dezembro deste ano + janeiro do seguinte
+          const cfHere = P.netCf || [], cfNext = nx.netCf || [];
+          if ((cfHere[FIN_MONTHS - 1] || 0) > 0 && (cfNext[0] || 0) > 0) return { year: keep, m: FIN_MONTHS - 1, cross: true };
+          const m = pnlBreakeven(nx);
+          return m == null ? null : { year: keep + 1, m, eoy: (nx.accCf || [])[FIN_MONTHS - 1] || 0 };
+        });
+      } catch (e) { return null; }
     }
     function pnlKpis(P) {
       const sum = (a) => (a || []).reduce((s, x) => s + (x || 0), 0);
@@ -3310,6 +3351,7 @@
     const FIN_MN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     function renderFleetPlan() {
       const el = document.getElementById('fleetPlanWrap'); if (!el) return;
+      renderFinYearSwitcher('fleetPlanYear');
       const byDay = {}; // ISO -> { model: qty }
       finCohorts.forEach((c) => { const d = c.date || (finYear + '-01-01'); (byDay[d] = byDay[d] || {})[c.model] = ((byDay[d][c.model]) || 0) + c.qty; });
       const dayTot = (d) => Object.values(byDay[d] || {}).reduce((s, x) => s + x, 0);
@@ -3347,7 +3389,7 @@
       let evo = '<div class="sub2-title" style="margin-top:18px">Fleet evolution</div>';
       evo += '<div class="ue-table-wrap"><table class="ue-table fin-grid fin-totals"><thead><tr><th class="ue-rowlabel">Fleet</th>';
       for (let m = 0; m < FIN_MONTHS; m++) evo += `<th>${monthLbl(m)}</th>`;
-      evo += '<th class="ue-totalcol">FY-26E</th></tr></thead><tbody>';
+      evo += `<th class="ue-totalcol">FY-${String(finYear).slice(2)}E</th></tr></thead><tbody>`;
       const evoRow = (label, arr, isStock, cls) => {
         let s = `<tr class="ue-row${cls ? ' ' + cls : ''}"><td class="ue-rowlabel">${escH(label)}</td>`;
         for (let m = 0; m < FIN_MONTHS; m++) s += `<td class="ue-cell">${fmtQty(arr[m])}</td>`;
@@ -3409,7 +3451,12 @@
     async function saveHc() {
       if (scenActive) { persistScen(); return; }
       hcSyncPlan();
-      try { const r = await fetch('/api/finance/hc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ hc: finHc }) }); const d = await r.json().catch(() => ({})); if (d && d.hc) finHc = d.hc; } catch (e) {}
+      // manda só o ano ativo — o servidor mantém o outro ano como já estava guardado
+      try {
+        const r = await fetch('/api/finance/hc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ hc: { [finYear]: finHc } }) });
+        const d = await r.json().catch(() => ({}));
+        if (d && d.hc) { finHcByYear = d.hc; finHc = finHcByYear[finYear] || (finHcByYear[finYear] = emptyHc()); }
+      } catch (e) {}
       renderHc(); renderAdmin(); renderPnl();   // renderAdmin: atualiza o totalizador de SG&A
     }
     // HC model: `people` (1 row per employee, active timeline of 0 / 0.5 / 1) is the source of truth;
@@ -3556,7 +3603,7 @@
       if (opts.priceCol) h += '<th class="fin-pricecol">Price/mo</th>';
       for (let m = 0; m < FIN_MONTHS; m++) h += `<th>${monthLbl(m)}</th>`;
       // a coluna de ação só existe em modo de edição — senão sobra uma coluna vazia na ponta
-      h += '<th class="ue-totalcol">FY-26E</th>' + (canEdit ? '<th class="fin-actcol"></th>' : '') + '</tr></thead><tbody>';
+      h += `<th class="ue-totalcol">FY-${String(finYear).slice(2)}E</th>` + (canEdit ? '<th class="fin-actcol"></th>' : '') + '</tr></thead><tbody>';
       items.forEach((it, i) => {
         let tot = 0;
         const vals = opts.priceCol ? it.profiles : it.v;
@@ -3597,7 +3644,11 @@
     // ---------- SG&A – Admin: Rent & Utilities / Professional Services / IT (uma tabela cada) ----------
     async function saveSga() {
       if (scenActive) { persistScen(); return; }
-      try { const r = await fetch('/api/finance/sga', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ sga: finSga }) }); const d = await r.json().catch(() => ({})); if (d && d.sga) finSga = d.sga; } catch (e) {}
+      try {
+        const r = await fetch('/api/finance/sga', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ sga: { [finYear]: finSga } }) });
+        const d = await r.json().catch(() => ({}));
+        if (d && d.sga) { finSgaByYear = d.sga; finSga = finSgaByYear[finYear] || (finSgaByYear[finYear] = emptySga()); }
+      } catch (e) {}
       renderAdmin(); renderPnl();
     }
     // SG&A tem uma aba por linha de despesa: Headcount (payroll) + Rent & Utilities + Prof. Services + IT
@@ -3608,6 +3659,7 @@
     };
     function renderAdmin() {
       const el = document.getElementById('finAdminWrap'); if (!el) return;
+      renderFinYearSwitcher('sgaYear');
       // totalizador de SG&A (uma linha por despesa) acima das abas
       const tot = document.getElementById('sgaTotals');
       if (tot) tot.innerHTML = finCurFlags() + totalsTable([
@@ -3636,11 +3688,16 @@
     // ---------- CAC & Marketing: comissão (referenciada) + Ads + influenciadores ----------
     async function saveCac() {
       if (scenActive) { persistScen(); return; }
-      try { const r = await fetch('/api/finance/cac', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ cac: finCac }) }); const d = await r.json().catch(() => ({})); if (d && d.cac) finCac = d.cac; } catch (e) {}
+      try {
+        const r = await fetch('/api/finance/cac', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ cac: { [finYear]: finCac } }) });
+        const d = await r.json().catch(() => ({}));
+        if (d && d.cac) { finCacByYear = d.cac; finCac = finCacByYear[finYear] || (finCacByYear[finYear] = emptyCac()); }
+      } catch (e) {}
       renderCac(); renderPnl();
     }
     function renderCac() {
       const el = document.getElementById('finCacWrap'); if (!el) return;
+      renderFinYearSwitcher('cacYear');
       // comissão: valor por carro × entregas do mês (referenciado ao Fleet Plan, como no Excel)
       const newDelivered = new Array(FIN_MONTHS).fill(0);
       finCohorts.forEach((c) => { const cm = cohMonth(c) - FIN_YOFF(); if (cm >= 0 && cm < FIN_MONTHS) newDelivered[cm] += c.qty; });
@@ -3678,7 +3735,7 @@
         `<div class="fin-note" style="margin:6px 0 10px">USD per delivered vehicle: <input class="hc-f hc-n" id="cacPerUnit" type="number" min="0" step="any" value="${per}"${canEditNow() ? '' : ' disabled'}> × vehicles delivered in the month (from the Fleet Plan)</div>`;
       h += '<div class="ue-table-wrap"><table class="ue-table fin-grid"><thead><tr><th class="ue-rowlabel">Line</th>';
       for (let m = 0; m < FIN_MONTHS; m++) h += `<th>${monthLbl(m)}</th>`;
-      h += '<th class="ue-totalcol">FY-26E</th></tr></thead><tbody>';
+      h += `<th class="ue-totalcol">FY-${String(finYear).slice(2)}E</th></tr></thead><tbody>`;
       const rowH = (label, arr) => { let s = `<tr class="ue-row ue-leaf"><td class="ue-rowlabel">${label}</td>`; let t = 0; for (let m = 0; m < FIN_MONTHS; m++) { t += arr[m]; s += `<td class="ue-cell">${arr[m] ? fmtNum(arr[m]) : '-'}</td>`; } return s + `<td class="ue-cell ue-totalcol">${t ? fmtNum(t) : '-'}</td></tr>`; };
       const KC = finCurK();
       h += rowH('Vehicles delivered', newDelivered);
@@ -3838,8 +3895,9 @@
     }
     function renderDash() {
       if (!document.getElementById('dashLineCv')) return;
-      // span de anos: um ano só ou os dois emendados (24 colunas)
-      const anoDe = (y, fn) => { const keep = finYear; try { finYear = y; return fn(); } finally { finYear = keep; } };
+      // span de anos: um ano só ou os dois emendados (24 colunas) — mesma troca de finYear +
+      // dados do ano usada em toda a Finance (withYear), só com o nome local de sempre
+      const anoDe = withYear;
       const Y0 = FIN_BASE_YEAR, Y1 = FIN_BASE_YEAR + 1;
       const spanYear = dashSpan === 'y1' ? Y1 : Y0;
       let PA, PP, labels;
@@ -4167,11 +4225,25 @@
       const getVals = async (fleet) => { const o = {}; try { const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(fleet), { credentials: 'include' }); const d = await r.json(); (d.values || []).forEach((v) => { const lbl = v.line === 'Initial Fee / Vehicle Sell' ? 'Vehicle Sell' : v.line; if (o[lbl + '@@' + v.period] == null) o[lbl + '@@' + v.period] = v.value; }); } catch (e) {} return o; };
       try { const r = await fetch('/api/theoric/models', { credentials: 'include' }); const d = await r.json(); finModels = d.models || []; } catch (e) { finModels = []; }
       try { const r = await fetch('/api/finance/cohorts', { credentials: 'include' }); const d = await r.json(); finCohorts = d.cohorts || []; } catch (e) { finCohorts = []; }
-      try { const r = await fetch('/api/finance/hc', { credentials: 'include' }); const d = await r.json(); finHc = (d && d.hc) || { roles: [], people: [], plan: {} }; } catch (e) { finHc = { roles: [], people: [], plan: {} }; }
+      // HC/SG&A/CAC: um jogo de dados por ano. Se o ano seguinte nunca foi preenchido, ele nasce
+      // como uma CÓPIA do ano-base — ponto de partida mais útil do que zerado ou do que o seed do Excel
+      // (que é 2026-específico e não faz sentido como default de 2027).
+      const seedYear = (byYear, empty) => {
+        if (!byYear[FIN_BASE_YEAR]) byYear[FIN_BASE_YEAR] = empty();
+        if (!byYear[FIN_BASE_YEAR + 1]) byYear[FIN_BASE_YEAR + 1] = clone(byYear[FIN_BASE_YEAR]);
+        return byYear;
+      };
+      try { const r = await fetch('/api/finance/hc', { credentials: 'include' }); const d = await r.json(); finHcByYear = (d && d.hc) || {}; } catch (e) { finHcByYear = {}; }
+      seedYear(finHcByYear, emptyHc);
+      finHc = finHcByYear[finYear] || (finHcByYear[finYear] = emptyHc());
       hcEnsurePeople(); hcSyncPlan();
       finCfg = await getVals('__fin_cfg__');
-      try { const r = await fetch('/api/finance/sga', { credentials: 'include' }); const d = await r.json(); finSga = (d && d.sga) || finSga; } catch (e) {}
-      try { const r = await fetch('/api/finance/cac', { credentials: 'include' }); const d = await r.json(); finCac = (d && d.cac) || finCac; } catch (e) {}
+      try { const r = await fetch('/api/finance/sga', { credentials: 'include' }); const d = await r.json(); finSgaByYear = (d && d.sga) || {}; } catch (e) { finSgaByYear = {}; }
+      seedYear(finSgaByYear, emptySga);
+      finSga = finSgaByYear[finYear] || (finSgaByYear[finYear] = emptySga());
+      try { const r = await fetch('/api/finance/cac', { credentials: 'include' }); const d = await r.json(); finCacByYear = (d && d.cac) || {}; } catch (e) { finCacByYear = {}; }
+      seedYear(finCacByYear, emptyCac);
+      finCac = finCacByYear[finYear] || (finCacByYear[finYear] = emptyCac());
       for (const m of finModels) finModelVals[m.id] = await getVals('__theoric_' + m.id + '__');
       // caixinhas reais das frotas + config global do UE — base dos perfis de referência e dos realizados
       cfgReal = await getVals('__cfg__');

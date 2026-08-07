@@ -365,7 +365,7 @@ function sanitizeHc(b) {
   return { roles, people, plan };
 }
 // lê um doc multi-ano do store; migra o formato antigo (objeto único = ano-base) na primeira leitura
-async function readFinYears(key, isValidYearShape, seedForBase) {
+async function readFinYears(key, isValidYearShape, seedForBase, isEmptyYear) {
   const d = await store.getDoc(key);
   const out = {};
   if (d && FIN_YEARS.some((y) => d[y] && isValidYearShape(d[y]))) {
@@ -373,11 +373,23 @@ async function readFinYears(key, isValidYearShape, seedForBase) {
   } else if (d && isValidYearShape(d)) {
     out[FIN_BASE_YEAR] = d; // formato antigo (pré multi-ano): vira o ano-base
   }
-  if (!out[FIN_BASE_YEAR]) out[FIN_BASE_YEAR] = seedForBase;
+  // O ano-base cai no seed do Excel quando nunca foi preenchido — e também quando está VAZIO.
+  // Esse segundo caso conserta um estrago real: quando o doc ainda não existia (ano-base vindo do
+  // seed) e o primeiro save era do ano seguinte, gravava-se um doc só com 2027 e o POST respondia
+  // só com esse ano; o cliente perdia 2026 da memória, passava a mostrá-lo em branco e a gravação
+  // seguinte persistia o vazio. Reconhecer o vazio devolve o ano-base ao que ele era antes.
+  if (!out[FIN_BASE_YEAR] || (isEmptyYear && isEmptyYear(out[FIN_BASE_YEAR]))) out[FIN_BASE_YEAR] = seedForBase;
   return out;
 }
+// "este ano nunca foi preenchido de verdade" — usado para o resgate do ano-base acima
+const HC_VALID = (v) => Array.isArray(v.roles) && Array.isArray(v.people);
+const HC_EMPTY = (v) => !(v.roles || []).length && !(v.people || []).length;
+const SGA_VALID = (v) => Array.isArray(v.rent);
+const SGA_EMPTY = (v) => !(v.rent || []).length && !(v.prof || []).length && !(v.it || []).length;
+const CAC_VALID = (v) => Array.isArray(v.ads);
+const CAC_EMPTY = (v) => !(v.ads || []).length && !(v.inf || []).length && !Number(v.perUnit) && !Number(v.recPerUnit);
 app.get('/api/finance/hc', requireGiga, async (req, res) => {
-  try { res.json({ hc: await readFinYears('fin_hc', (v) => Array.isArray(v.roles) && Array.isArray(v.people), FIN_SEED.HC) }); }
+  try { res.json({ hc: await readFinYears('fin_hc', HC_VALID, FIN_SEED.HC, HC_EMPTY) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/finance/hc', requireGiga, async (req, res) => {
@@ -390,7 +402,9 @@ app.post('/api/finance/hc', requireGiga, async (req, res) => {
     FIN_YEARS.forEach((y) => { const clean = sanitizeHc(b[y]); if (clean) { out[y] = clean; any = true; } });
     if (!any) return res.status(400).json({ error: 'nenhum ano válido em hc' });
     await store.setDoc('fin_hc', out, req.user.login);
-    res.json({ ok: true, hc: out });
+    // responde com a MESMA visão do GET (com o resgate do ano-base): devolver só os anos do
+    // pedido fazia o cliente perder o outro ano de vista e mostrá-lo em branco.
+    res.json({ ok: true, hc: await readFinYears('fin_hc', HC_VALID, FIN_SEED.HC, HC_EMPTY) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -409,7 +423,7 @@ function sanitizeSga(b) {
   return { rent: cleanItems(b.rent), prof: cleanItems(b.prof), it: cleanItems(b.it) };
 }
 app.get('/api/finance/sga', requireGiga, async (req, res) => {
-  try { res.json({ sga: await readFinYears('fin_sga', (v) => Array.isArray(v.rent), FIN_SEED.SGA) }); }
+  try { res.json({ sga: await readFinYears('fin_sga', SGA_VALID, FIN_SEED.SGA, SGA_EMPTY) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/finance/sga', requireGiga, async (req, res) => {
@@ -422,7 +436,7 @@ app.post('/api/finance/sga', requireGiga, async (req, res) => {
     FIN_YEARS.forEach((y) => { const clean = sanitizeSga(b[y]); if (clean) { out[y] = clean; any = true; } });
     if (!any) return res.status(400).json({ error: 'nenhum ano válido em sga' });
     await store.setDoc('fin_sga', out, req.user.login);
-    res.json({ ok: true, sga: out });
+    res.json({ ok: true, sga: await readFinYears('fin_sga', SGA_VALID, FIN_SEED.SGA, SGA_EMPTY) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -443,7 +457,7 @@ function sanitizeCac(b) {
   };
 }
 app.get('/api/finance/cac', requireGiga, async (req, res) => {
-  try { res.json({ cac: await readFinYears('fin_cac', (v) => Array.isArray(v.ads), FIN_SEED.CAC) }); }
+  try { res.json({ cac: await readFinYears('fin_cac', CAC_VALID, FIN_SEED.CAC, CAC_EMPTY) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/finance/cac', requireGiga, async (req, res) => {
@@ -456,7 +470,7 @@ app.post('/api/finance/cac', requireGiga, async (req, res) => {
     FIN_YEARS.forEach((y) => { const clean = sanitizeCac(b[y]); if (clean) { out[y] = clean; any = true; } });
     if (!any) return res.status(400).json({ error: 'nenhum ano válido em cac' });
     await store.setDoc('fin_cac', out, req.user.login);
-    res.json({ ok: true, cac: out });
+    res.json({ ok: true, cac: await readFinYears('fin_cac', CAC_VALID, FIN_SEED.CAC, CAC_EMPTY) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

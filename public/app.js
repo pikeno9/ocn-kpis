@@ -2397,12 +2397,16 @@
     }
     // Carros RECUPERADOS por mês calendário do ano exibido (matriz de cobranças: contratos
     // encerrados por "Recuperação" na semana). É a base da comissão de reentrega do CAC.
-    function recoveredByMonth() {
+    // Carros que voltam para a nossa mão e podem ser reentregues: tanto os RECUPERADOS
+    // (contrato encerrado por recuperação) quanto os DEVOLVIDOS (rescisão pelo motorista).
+    // Os dois viram carro na rua de novo, então os dois pagam comissão de reentrega — antes
+    // só os recuperados contavam e a devolução ficava de fora da conta.
+    function redeliverableByMonth() {
       const z = new Array(FIN_MONTHS).fill(0);
       (((OCN.payments || {}).weeks) || []).forEach((w) => {
         if (!w.date || String(w.date).slice(0, 4) !== String(finYear)) return;
         const m = parseInt(String(w.date).slice(5, 7), 10) - 1;
-        if (m >= 0 && m < FIN_MONTHS) z[m] += (w.counts && w.counts.recovered) || 0;
+        if (m >= 0 && m < FIN_MONTHS) z[m] += ((w.counts && w.counts.recovered) || 0) + ((w.counts && w.counts.returned) || 0);
       });
       return z;
     }
@@ -2592,8 +2596,8 @@
       // CAC (referenciado, como no Excel): comissão = USD/carro × carros ENTREGUES no mês;
       // Ads = soma dos canais; Influenciadores = nº de perfis do mês × preço por perfil.
       const newDelivered = zeros(); cohorts.forEach((c) => { const cm = cohMonth(c) - FIN_YOFF(); if (cm >= 0 && cm < FIN_MONTHS) newDelivered[cm] += c.qty * scaleOf(c); });
-      // carro recuperado que volta para a rua paga comissão de reentrega (tabela própria no CAC)
-      const recovered = recoveredByMonth();
+      // carro recuperado OU devolvido que volta para a rua paga comissão de reentrega (tabela própria no CAC)
+      const recovered = redeliverableByMonth();
       const commission = zeros(), adsTot = zeros(), infTot = zeros();
       for (let m = 0; m < FIN_MONTHS; m++) {
         commission[m] = -(finCac.perUnit || 0) * newDelivered[m] - (finCac.recPerUnit || 0) * recovered[m];
@@ -2781,13 +2785,22 @@
     // `sga`/`cac`/`hc` no snapshot do cenário são os dicionários POR ANO inteiros — um cenário
     // vale para os dois anos ao mesmo tempo, cada um com a própria máscara.
     const finInputs = () => ({ cfg: clone(finCfg), sga: clone(finSgaByYear), cac: clone(finCacByYear), cohorts: clone(finCohorts), hc: clone(finHcByYear) });
+    // Cenário salvo ANTES do multi-ano guarda o objeto de um ano só (`{rent,prof,it}`). Lido como
+    // dicionário por ano ele não teria a chave 2026 e o cenário abriria com tudo em branco — então
+    // o formato antigo é reconhecido aqui e vira o ano-base.
+    const asByYear = (v, isOld, empty) => {
+      const d = clone(v) || {};
+      const out = isOld(d) ? { [FIN_BASE_YEAR]: d } : d;
+      if (!out[finYear]) out[finYear] = empty();
+      return out;
+    };
     function setFinInputs(d) {
       if (!d) return;
       if (d.cfg) finCfg = clone(d.cfg);
-      if (d.sga) { finSgaByYear = clone(d.sga); finSga = finSgaByYear[finYear] || (finSgaByYear[finYear] = emptySga()); }
-      if (d.cac) { finCacByYear = clone(d.cac); finCac = finCacByYear[finYear] || (finCacByYear[finYear] = emptyCac()); }
+      if (d.sga) { finSgaByYear = asByYear(d.sga, (v) => Array.isArray(v.rent), emptySga); finSga = finSgaByYear[finYear]; }
+      if (d.cac) { finCacByYear = asByYear(d.cac, (v) => Array.isArray(v.ads), emptyCac); finCac = finCacByYear[finYear]; }
       if (d.cohorts) finCohorts = clone(d.cohorts);
-      if (d.hc) { finHcByYear = clone(d.hc); finHc = finHcByYear[finYear] || (finHcByYear[finYear] = emptyHc()); }
+      if (d.hc) { finHcByYear = asByYear(d.hc, (v) => Array.isArray(v.roles), emptyHc); finHc = finHcByYear[finYear]; }
     }
     // troca de versão: entra/sai do cenário trocando as entradas em memória
     function selectVersion(v) {
@@ -3455,7 +3468,9 @@
       try {
         const r = await fetch('/api/finance/hc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ hc: { [finYear]: finHc } }) });
         const d = await r.json().catch(() => ({}));
-        if (d && d.hc) { finHcByYear = d.hc; finHc = finHcByYear[finYear] || (finHcByYear[finYear] = emptyHc()); }
+        // MESCLA (não substitui): a resposta traz os anos gravados, e trocar o dicionário inteiro
+        // apagaria da memória um ano ainda não persistido — que voltaria em branco no próximo clique.
+        if (d && d.hc) { Object.assign(finHcByYear, d.hc); finHc = finHcByYear[finYear] || (finHcByYear[finYear] = emptyHc()); }
       } catch (e) {}
       renderHc(); renderAdmin(); renderPnl();   // renderAdmin: atualiza o totalizador de SG&A
     }
@@ -3647,7 +3662,7 @@
       try {
         const r = await fetch('/api/finance/sga', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ sga: { [finYear]: finSga } }) });
         const d = await r.json().catch(() => ({}));
-        if (d && d.sga) { finSgaByYear = d.sga; finSga = finSgaByYear[finYear] || (finSgaByYear[finYear] = emptySga()); }
+        if (d && d.sga) { Object.assign(finSgaByYear, d.sga); finSga = finSgaByYear[finYear] || (finSgaByYear[finYear] = emptySga()); }
       } catch (e) {}
       renderAdmin(); renderPnl();
     }
@@ -3691,7 +3706,7 @@
       try {
         const r = await fetch('/api/finance/cac', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ cac: { [finYear]: finCac } }) });
         const d = await r.json().catch(() => ({}));
-        if (d && d.cac) { finCacByYear = d.cac; finCac = finCacByYear[finYear] || (finCacByYear[finYear] = emptyCac()); }
+        if (d && d.cac) { Object.assign(finCacByYear, d.cac); finCac = finCacByYear[finYear] || (finCacByYear[finYear] = emptyCac()); }
       } catch (e) {}
       renderCac(); renderPnl();
     }
@@ -3702,7 +3717,7 @@
       const newDelivered = new Array(FIN_MONTHS).fill(0);
       finCohorts.forEach((c) => { const cm = cohMonth(c) - FIN_YOFF(); if (cm >= 0 && cm < FIN_MONTHS) newDelivered[cm] += c.qty; });
       const per = finCac.perUnit || 0;
-      const recovered = recoveredByMonth();
+      const recovered = redeliverableByMonth();
       const recPer = finCac.recPerUnit || 0;
       const infTot = new Array(FIN_MONTHS).fill(0);
       (finCac.inf || []).forEach((it) => { for (let m = 0; m < FIN_MONTHS; m++) infTot[m] += (Number((it.profiles || [])[m]) || 0) * (it.price || 0); });
@@ -3742,12 +3757,12 @@
       h += rowH('Commission (' + finCS() + ')', newDelivered.map((n2) => n2 * per * KC));
       h += '</tbody></table></div>';
       // ---- comissão de REENTREGA: carro recuperado que volta para a rua ----
-      h += `<div class="sub2-title" style="margin-top:20px">Redelivery Commission — recovered cars</div>` +
-        `<div class="fin-note" style="margin:6px 0 10px">USD per redelivered recovered car: <input class="hc-f hc-n" id="cacRecUnit" type="number" min="0" step="any" value="${recPer}"${canEditNow() ? '' : ' disabled'}> × cars repossessed in the month (from the billing matrix). The result adds to Sales Commission above.</div>`;
+      h += `<div class="sub2-title" style="margin-top:20px">Redelivery Commission — recovered/returned cars</div>` +
+        `<div class="fin-note" style="margin:6px 0 10px">USD per redelivered car: <input class="hc-f hc-n" id="cacRecUnit" type="number" min="0" step="any" value="${recPer}"${canEditNow() ? '' : ' disabled'}> × cars that came back in the month — repossessed or returned by the driver (from the billing matrix). The result adds to Sales Commission above.</div>`;
       h += '<div class="ue-table-wrap"><table class="ue-table fin-grid"><thead><tr><th class="ue-rowlabel">Line</th>';
       for (let m = 0; m < FIN_MONTHS; m++) h += `<th>${monthLbl(m)}</th>`;
       h += `<th class="ue-totalcol">FY-${String(finYear).slice(2)}E</th></tr></thead><tbody>`;
-      h += rowH('Recovered cars', recovered);
+      h += rowH('Recovered/Returned cars', recovered);
       h += rowH('Commission (' + finCS() + ')', recovered.map((c2) => c2 * recPer * KC));
       h += '</tbody></table></div>';
       head.innerHTML = h;

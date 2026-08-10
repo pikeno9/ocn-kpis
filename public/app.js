@@ -2487,7 +2487,7 @@
       const maints = {}; finModels.forEach((m) => { maints[m.id] = uetMaint(finModelVals[m.id] || {}, m.id); });
       const zeros = () => new Array(FIN_MONTHS).fill(0);
       const rev = {}, cogs = {}; FIN_REV_LINES.forEach((l) => rev[l] = zeros()); FIN_COGS_LINES.forEach((l) => cogs[l] = zeros());
-      const delivered = zeros(), active = zeros(), secDep = zeros(), vehPur = zeros(), refundPrin = zeros();
+      const delivered = zeros(), active = zeros(), secDep = zeros(), vehPur = zeros(), refundPrin = zeros(), ptLost = zeros(), ended = zeros();
       // Simulador de frota: o multiplicador vale só para as entregas que ainda NÃO aconteceram.
       // Carro já entregue é fato consumado — mexer nele reescreveria o passado e mudaria meses que
       // a tabela mostra como realizados.
@@ -2520,7 +2520,7 @@
           // vida, quando ele é vendido/devolvido). Os eventos do M13 — venda, refund, termination,
           // 13ª parcela do subrental — continuam acontecendo; só a CONTAGEM de frota é que para,
           // e com ela as projeções por carro (multas etc.). Antes o carro ficava ativo para sempre.
-          if (age < 12) active[m] += activeN;
+          if (age < 12) active[m] += activeN; else ended[m] += activeN;
           const p = age + 1;                        // idade no UE (mês de entrega = M1)
           if (p > UET_PERIODS - 1) {
             // "M14": a 13ª cobrança do subrental (complemento do pro-rata) cai um mês depois do
@@ -2571,7 +2571,8 @@
           // principal do calção que volta neste mês (base do imposto: só o JURO é receita nova)
           if (p === 13) { const d0 = val('Security Deposit', 0); if (d0 != null) refundPrin[m] += (-d0 * activeN) / fx; }
         });
-        active[m] = Math.max(0, active[m] - ptLostAt(FIN_YOFF() + m)); // perda total sai da contagem
+        ptLost[m] = ptLostAt(FIN_YOFF() + m);
+        active[m] = Math.max(0, active[m] - ptLost[m]); // perda total sai da contagem
       }
       // ---- MESES DECORRIDOS: troca o modelo pelo REALIZADO consolidado da frota inteira ----
       // Mesmas fontes do UE real (matriz de pagamentos, multas, import_rev, multas_consolidado),
@@ -2731,7 +2732,7 @@
       // headcount total por mês (p/ o bloco de indicadores)
       const headcount = zeros(); for (let m = 0; m < FIN_MONTHS; m++) (finHc.roles || []).forEach((r) => { headcount[m] += hcOf(r, m); });
       const payFeePct = new Array(FIN_MONTHS).fill(0).map((_, m) => finParM('__fin_payfee__', m));
-      return { delivered, active, rev, cogs, secDep, grossRev, fed, cred, taxes, netRev, coreRev, cogsTot, payProc, gm,
+      return { delivered, active, ptLost, ended, rev, cogs, secDep, grossRev, fed, cred, taxes, netRev, coreRev, cogsTot, payProc, gm,
         base, meal, health, ptax, th13, bonus, hcTot, commission, adsTot, infTot, cacTot, rentTot, profTot, itTot, sga, opex, netCf, accCf, newDelivered, headcount, payFeePct, actualsThrough, vehPur, indriveTot, carryIn, recovered };
     }
 
@@ -3586,8 +3587,12 @@
       };
       evo += evoRow('New deliveries', FP.newDelivered, false);
       evo += evoRow('Total delivered fleet', FP.delivered, true);
+      // as duas saídas que explicam por que a frota ativa fica abaixo da entregue — sem elas a
+      // tabela não fechava com a faixa "Fleet" do P&L (em 2027 é o fim de contrato que zera tudo)
+      evo += evoRow('Contract ended (52 weeks)', FP.ended || [], true);
+      evo += evoRow('Total Loss', FP.ptLost || [], true);
       evo += evoRow('Total active fleet', FP.active, true, 'hc-total');
-      evo += '</tbody></table></div><div class="fin-note">Active fleet already discounts the monthly decommissioning rate from Assumptions.</div>';
+      evo += '</tbody></table></div><div class="fin-note">Active fleet = delivered − contracts ended at 52 weeks − total losses − the monthly decommissioning rate from Assumptions. It is the same count shown in the P&amp;L’s Fleet row.</div>';
 
       const sorted = finCohorts.slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
       let list = '<div class="sub2-title" style="margin-top:18px">Cohorts (chronological)</div><div class="ue-table-wrap"><table class="ue-table"><thead><tr><th class="ue-rowlabel">Cohort</th><th>Date</th><th>Model</th><th class="ue-totalcol">Vehicles</th></tr></thead><tbody>';

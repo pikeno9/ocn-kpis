@@ -596,34 +596,55 @@
           <div id="costsYear"></div>
         </div>
         <div id="costsCtl"></div>
-        <div id="costsHero"></div>
-        <!-- os dois grandes: ranking dentro do COGS e o perfil na vida do carro (com os dois
-             indicadores enfáticos dentro da própria caixa) -->
-        <div class="costs-grid-big">
-          <div class="costs-chart" id="ccRankBox">
-            <div class="cc-head"><h4>Where it sits in COGS</h4><button type="button" class="costs-help" data-h="rank">?</button></div>
-            <canvas id="ccRank" class="cv-big"></canvas>
+        <!-- MAIN: visão geral do COGS — Pareto + mix mensal + sandbox das 4 maiores saídas -->
+        <div id="costsMain" hidden>
+          <div class="costs-chart">
+            <div class="cc-head"><h4>Pareto — where the COGS money goes</h4><button type="button" class="costs-help" data-h="pareto">?</button></div>
+            <canvas id="ccPareto" class="cv-big"></canvas>
           </div>
-          <div class="costs-chart" id="ccAgeBox">
-            <div class="cc-head"><h4 id="ccAgeT">When it hits a car&#8217;s life</h4><button type="button" class="costs-help" data-h="age">?</button></div>
-            <div class="cc-agewrap">
-              <div class="cc-inds" id="ccAgeInds"></div>
-              <div class="cc-agecv"><canvas id="ccAge" class="cv-big"></canvas></div>
+          <div class="costs-grid-small" style="margin-top:14px">
+            <div class="costs-chart">
+              <div class="cc-head"><h4>Monthly mix — the four biggest + others</h4><button type="button" class="costs-help" data-h="mix">?</button></div>
+              <canvas id="ccMix" class="cv-mid"></canvas>
+            </div>
+            <div class="costs-chart">
+              <div class="cc-head"><h4>Sandbox — move the four biggest</h4><button type="button" class="costs-help" data-h="sandbox">?</button></div>
+              <div id="ccSandbox"></div>
             </div>
           </div>
         </div>
-        <!-- os dois pequenos: série mensal e custo por carro (com a elasticidade enfática) -->
-        <div class="costs-grid-small">
-          <div class="costs-chart">
-            <div class="cc-head"><h4 id="ccMainT"></h4><button type="button" class="costs-help" data-h="monthly">?</button></div>
-            <canvas id="ccMain" class="cv-sm"></canvas>
+        <!-- visão POR LINHA -->
+        <div id="costsLineView">
+          <div id="costsHero"></div>
+          <!-- os dois grandes: ranking dentro do COGS e o perfil na vida do carro (com os dois
+               indicadores enfáticos dentro da própria caixa) -->
+          <div class="costs-grid-big">
+            <div class="costs-chart" id="ccRankBox">
+              <div class="cc-head"><h4>Where it sits in COGS</h4><button type="button" class="costs-help" data-h="rank">?</button></div>
+              <canvas id="ccRank" class="cv-big"></canvas>
+            </div>
+            <div class="costs-chart" id="ccAgeBox">
+              <div class="cc-head"><h4 id="ccAgeT">When it hits a car&#8217;s life</h4><button type="button" class="costs-help" data-h="age">?</button></div>
+              <div class="cc-agewrap">
+                <div class="cc-inds" id="ccAgeInds"></div>
+                <div class="cc-agecv"><canvas id="ccAge" class="cv-big"></canvas></div>
+              </div>
+            </div>
           </div>
-          <div class="costs-chart">
-            <div class="cc-head"><h4>Cost per active car</h4><span class="cc-elast" id="ccElast"></span><button type="button" class="costs-help" data-h="percar">?</button></div>
-            <canvas id="ccPerCar" class="cv-sm"></canvas>
+          <!-- os dois pequenos: por carro × média do ano (detector de mês fora do normal) e o
+               absoluto mensal contra a frota, como contexto -->
+          <div class="costs-grid-small">
+            <div class="costs-chart">
+              <div class="cc-head"><h4 id="ccMainT"></h4><span class="cc-elast" id="ccElast"></span><button type="button" class="costs-help" data-h="percar">?</button></div>
+              <canvas id="ccPerCar" class="cv-sm"></canvas>
+            </div>
+            <div class="costs-chart">
+              <div class="cc-head"><h4>Absolute monthly — vs fleet</h4><button type="button" class="costs-help" data-h="monthly">?</button></div>
+              <canvas id="ccMain" class="cv-sm"></canvas>
+            </div>
           </div>
+          <div class="costs-whatif" id="costsWhatif"></div>
         </div>
-        <div class="costs-whatif" id="costsWhatif"></div>
       </div>
 
 </section>

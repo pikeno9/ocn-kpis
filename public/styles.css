@@ -447,7 +447,19 @@ html { scrollbar-gutter: stable; }
 .costs-helpbox { width: 460px; max-width: 92vw; }
 .costs-help-d { font-size: 12.5px; line-height: 1.65; color: var(--text); margin: 6px 0 4px; }
 canvas.cv-big { width: 100% !important; height: 250px !important; }
-canvas.cv-sm { width: 100% !important; height: 150px !important; }
+canvas.cv-mid { width: 100% !important; height: 240px !important; }
+canvas.cv-sm { width: 100% !important; height: 215px !important; }
+/* sandbox do Main: um slider por linha (na cor dela) + blocos de resultado combinado */
+.sb-row { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }
+.sb-row .costs-pk-dot { flex: none; }
+.sb-name { font-size: 11px; width: 108px; flex: none; line-height: 1.2; }
+.sb-row input[type=range] { flex: 1; min-width: 60px; cursor: pointer; }
+.sb-pct { width: 40px; text-align: right; font-size: 12px; flex: none; }
+.sb-chip { width: 92px; flex: none; font-style: normal; }
+.sb-chip .cw-chip { margin-top: 0; font-size: 9.5px; padding: 2px 6px; }
+#ccSandbox .cw-tiles { margin-top: 12px; grid-template-columns: repeat(2, 1fr); }
+.sb-reset { font: inherit; font-size: 10.5px; font-weight: 700; margin-top: 10px; padding: 5px 12px; border: 1px solid var(--border-2); border-radius: 999px; background: var(--surface); color: var(--text-2); cursor: pointer; }
+.sb-reset:hover { border-color: var(--accent); color: var(--accent); }
 /* vida do carro: os dois indicadores ENFÁTICOS ao lado do gráfico */
 .cc-agewrap { display: flex; gap: 14px; align-items: stretch; }
 .cc-inds { flex: none; width: 168px; display: flex; flex-direction: column; gap: 10px; justify-content: center; }

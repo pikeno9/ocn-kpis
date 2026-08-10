@@ -4419,22 +4419,28 @@
     // Cada linha do COGS aberta em: peso (sobre COGS, sobre a receita, por carro-mês, por carro no
     // contrato), ELASTICIDADE frota (o custo acompanha os carros ou é fixo?), perfil de INCIDÊNCIA
     // na vida do contrato (pesa na entrega ou dilui nos 12 meses?) e um what-if de %.
-    let costsSel = 'Subrental fee', costsCharts = {}, costsWhatifPct = 0;
+    const COSTS_MAIN = '__main__';   // item "Main" do picker: visão geral do COGS (Pareto + mix + sandbox)
+    let costsSel = COSTS_MAIN, costsCharts = {}, costsWhatifPct = 0, costsMix = {};
     const COSTS_LIST = ['Subrental fee', 'Maintenance', 'Insurance', 'Recovery cost', 'Repair cost', 'Traffic fines (out)', 'Part Replacement', 'GPS', 'Car Preparation', 'Sticker'];
     // uma cor por linha de custo — a página inteira (picker, cartões, gráficos, what-if) veste a
     // cor da linha selecionada, e o ranking mostra cada linha na sua própria cor
     const COSTS_COLOR = {
+      [COSTS_MAIN]: '#1F2937',
       'Subrental fee': '#5A00F8', 'Maintenance': '#0891B2', 'Insurance': '#2563EB',
       'Recovery cost': '#EB6834', 'Repair cost': '#DC2626', 'Traffic fines (out)': '#D97706',
       'Part Replacement': '#7C3AED', 'GPS': '#0D9488', 'Car Preparation': '#DB2777', 'Sticker': '#64748B',
     };
+    const COSTS_LABEL = (L) => (L === COSTS_MAIN ? 'Main — COGS overview' : L);
     const costsTint = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`; };
     // textos longos saem da página e viram caixas de ajuda (botões "?")
     const COSTS_HELP = {
+      pareto: { t: 'Pareto — where the COGS money goes', d: 'Every vehicle cost line sorted biggest first (full-year totals, each in its own colour), with the cumulative share on the right axis. Where the curve crosses the dashed 80% guide tells you how few lines concentrate almost all the cost — those are the ones worth negotiating; everything after the crossing is operational noise.' },
+      mix: { t: 'Monthly mix', d: 'The four biggest lines stacked month by month, each in its own colour, with every other line grouped as the grey "Others". It shows how the composition of the cost evolves as the fleet ramps — and whether any line is quietly taking over the stack.' },
+      sandbox: { t: 'Sandbox', d: 'One slider per line among the four biggest: move each independently and read the COMBINED first-order effect on COGS, Gross Margin and Net cashflow for the year. Taxes and credits are not recomputed — and in 2027 the sublease tax netting would also move with the Subrental line.' },
       rank: { t: 'Where it sits in COGS', d: 'Full-year total of every vehicle cost line, biggest first, each in its own colour — the selected one at full strength. It answers "how much does this line matter" before any deeper look.' },
       age: { t: 'When it hits a car’s life', d: 'The per-car cost over the contract (theoric profile): M0 is the delivery month, M1–M12 the recurring months, M13 the closing month. FRONT-LOAD INDEX = the share of a car’s lifetime cost that falls in the first four months (M0–M3) divided by the 25% that a cost spread evenly across the 12 recurring months would put there. So 1.0 = evenly spread; 4.0 = everything at delivery (hurts the cash exactly while the fleet ramps); below 1.0 = back-loaded, lands at the end of the contract. AVERAGE MONTH OF SPEND is the profile’s center of mass — a cost spread evenly over M2–M13 averages M7.5.' },
-      monthly: { t: 'Monthly view', d: 'Bars = the line month by month, in the display currency. Orange line = active cars (right axis). For Recovery/Repair a dotted line adds the underlying events. Months up to today are consolidated actuals; ahead is the projection.' },
-      percar: { t: 'Cost per active car', d: 'The monthly cost divided by the active fleet. A flat line means the cost simply follows the fleet (each car costs the same); a rising line means each car is getting more expensive — that is the chart that flags real problems. FLEET-LINK (ELASTICITY) is the slope of ln(cost) vs ln(fleet) across the year: 1.0 = 10% more cars → 10% more cost (proportional); near 0 = a fixed cost that dilutes as the fleet grows.' },
+      monthly: { t: 'Absolute monthly — vs fleet', d: 'Bars = the line month by month in the display currency, orange line = active cars (right axis), and for Recovery/Repair a dotted line adds the underlying events. Context view: it mostly confirms the cost is riding the fleet ramp. Months up to today are consolidated actuals; ahead is the projection.' },
+      percar: { t: 'Per car — vs the year’s average', d: 'The monthly cost divided by the active fleet, against the dashed line of the YEAR’S AVERAGE per car. Months above the average light up in full colour — that is where we spent more than normal per car and it is worth asking why. FLEET-LINK (ELASTICITY) is the slope of ln(cost) vs ln(fleet) across the year: 1.0 = 10% more cars → 10% more cost (proportional); near 0 = a fixed cost that dilutes as the fleet grows.' },
       whatif: { t: 'What-if', d: 'Moves the selected line by a percentage and shows the first-order effect on the year: the line itself, its share of revenue, Gross Margin and Net cashflow. Taxes and credits are not recomputed — and in 2027 the sublease tax netting would also move with the Subrental line.' },
     };
     function costsHelpOpen(k) {
@@ -4450,6 +4456,7 @@
       ov.querySelector('.ue-modal-cancel').addEventListener('click', close);
     }
     const COSTS_INFO = {
+      [COSTS_MAIN]: 'The whole COGS at once: Pareto of every line, the monthly mix of the four biggest, and a sandbox to move them together.',
       'Subrental fee': 'Monthly rent per car paid to LM on the 26th — 1st installment pro-rata of the arrival month, a 13th charge closes the 12 months. The single biggest cost of the operation.',
       'Maintenance': 'Revisions every 10.000 km at each fleet’s real km pace, priced from the revisions site with the 25% discount and paid ~33 days later.',
       'Insurance': 'Per-fleet total split into N installments — from each fleet’s UE boxes.',
@@ -4461,6 +4468,67 @@
       'Car Preparation': 'Flat R$50 per car, in the delivery month.',
       'Sticker': 'Flat R$15 per car, in the delivery month.',
     };
+    // "Main": Pareto do COGS inteiro + mix mensal das 4 maiores + sandbox com um slider por linha
+    function renderCostsMain(P, H) {
+      const { S, K, cs, money, lineOfL, cogsFY } = H;
+      const mk = (id, cfg) => { if (costsCharts[id]) { costsCharts[id].destroy(); delete costsCharts[id]; } const c = document.getElementById(id); if (!c) return; costsCharts[id] = new Chart(c.getContext('2d'), cfg); };
+      const rows = COSTS_LIST.map((L) => ({ L, v: S(lineOfL(L)) })).filter((r) => r.v > 0).sort((a, b) => b.v - a.v);
+      const tot = rows.reduce((a, r) => a + r.v, 0) || 1;
+      let acc = 0;
+      const cum = rows.map((r) => { acc += r.v; return Math.round((acc / tot) * 100); });
+      // Pareto: barras (cada linha na sua cor) + curva acumulada + guia dos 80%
+      mk('ccPareto', { data: { labels: rows.map((r) => r.L), datasets: [
+          { type: 'bar', label: 'FY (' + cs + ')', data: rows.map((r) => Math.round(r.v * K)), backgroundColor: rows.map((r) => COSTS_COLOR[r.L]), yAxisID: 'y', borderRadius: 4, maxBarThickness: 46, datalabels: { display: false } },
+          { type: 'line', label: 'cumulative %', data: cum, yAxisID: 'y2', borderColor: '#1F2937', borderWidth: 2, pointRadius: 3, pointBackgroundColor: '#1F2937', tension: 0,
+            datalabels: { display: true, align: 'top', offset: 2, font: { size: 9, weight: 700 }, color: '#1F2937', formatter: (v) => v + '%' } },
+          { type: 'line', label: '80% guide', data: rows.map(() => 80), yAxisID: 'y2', borderColor: '#B91C1C', borderDash: [5, 4], borderWidth: 1.2, pointRadius: 0, datalabels: { display: false } },
+        ] },
+        options: { responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { labels: { boxWidth: 10, font: { size: 9 } } } },
+          scales: { y: { beginAtZero: true, ticks: { font: { size: 9 } } },
+            y2: { position: 'right', min: 0, max: 108, grid: { display: false }, ticks: { font: { size: 9 }, callback: (v) => v + '%' } },
+            x: { ticks: { font: { size: 9 } } } } } });
+      // mix mensal: as 4 maiores empilhadas nas próprias cores + o resto como "Others"
+      const top4 = rows.slice(0, 4).map((r) => r.L);
+      const MONL = Array.from({ length: FIN_MONTHS }, (_, m) => monthLbl(m));
+      const others = new Array(FIN_MONTHS).fill(0);
+      COSTS_LIST.filter((L) => !top4.includes(L)).forEach((L) => { const a = lineOfL(L); for (let m = 0; m < FIN_MONTHS; m++) others[m] += a[m]; });
+      mk('ccMix', { type: 'bar', data: { labels: MONL, datasets: top4.map((L) => (
+          { label: L, data: lineOfL(L).map((v) => Math.round(v * K)), backgroundColor: COSTS_COLOR[L], stack: 's', maxBarThickness: 30 }
+        )).concat([{ label: 'Others', data: others.map((v) => Math.round(v * K)), backgroundColor: '#9CA3AF', stack: 's', maxBarThickness: 30 }]) },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { boxWidth: 10, font: { size: 9 } } }, datalabels: { display: false } },
+          scales: { x: { stacked: true, ticks: { font: { size: 9 } } }, y: { stacked: true, beginAtZero: true, ticks: { font: { size: 9 } } } } } });
+      // sandbox: um slider POR LINHA entre as 4 maiores, efeito combinado no ano
+      const sb = document.getElementById('ccSandbox');
+      const fyOf = {}; rows.forEach((r) => { fyOf[r.L] = r.v; });
+      const gmFY = S(P.gm), ncfFY = S(P.netCf);
+      top4.forEach((L) => { if (costsMix[L] == null) costsMix[L] = 0; });
+      sb.innerHTML = top4.map((L) =>
+        `<div class="sb-row"><span class="costs-pk-dot" style="background:${COSTS_COLOR[L]}"></span>` +
+        `<b class="sb-name">${escH(L)}</b>` +
+        `<input type="range" min="-50" max="50" step="5" value="${costsMix[L]}" data-l="${escH(L)}" style="accent-color:${COSTS_COLOR[L]}">` +
+        `<b class="sb-pct"></b><em class="sb-chip"></em></div>`).join('') +
+        `<div class="cw-tiles" id="sbOut"></div>` +
+        `<button type="button" class="sb-reset" id="sbReset">↺ reset</button>`;
+      const pctEls = sb.querySelectorAll('.sb-pct'), chipEls = sb.querySelectorAll('.sb-chip');
+      const tile = (t, v, sub) => `<div class="cw-tile"><span>${escH(t)}</span><b>${v}</b><i>${escH(sub)}</i></div>`;
+      const sbOut = () => {
+        let totD = 0;
+        top4.forEach((L, i) => {
+          const pct = costsMix[L] || 0, d = fyOf[L] * pct / 100; totD += d;
+          pctEls[i].textContent = (pct >= 0 ? '+' : '') + pct + '%';
+          chipEls[i].innerHTML = Math.round(Math.abs(d) * K) === 0 ? '' : `<span class="cw-chip ${d > 0 ? 'bad' : 'good'}">${d > 0 ? '▲' : '▼'} ${money(Math.abs(d))}</span>`;
+        });
+        document.getElementById('sbOut').innerHTML =
+          tile('COGS FY', money(cogsFY + totD), 'was ' + money(cogsFY)) +
+          tile('Gross Margin FY', money(gmFY - totD), 'was ' + money(gmFY)) +
+          tile('Net cashflow FY', money(ncfFY - totD), 'was ' + money(ncfFY)) +
+          tile('Total moved', Math.round(Math.abs(totD) * K) === 0 ? '—' : (totD >= 0 ? '+' : '−') + money(Math.abs(totD)), 'first-order · taxes not recomputed');
+      };
+      sb.querySelectorAll('input[type=range]').forEach((r) => r.addEventListener('input', () => { costsMix[r.dataset.l] = +r.value; sbOut(); }));
+      document.getElementById('sbReset').addEventListener('click', () => { top4.forEach((L) => { costsMix[L] = 0; }); sb.querySelectorAll('input[type=range]').forEach((r) => { r.value = 0; }); sbOut(); });
+      sbOut();
+    }
     function renderCosts() {
       const sec = document.getElementById('sub-fincosts');
       if (!sec || !sec.classList.contains('active')) return;   // canvas oculto mede 0 — só desenha visível
@@ -4539,11 +4607,11 @@
       const C = COSTS_COLOR[costsSel] || '#5A00F8';
       const ctl = document.getElementById('costsCtl');
       ctl.innerHTML = '<div class="costs-bar"><div class="costs-pk" id="costsPk">' +
-        `<button type="button" class="costs-pk-btn" id="costsPkBtn" style="--cl:${C}"><span class="costs-pk-dot" style="background:${C}"></span><b>${escH(costsSel)}</b><span class="costs-pk-car">▾</span></button>` +
-        '<div class="costs-pk-pop" id="costsPkPop" hidden>' + COSTS_LIST.map((L) =>
+        `<button type="button" class="costs-pk-btn" id="costsPkBtn" style="--cl:${C}"><span class="costs-pk-dot" style="background:${C}"></span><b>${escH(COSTS_LABEL(costsSel))}</b><span class="costs-pk-car">▾</span></button>` +
+        '<div class="costs-pk-pop" id="costsPkPop" hidden>' + [COSTS_MAIN].concat(COSTS_LIST).map((L) =>
           `<button type="button" class="costs-pk-o${L === costsSel ? ' on' : ''}" data-v="${escH(L)}">` +
           `<span class="costs-pk-dot" style="background:${COSTS_COLOR[L]}"></span>` +
-          `<span class="costs-pk-txt"><b>${escH(L)}</b><i>${escH(COSTS_INFO[L] || '')}</i></span></button>`).join('') +
+          `<span class="costs-pk-txt"><b>${escH(COSTS_LABEL(L))}</b><i>${escH(COSTS_INFO[L] || '')}</i></span></button>`).join('') +
         '</div></div>' + finCurFlags() + '</div>';
       const pk = document.getElementById('costsPk'), pkB = document.getElementById('costsPkBtn'), pkP = document.getElementById('costsPkPop');
       const closePk = () => { pkP.hidden = true; pkB.classList.remove('open'); document.removeEventListener('click', outPk); };
@@ -4552,6 +4620,12 @@
       pkP.querySelectorAll('.costs-pk-o').forEach((b) => b.addEventListener('click', () => { costsSel = b.dataset.v; costsWhatifPct = 0; closePk(); renderCosts(); }));
       wireCurFlags(ctl, () => renderCosts());
       sec.querySelectorAll('.costs-help').forEach((b) => { b.onclick = () => costsHelpOpen(b.dataset.h); });
+      // ---- Main (visão geral do COGS) × visão por linha ----
+      const mainEl = document.getElementById('costsMain'), lineEl = document.getElementById('costsLineView');
+      const isMain = costsSel === COSTS_MAIN;
+      if (mainEl) mainEl.hidden = !isMain;
+      if (lineEl) lineEl.hidden = isMain;
+      if (isMain) { renderCostsMain(P, { S, K, cs, money, lineOfL, cogsFY }); return; }
       // ---- cartões de peso (indicadores criados ficam DENTRO das caixas dos gráficos deles) ----
       const card = (t, v, sub, strong) => `<div class="costs-card${strong ? ' cc-strong' : ''}" style="--cl:${C}"><span>${escH(t)}</span><b>${v}</b><span class="sub">${escH(sub || '')}</span></div>`;
       const evFY = evts ? S(evts.z) : 0;
@@ -4567,19 +4641,29 @@
       const mk = (id, cfg) => { if (costsCharts[id]) { costsCharts[id].destroy(); delete costsCharts[id]; } const c = document.getElementById(id); if (!c) return; costsCharts[id] = new Chart(c.getContext('2d'), cfg); };
       const MONL = Array.from({ length: FIN_MONTHS }, (_, m) => monthLbl(m));
       const noDL = { datalabels: { display: false } };
-      document.getElementById('ccMainT').innerHTML = `<span class="costs-pk-dot" style="background:${C}"></span>${escH(costsSel)} — monthly`;
+      document.getElementById('ccMainT').innerHTML = `<span class="costs-pk-dot" style="background:${C}"></span>${escH(costsSel)} — per car · monthly`;
+      // POR CARRO × média do ano: o absoluto parecia igual para toda linha (barra subindo com a
+      // frota); dividido pelos carros, o mês fora do normal salta — acima da média acende em cor
+      // cheia, e a média do ano entra tracejada como régua.
+      const perCar = arr.map((v, m) => (act[m] > 1 ? (v * K) / act[m] : null));
+      const pcVals = perCar.filter((v) => v != null);
+      const pcAvg = pcVals.length ? pcVals.reduce((a, b) => a + b, 0) / pcVals.length : 0;
+      mk('ccPerCar', { data: { labels: MONL, datasets: [
+          { type: 'bar', label: cs + ' per car', data: perCar.map((v) => (v == null ? null : Math.round(v))), backgroundColor: perCar.map((v) => (v != null && v > pcAvg * 1.02 ? C : costsTint(C, .35))), borderRadius: 3, maxBarThickness: 26 },
+          { type: 'line', label: 'year average', data: MONL.map(() => Math.round(pcAvg)), borderColor: C, borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0 },
+        ] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: Object.assign({ legend: { labels: { boxWidth: 10, font: { size: 9 } } } }, noDL),
+          scales: { y: { beginAtZero: true, ticks: { font: { size: 9 } } }, x: { ticks: { font: { size: 9 } } } } } });
       mk('ccMain', { data: { labels: MONL, datasets: [
           { type: 'bar', label: costsSel, data: arr.map((v) => Math.round(v * K)), backgroundColor: C, yAxisID: 'y', borderRadius: 3, maxBarThickness: 26 },
           { type: 'line', label: 'Active cars', data: act.map((v) => Math.round(v)), borderColor: '#EB6834', backgroundColor: 'transparent', yAxisID: 'y2', tension: .3, pointRadius: 2, borderWidth: 2 },
         ].concat(evts ? [{ type: 'line', label: evts.label, data: evts.z, borderColor: '#0891B2', backgroundColor: 'transparent', yAxisID: 'y2', borderDash: [4, 3], pointRadius: 3, tension: 0, borderWidth: 1.5 }] : []) },
         options: { responsive: true, maintainAspectRatio: false, plugins: Object.assign({ legend: { labels: { boxWidth: 10, font: { size: 9 } } } }, noDL),
           scales: { y: { beginAtZero: true, ticks: { font: { size: 9 } } }, y2: { position: 'right', beginAtZero: true, grid: { display: false }, ticks: { font: { size: 9 } } }, x: { ticks: { font: { size: 9 } } } } } });
-      // elasticidade — enfática, na caixa do custo por carro (é o gráfico que conta essa história)
+      // elasticidade — enfática, na caixa do por-carro (é o gráfico que conta essa história)
       const elEl = document.getElementById('ccElast');
       if (elEl) elEl.innerHTML = elast == null ? '' :
         `<b style="color:${C}">${elast.toFixed(2)}</b><span>fleet-link · ${elast >= 0.75 ? 'follows the fleet' : elast >= 0.35 ? 'partly fleet-driven' : 'mostly fixed'}</span>`;
-      mk('ccPerCar', { type: 'line', data: { labels: MONL, datasets: [{ label: cs + ' per car', data: arr.map((v, m) => act[m] > 1 ? Math.round(v * K / act[m]) : null), borderColor: C, backgroundColor: costsTint(C, .08), fill: true, tension: .3, pointRadius: 3, pointBackgroundColor: C }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: Object.assign({ legend: { display: false } }, noDL), scales: { y: { beginAtZero: true, ticks: { font: { size: 9 } } }, x: { ticks: { font: { size: 9 } } } } } });
       // ranking: cada linha na PRÓPRIA cor — a selecionada cheia, as outras esmaecidas
       const rankRows = COSTS_LIST.map((L) => ({ L, v: S(lineOfL(L)) })).filter((r) => r.v > 0).sort((a, b) => b.v - a.v);
       mk('ccRank', { type: 'bar', data: { labels: rankRows.map((r) => r.L), datasets: [{ data: rankRows.map((r) => Math.round(r.v * K)), backgroundColor: rankRows.map((r) => r.L === costsSel ? COSTS_COLOR[r.L] : costsTint(COSTS_COLOR[r.L], .35)), borderRadius: 4, maxBarThickness: 22 }] },

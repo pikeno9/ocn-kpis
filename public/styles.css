@@ -446,10 +446,15 @@ html { scrollbar-gutter: stable; }
 .costs-help:hover { border-color: var(--accent); color: var(--accent); }
 .costs-helpbox { width: 460px; max-width: 92vw; }
 .costs-help-d { font-size: 12.5px; line-height: 1.65; color: var(--text); margin: 6px 0 4px; }
-canvas.cv-tall { width: 100% !important; height: 310px !important; }
-canvas.cv-big { width: 100% !important; height: 250px !important; }
-canvas.cv-mid { width: 100% !important; height: 260px !important; }
-canvas.cv-sm { width: 100% !important; height: 215px !important; }
+/* Canvas no padrão que o Chart.js espera: o PAI tem altura definida e o canvas preenche.
+   Antes a altura vinha com !important no próprio canvas, o que brigava com o dimensionamento
+   do Chart.js e, num monitor a 150%, saía tudo borrado (o bitmap não batia com o CSS). */
+.cc-cv { position: relative; width: 100%; }
+.cc-cv > canvas { display: block; }
+.cc-cv.cv-tall { height: 330px; }
+.cc-cv.cv-big { height: 250px; }
+.cc-cv.cv-mid { height: 270px; }
+.cc-cv.cv-sm { height: 215px; }
 /* filtros da aba: visão Forecast/Actuals + mês isolado + frota isolada */
 .costs-tgl { display: flex; border: 1px solid var(--border-2); border-radius: 10px; overflow: hidden; }
 .costs-tgl button { font: inherit; font-size: 11.5px; font-weight: 700; padding: 8px 13px; border: 0; background: var(--surface); color: var(--text-2); cursor: pointer; }
@@ -460,6 +465,18 @@ canvas.cv-sm { width: 100% !important; height: 215px !important; }
 .cc-hint { font-size: 10px; color: var(--text-2); font-weight: 600; }
 /* big number do drill (média por carro·mês) — o destaque da seção */
 .cc-big.cc-huge b { font-size: 32px; }
+/* Insurance: break-even por acionamento · entrada de custo médio · economia */
+.ins-panel { border: 1px solid color-mix(in srgb, var(--cl, var(--accent)) 30%, var(--border)); border-radius: 14px; padding: 14px 16px; margin-bottom: 16px; background: linear-gradient(135deg, color-mix(in srgb, var(--cl, var(--accent)) 6%, var(--surface)), var(--surface) 60%); }
+.ins-grid { display: grid; grid-template-columns: 1fr 1.1fr 1fr; gap: 14px; align-items: stretch; }
+.ins-mid { display: flex; flex-direction: column; justify-content: center; gap: 7px; }
+.ins-lab { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--text-2); }
+.ins-inp { display: flex; align-items: center; gap: 7px; }
+.ins-inp input { font: inherit; font-size: 17px; font-weight: 700; width: 120px; padding: 6px 10px; border: 1px solid var(--border-2); border-radius: 9px; background: var(--surface); color: var(--text); text-align: right; }
+.ins-inp input:focus { outline: none; border-color: var(--cl, var(--accent)); }
+.ins-inp span { font-size: 11px; font-weight: 700; color: var(--text-2); }
+.ins-mid input[type=range] { width: 100%; cursor: pointer; }
+.ins-types { font-size: 10px; color: var(--text-2); line-height: 1.4; }
+@media (max-width: 980px) { .ins-grid { grid-template-columns: 1fr; } }
 /* vida do carro: os dois indicadores ENFÁTICOS ao lado do gráfico */
 .cc-agewrap { display: flex; gap: 14px; align-items: stretch; }
 .cc-inds { flex: none; width: 168px; display: flex; flex-direction: column; gap: 10px; justify-content: center; }

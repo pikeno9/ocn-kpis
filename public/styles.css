@@ -168,18 +168,9 @@ button { font-family: inherit; cursor: pointer; }
 .ue-cur-btn.active .ue-flag { box-shadow: 0 0 0 1.5px #ffffffcc; }
 /* botão "?" */
 .ue-info-btn { width: 32px; padding: 7px 0; text-align: center; font-weight: 800; border-radius: 50%; }
-/* tabela do modal de origem dos dados — .ue-modal fixa 360px, então a largura precisa ser
-   sobrescrita explicitamente (senão a tabela fica espremida); rola quando não couber na tela */
-.ue-modal.ue-modal-info { width: 720px; max-width: 94vw; max-height: 88vh; overflow-y: auto; }
-.ue-info-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 6px 0 10px; }
-.ue-info-table th { text-align: left; background: linear-gradient(180deg, #32006e, #23004e); color: #fff; padding: 6px 10px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; }
-.ue-info-table th:first-child { border-top-left-radius: 7px; }
-.ue-info-table th:last-child { border-top-right-radius: 7px; }
-.ue-info-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
-.ue-info-table td:first-child { font-weight: 600; }
-.ue-info-table td:last-child { white-space: nowrap; color: var(--text-2); font-size: 11px; }
+/* o "?" do UE passou a usar o mesmo guia navegável do P&L (.pnl-infox), então a tabela de três
+   colunas que existia aqui (.ue-modal-info / .ue-info-table) saiu junto com ela */
 .ue-modal.ue-modal-parts { width: 430px; max-width: 94vw; }
-.ue-info-table tr:nth-child(even) td { background: color-mix(in srgb, var(--accent) 3%, transparent); }
 .ue-field { display: flex; flex-direction: column; gap: 5px; }
 .ue-field label { font-size: 11px; color: var(--text-2); font-weight: 500; }
 .ue-field input { width: 132px; padding: 6px 9px; border: 1px solid var(--border-2); border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--text); font-family: var(--font); background: #fff; }

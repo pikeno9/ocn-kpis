@@ -3082,7 +3082,7 @@
           { t: 'Subscription · Late-payment interest', src: 'Payments matrix + reference fleets', upd: 'auto',
             d: 'Months already lived use the REAL payments matrix of every plate (principal and interest separated). Future months multiply the reference-fleet profile per car by the active fleet. Interest follows each plate’s contract version: 5% on v1/v2, 20% from v3.' },
           { t: 'Traffic fines (in)', src: 'Fines API + contract rule', upd: 'auto',
-            d: 'Cash the clients actually paid, on the payment date. The projection applies the contract rule — GROSS fine × (1 + premium), 10% on v1/v2 and 20% from v3 — over the same universe of fines as the outflow line, so the two sides always talk about the same infractions.' },
+            d: 'Cash the clients actually paid, on the payment date. The projection applies the contract rule — GROSS fine × (1 + premium), 10% on v1/v2 and 20% from v3 — over the same universe of fines as the outflow line, so the two sides always talk about the same infractions. The future is a pace per CAR multiplied by the active fleet of each month: it used to be a single fleet-wide amount per day, which froze the line at today’s fleet size and made november project the same as september while the fleet nearly doubled. See "How the fines pace is measured" below.' },
           { t: 'Termination fee', src: 'import_jud + recovery % slider', upd: 'auto',
             d: 'Total charged on early terminations (import_jud, column K minus fines/tolls) × the recovery % slider of the UE. Lands at contract end (M13 of each cohort).' },
           { t: 'Vehicle sell', src: '✎ box', upd: 'manual',
@@ -3096,7 +3096,7 @@
           { t: 'Maintenance', src: 'import_rev + km pace', upd: 'auto',
             d: 'Past: real invoices by due date. Future: each fleet’s km pace schedules the next revisions, priced from the revisions site with the 25% discount, paid ~33 days later — which is why the line reaches M13.' },
           { t: 'Traffic fines (out)', src: 'multas_consolidado', upd: 'auto',
-            d: 'What we pay LM: the NET fine (with discount, ~80% of gross) × 1.05, on our due date. The margin of the fines business comes from this asymmetry: we charge over the gross, we pay over the net.' },
+            d: 'What we pay LM: the NET fine (with discount, ~80% of gross) × 1.05, on our due date. The margin of the fines business comes from this asymmetry: we charge over the gross, we pay over the net — about 26% on the current numbers. Like the inflow line, the future scales with the active fleet.' },
           { t: 'Subrental · Insurance · GPS · Prep · Sticker', src: 'UE boxes per fleet', upd: 'manual',
             d: 'The real per-fleet boxes of the Unit Economics, each on its own schedule — sub-rental always on the 26th (12 installments from the month after delivery), insurance split in N installments, GPS at M0 + monthly, preparation and sticker at M0.' },
           { t: 'Recovery · Repair cost', src: 'import_jud', upd: 'auto',
@@ -3117,6 +3117,8 @@
             d: 'Each cohort enters on its calendar date (pro-rata in the delivery month) and decays by the monthly decommissioning rate. Every per-car line multiplies by this active count.' },
           { t: 'Actuals override', src: 'All revenue/cost sources', upd: 'auto',
             d: 'Months up to today replace the model with consolidated ACTUALS of the whole fleet. The current month is a blend: what already happened plus the model for the remaining days — so early in the month revenue does not look like a cliff.' },
+          { t: 'How the fines pace is measured', src: 'measured on 292 fines', upd: 'auto',
+            d: 'A fine only exists for us when the agency e-mail arrives — measured on this base: 20 days on average, 27 at the 90th percentile, 42 at most. So the historical pace stops counting at the last matured day; dividing by every day since a fleet started counts days whose fines had not arrived yet and understated every fleet, from 15% on the oldest to 47% on the newest. A young fleet also has too thin a sample to trust (fleet 6 shows 6 fines where the pooled pace predicts 22), so its own pace is blended with the pooled one by credibility — weight = exposure / (exposure + 50 car-months) — which avoids a hard cutoff by age. Only the gross value is borrowed; each fleet keeps its own contract premium. This matters most for Tera cohorts, whose reference fleet went from R$43.77 to R$137.16 per car-month.' },
           { t: 'Taxes · Payment processing', src: '⚙ Assumptions', upd: 'manual',
             d: 'Federal tax as % of revenue, but pass-through lines pay only over their MARGIN: vehicle sell over (sell − purchase), the deposit refund over the interest alone, and traffic fines over the spread between what clients pay us and what we pay LM. The processing fee has a global value and can be overridden month by month.' },
           { t: 'FX and the year link', src: '⚙ Assumptions', upd: 'manual',
@@ -5600,40 +5602,95 @@
       });
     }
 
-    // "?" — origem e atualização de cada linha (referência rápida p/ quem consome a tabela)
+    // "?" do UE — mesmo guia navegável do P&L (linha do tempo + famílias + linha expansível),
+    // no lugar da tabela de três colunas que não cabia as explicações longas.
     function openInfoModal() {
-      const ROWS = [
-        ['Subscription', 'Actual: payments matrix (billing panel API). Projected: weekly fee (✎ box) × the Mondays inside EACH plate\'s own 52 weeks, counted from its delivery date — that is why the tail lands in M13', 'Auto, daily'],
-        ['Late-payment interest', 'Same matrix (actual interest) + contract version (v1/v2 5% · v3+ 20%) + late % slider', 'Auto, daily'],
-        ['Delinquency slider', 'Measured, not guessed: contracts ended as "Recuperação" ÷ weekly charges expected in the period, per fleet — the chip under the slider fills it in. It is a rate PER CHARGE because that is how it is applied', 'Auto, daily'],
-        ['Traffic fines (inflow)', 'Actual: fines API (what clients really paid). Projected: contract rule — GROSS fine × (1 + premium), 10% on v1/v2 and 20% from v3', 'Auto, daily'],
-        ['Termination fee', 'Sheet import_jud (total charge − fines/tolls) + recovery % slider · lands in M13', 'Auto, daily'],
-        ['Vehicle Sell', '✎ box: 103% of the purchase price, at M13', 'Manual'],
-        ['InDrive bonus', 'iD panel: value per plate × plates of each batch, on the month of the batch date', 'iD panel'],
-        ['Security Deposit Refund', 'Derived: deposit × (1 + % p.a. field) · M13', 'Manual'],
-        ['Subrental fee', '✎ monthly amount; installments on the 26th — the 1st is PRO-RATA of the days held in the arrival month, and the complement closes the 12 months in a 13th charge (shown inside M13)', 'Manual'],
-        ['Insurance', '✎ boxes (total / installments)', 'Manual'],
-        ['Car Preparation / Sticker', 'Fixed at M0 (−50 / −15 R$)', 'Static'],
-        ['Maintenance', 'Sheet import_rev (real invoices by due date) + revisions site prices −25% + fleet API odometer', 'Auto, daily'],
-        ['GPS / Security Deposit / Vehicle Purchase', '✎ boxes', 'Manual'],
-        ['Traffic fines (outflow)', 'Contract rule on multas_consolidado: NET fine (col O, ~80% of gross) × 1.05 to LM, on our due date. The margin comes from the discount: we charge the gross, we pay the net', 'Auto, daily'],
-        ['Recovery / Repair cost', 'Sheet import_jud (towing+recovery / damages+cleaning+others, by event date)', 'Auto, daily'],
-        ['Part Replacement', 'Fleet site events (natural wear only) + ⚙ Parts panel (intervals & costs)', 'Auto, daily / panel'],
+      // escape próprio: initUnit() não tem um no escopo (o do P&L vive dentro de initFinance)
+      const escH = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+      const FAM_DOT = { rev: '#5A00F8', cogs: '#EB6834', fines: '#15803D', eng: '#0891B2' };
+      const GROUPS = [
+        { id: 'rev', name: 'Revenue', dot: FAM_DOT.rev, rows: [
+          { t: 'Subscription', src: 'Payments matrix + ✎ weekly fee', upd: 'auto',
+            d: 'Realized comes from the payments matrix (billing panel API). Projected is the weekly fee (✎ box) × the Mondays inside EACH plate’s own 52 weeks, counted from its delivery date — which is why the tail lands in M13 instead of stopping at M12.' },
+          { t: 'Late-payment interest', src: 'Same matrix + late % slider', upd: 'auto',
+            d: 'Actual interest from the same payments matrix, plus the contract version of each plate: 5% on v1/v2, 20% from v3 onwards. The late % slider sets how much of the base pays late.' },
+          { t: 'Traffic fines (inflow)', src: 'Fines API + contract rule', upd: 'auto',
+            d: 'Realized is the fines API — what clients actually paid, on the payment date. Projected applies the contract rule: GROSS fine × (1 + premium), 10% on v1/v2 and 20% from v3. How the underlying pace per car is measured is explained in the "Traffic fines — how the pace is measured" section below.' },
+          { t: 'Termination fee', src: 'import_jud + recovery % slider', upd: 'auto',
+            d: 'Total charged on early terminations (sheet import_jud, total charge minus fines and tolls) × the recovery % slider. Lands at contract end, in M13.' },
+          { t: 'Vehicle Sell', src: '✎ box', upd: 'man',
+            d: 'Sale at 103% of the purchase price, at M13.' },
+          { t: 'InDrive bonus', src: 'iD panel', upd: 'mix',
+            d: 'Value per plate × the plates of each batch, on the month of the batch date.' },
+          { t: 'Security Deposit Refund', src: 'Derived from the deposit', upd: 'man',
+            d: 'The deposit coming back at M13, corrected by the % p.a. field. Deposit and refund are two sides of the same coin — the P&L’s "No deposit" view removes both together.' },
+        ]},
+        { id: 'cogs', name: 'COGS', dot: FAM_DOT.cogs, rows: [
+          { t: 'Subrental fee', src: '✎ monthly amount', upd: 'man',
+            d: 'Installments on the 26th. The 1st one is PRO-RATA of the days we actually held the car in its arrival month, and the missing complement closes the 12 months in a 13th charge, shown inside M13.' },
+          { t: 'Maintenance', src: 'import_rev + km pace', upd: 'auto',
+            d: 'Realized: the real invoices from sheet import_rev, by due date. Projected: each plate’s km pace (fleet API odometer) schedules the next revisions, priced from the revisions site with the 25% discount.' },
+          { t: 'Traffic fines (outflow)', src: 'multas_consolidado', upd: 'auto',
+            d: 'What we pay LM: the NET fine (column O, about 80% of the gross) × 1.05, on our due date. The margin of the fines business comes from this asymmetry — we charge over the gross and pay over the net, roughly 26% on the current numbers.' },
+          { t: 'Recovery / Repair cost', src: 'import_jud', upd: 'auto',
+            d: 'Sheet import_jud by event date: towing and recovery on one line, damages, cleaning and others on the other.' },
+          { t: 'Part Replacement', src: 'Fleet events + ⚙ Parts panel', upd: 'mix',
+            d: 'Realized from the fleet site events, counting natural wear only (atypical damage is charged to the client). Projected from each plate’s km pace against the intervals and costs set in the ⚙ Parts panel.' },
+          { t: 'Insurance · GPS · Deposit · Vehicle Purchase', src: '✎ boxes', upd: 'man',
+            d: 'Manual boxes. Insurance splits its total across the number of installments; the others land on their own schedule.' },
+          { t: 'Car Preparation / Sticker', src: 'Fixed at M0', upd: 'mix',
+            d: 'Flat −50 and −15 R$ in M0, the month the car is delivered.' },
+        ]},
+        // A pergunta que mais aparece: "de onde sai o número de multas de uma frota que mal começou?"
+        { id: 'fines', name: 'Traffic fines — how the pace is measured', dot: FAM_DOT.fines, rows: [
+          { t: 'The reporting lag, and why the window stops early', src: 'measured on 292 fines', upd: 'auto',
+            d: 'A fine does not exist for us on the day of the infraction — it exists when the agency e-mail arrives. Measured on this base: 20 days on average, 27 at the 90th percentile, 42 at most. So the most recent weeks always look artificially clean: those fines are still in transit. Dividing the known total by EVERY day since the fleet started therefore counts days whose fines had not arrived yet, and understates the pace of every fleet — measured at 15% on the oldest and 47% on the newest. The observation window now stops at the last matured day instead.' },
+          { t: 'A young fleet borrows the pace of the others', src: 'credibility blend', upd: 'auto',
+            d: 'A fleet that just opened has a thin and noisy sample: fleet 6 shows 6 fines where the pooled pace would predict 22 — too few to tell a real difference from luck. Rather than a hard "under 3 months" cutoff, which would make the number jump overnight, each fleet’s own pace is mixed with the pooled one by credibility: weight = its own exposure / (exposure + 50 car-months). A young fleet leans on the others and shifts to its own data as that data gains mass. Only the GROSS value is borrowed — each fleet keeps the contract premium of its own plates (10% on v1/v2, 20% from v3), so the donor fleet’s contract mix is not imported.' },
+          { t: 'Fines start on day one — they do not ramp with car age', src: 'pooled age curve', upd: 'auto',
+            d: 'Pooling every fleet by car age gives a flat curve — R$129 per car-month at M1, R$120 at M2. There is no "new car gets fewer fines" effect to model: the whole gap on young fleets was reporting lag plus sample noise, which is why the fix corrects the measurement instead of adding an age discount.' },
+        ]},
+        { id: 'eng', name: 'Engine', dot: FAM_DOT.eng, rows: [
+          { t: 'Delinquency slider', src: 'Measured per fleet', upd: 'auto',
+            d: 'Measured, not guessed: contracts ended as "Recuperação" ÷ the weekly charges expected in the period, per fleet — the chip under the slider fills it in. It is a rate PER CHARGE, because that is how it is applied.' },
+          { t: 'When the numbers refresh', src: '05:00 São Paulo', upd: 'auto',
+            d: 'Automatic sources refresh daily at 05:00 (São Paulo), on every deploy, and whenever the ↻ Refresh button is pressed. Manual boxes and sliders save to the database instantly.' },
+        ]},
       ];
+      const BADGE = { auto: ['Auto · daily 05:00', 'pi-b-auto'], man: ['Manual', 'pi-b-man'], mix: ['Mixed', 'pi-b-mix'] };
       const ov = document.createElement('div');
       ov.className = 'ue-modal-overlay';
       ov.innerHTML =
-        `<div class="ue-modal ue-modal-info"><div class="ue-modal-title">Where each line comes from</div>` +
-        `<div class="ue-modal-sub">Automatic sources refresh <b>daily at 05:00 (São Paulo)</b>, on every deploy, and via the ↻ Refresh button. Manual boxes/sliders save instantly to the database.</div>` +
-        `<table class="ue-info-table"><thead><tr><th>Line</th><th>Source</th><th>Updates</th></tr></thead><tbody>` +
-        ROWS.map(([l, o, u]) => `<tr><td>${l}</td><td>${o}</td><td>${u}</td></tr>`).join('') +
-        `</tbody></table>` +
-        `<div class="ue-modal-hint">Realized values render in black (fixed FX), projections in purple (future FX slider), budget in grey. The current month combines realized + the remaining projection.</div>` +
-        `<div class="ue-modal-actions"><button type="button" class="ue-modal-cancel">Close</button></div></div>`;
+        `<div class="ue-modal pnl-infox">` +
+          `<div class="pi-head"><div><div class="ue-modal-title" style="margin:0">Where each line comes from</div>` +
+            `<div class="ue-modal-sub" style="margin:4px 0 0">Click a line to read how it is built. Every value is per car, over the M0–M13 life of the contract.</div></div>` +
+            `<button type="button" class="pi-close" title="Close">✕</button></div>` +
+          `<div class="pi-tl">` +
+            `<div class="pi-tl-seg past"><b>Realized</b><span>black — money that actually moved, at the FX of the day</span></div>` +
+            `<div class="pi-tl-seg now"><b>Current month</b><span>realized so far + the model for the remaining days</span></div>` +
+            `<div class="pi-tl-seg fut"><b>Projected</b><span>purple at the FX slider · grey = budget</span></div>` +
+          `</div>` +
+          GROUPS.map((g) =>
+            `<div class="pi-g"><div class="pi-g-h"><i style="background:${g.dot}"></i>${escH(g.name)}</div>` +
+            g.rows.map((r, i) => {
+              const [bl, bc] = BADGE[r.upd];
+              return `<div class="pi-row" data-k="${g.id}${i}">` +
+                `<div class="pi-row-top"><span class="pi-row-t">${escH(r.t)}</span>` +
+                  `<span class="pi-row-src">${escH(r.src)}</span>` +
+                  `<span class="pi-b ${bc}">${bl}</span><span class="pi-chev">▸</span></div>` +
+                `<div class="pi-row-d" hidden>${escH(r.d)}</div></div>`;
+            }).join('') + `</div>`).join('') +
+        `</div>`;
       document.body.appendChild(ov);
       const close = () => ov.remove();
       ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
-      ov.querySelector('.ue-modal-cancel').addEventListener('click', close);
+      ov.querySelector('.pi-close').addEventListener('click', close);
+      ov.querySelectorAll('.pi-row').forEach((row) => row.addEventListener('click', () => {
+        const d = row.querySelector('.pi-row-d');
+        const open = d.hidden;
+        d.hidden = !open;
+        row.classList.toggle('open', open);
+      }));
     }
 
     // painel ⚙ Parts: a cada quantos MIL km trocar cada peça + custo por troca (global, persiste em __cfg__)

@@ -446,20 +446,20 @@ html { scrollbar-gutter: stable; }
 .costs-help:hover { border-color: var(--accent); color: var(--accent); }
 .costs-helpbox { width: 460px; max-width: 92vw; }
 .costs-help-d { font-size: 12.5px; line-height: 1.65; color: var(--text); margin: 6px 0 4px; }
+canvas.cv-tall { width: 100% !important; height: 310px !important; }
 canvas.cv-big { width: 100% !important; height: 250px !important; }
-canvas.cv-mid { width: 100% !important; height: 240px !important; }
+canvas.cv-mid { width: 100% !important; height: 260px !important; }
 canvas.cv-sm { width: 100% !important; height: 215px !important; }
-/* sandbox do Main: um slider por linha (na cor dela) + blocos de resultado combinado */
-.sb-row { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }
-.sb-row .costs-pk-dot { flex: none; }
-.sb-name { font-size: 11px; width: 108px; flex: none; line-height: 1.2; }
-.sb-row input[type=range] { flex: 1; min-width: 60px; cursor: pointer; }
-.sb-pct { width: 40px; text-align: right; font-size: 12px; flex: none; }
-.sb-chip { width: 92px; flex: none; font-style: normal; }
-.sb-chip .cw-chip { margin-top: 0; font-size: 9.5px; padding: 2px 6px; }
-#ccSandbox .cw-tiles { margin-top: 12px; grid-template-columns: repeat(2, 1fr); }
-.sb-reset { font: inherit; font-size: 10.5px; font-weight: 700; margin-top: 10px; padding: 5px 12px; border: 1px solid var(--border-2); border-radius: 999px; background: var(--surface); color: var(--text-2); cursor: pointer; }
-.sb-reset:hover { border-color: var(--accent); color: var(--accent); }
+/* filtros da aba: visão Forecast/Actuals + mês isolado + frota isolada */
+.costs-tgl { display: flex; border: 1px solid var(--border-2); border-radius: 10px; overflow: hidden; }
+.costs-tgl button { font: inherit; font-size: 11.5px; font-weight: 700; padding: 8px 13px; border: 0; background: var(--surface); color: var(--text-2); cursor: pointer; }
+.costs-tgl button.on { background: var(--accent); color: #fff; }
+.costs-mini { font: inherit; font-size: 11.5px; font-weight: 600; padding: 8px 10px; border: 1px solid var(--border-2); border-radius: 10px; background: var(--surface); color: var(--text); cursor: pointer; max-width: 190px; }
+.costs-mini:hover { border-color: var(--accent); }
+.costs-scope-chip { font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; padding: 4px 10px; border-radius: 999px; background: #FEF3C7; color: #92400E; }
+.cc-hint { font-size: 10px; color: var(--text-2); font-weight: 600; }
+/* big number do drill (média por carro·mês) — o destaque da seção */
+.cc-big.cc-huge b { font-size: 32px; }
 /* vida do carro: os dois indicadores ENFÁTICOS ao lado do gráfico */
 .cc-agewrap { display: flex; gap: 14px; align-items: stretch; }
 .cc-inds { flex: none; width: 168px; display: flex; flex-direction: column; gap: 10px; justify-content: center; }

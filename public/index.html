@@ -596,20 +596,17 @@
           <div id="costsYear"></div>
         </div>
         <div id="costsCtl"></div>
-        <!-- MAIN: visão geral do COGS — Pareto + mix mensal + sandbox das 4 maiores saídas -->
+        <!-- MAIN: visão geral do COGS — Pareto clicável + drill mensal por frota da barra escolhida -->
         <div id="costsMain" hidden>
           <div class="costs-chart">
-            <div class="cc-head"><h4>Pareto — where the COGS money goes</h4><button type="button" class="costs-help" data-h="pareto">?</button></div>
-            <canvas id="ccPareto" class="cv-big"></canvas>
+            <div class="cc-head"><h4>Pareto — where the COGS money goes</h4><span class="cc-hint">click a bar to open it below</span><button type="button" class="costs-help" data-h="pareto">?</button></div>
+            <canvas id="ccPareto" class="cv-tall"></canvas>
           </div>
-          <div class="costs-grid-small" style="margin-top:14px">
-            <div class="costs-chart">
-              <div class="cc-head"><h4>Monthly mix — the four biggest + others</h4><button type="button" class="costs-help" data-h="mix">?</button></div>
-              <canvas id="ccMix" class="cv-mid"></canvas>
-            </div>
-            <div class="costs-chart">
-              <div class="cc-head"><h4>Sandbox — move the four biggest</h4><button type="button" class="costs-help" data-h="sandbox">?</button></div>
-              <div id="ccSandbox"></div>
+          <div class="costs-chart" style="margin-top:14px" id="ccDrillBox">
+            <div class="cc-head"><h4 id="ccDrillT"></h4><button type="button" class="costs-help" data-h="drill">?</button></div>
+            <div class="cc-agewrap">
+              <div class="cc-inds" id="ccDrillInds"></div>
+              <div class="cc-agecv"><canvas id="ccDrill" class="cv-mid"></canvas></div>
             </div>
           </div>
         </div>

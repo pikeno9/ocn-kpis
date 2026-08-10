@@ -1896,6 +1896,67 @@
   const UET_RECUR = 12;    // recorrências mensais (M1..M12)
   const UET_WPM = 52 / 12; // semanas por mês (~4,333)
 
+  // ---------- MULTAS: ritmo por carro, corrigido pela MATURAÇÃO da base ----------
+  // Uma infração só entra em multas_consolidado quando o e-mail do órgão chega. Medido NESTA base
+  // (292 multas): média 20 dias, p90 27, máximo 42. Dividir o total conhecido por TODOS os dias
+  // desde o início da frota conta dias cujas multas ainda não chegaram — e subestima o ritmo em
+  // TODAS as frotas, não só nas novas (medido: −15% na frota 1, −47% na frota 6). A janela de
+  // observação aqui para no último dia já maduro (hoje − FINES_LAG_D).
+  // Frota recém-aberta ainda tem exposição fina e estimativa ruidosa (a frota 6 tem 6 multas onde
+  // o ritmo médio preveria 22), então o ritmo próprio é MISTURADO com o das demais por
+  // credibilidade — peso = exposição / (exposição + K). Isso substitui um corte seco por idade:
+  // a frota passa a usar dados próprios à medida que eles ganham massa, sem degrau.
+  const FINES_LAG_D = 27;   // p90 medido do atraso infração -> e-mail
+  const FINES_CRED_K = 50;  // carro-meses em que o ritmo próprio pesa 50%
+  let _finesRates = null;
+  function finesRatesByFleet() {
+    if (_finesRates) return _finesRates;
+    const U = OCN.ue || {};
+    const MB = U.multasBase || {}, base = MB.placas || {}, MS = 86400000, MESd = UET_WPM * 7;
+    const hoje = new Date(((U.hoje) || new Date().toISOString().slice(0, 10)) + 'T12:00:00');
+    const cut = new Date(hoje.getTime() - FINES_LAG_D * MS);
+    const desc = MB.descontoMedio || 0.8;
+    const ctv = U.contratos || {};
+    const premOf = (pl) => ((ctv[pl] || 1) >= 3 ? 0.20 : 0.10);
+    // bruto = o que se cobra do cliente (antes do prêmio); líquido × 1,05 = o que se paga à LM
+    const grossOf = (x) => (x.bruto > 0 ? x.bruto : (x.liq > 0 ? x.liq / desc : (x.v || 0) / 1.05 / desc));
+    const netOf = (x) => (x.liq > 0 ? x.liq : (x.v || 0) / 1.05) * 1.05;
+    const per = {}; let poolG = 0, poolN = 0, poolD = 0;
+    (U.fleets || []).forEach((f) => {
+      if (!f.inicio) return;
+      const plates = f.placas || [];
+      const cars = Math.max(1, f.cars || plates.length || 1);
+      const carDays = Math.max(0, (cut - new Date(f.inicio + 'T12:00:00')) / MS) * cars;
+      let g = 0, n = 0;
+      plates.forEach((pl) => (base[pl] || []).forEach((x) => {
+        if (!x.inf || new Date(x.inf + 'T12:00:00') > cut) return;   // ainda não maduro
+        g += grossOf(x); n += netOf(x);
+      }));
+      // prêmio médio DA PRÓPRIA frota: o ritmo emprestado das outras é de valor bruto, e o prêmio
+      // (10% v1/v2, 20% v3+) depende da versão de contrato das placas desta frota, não das delas
+      const prem = plates.length ? plates.reduce((s, pl) => s + (1 + premOf(pl)), 0) / plates.length : 1.10;
+      per[f.id] = { g, n, carDays, prem };
+      poolG += g; poolN += n; poolD += carDays;
+    });
+    const pg = poolD ? poolG / poolD : 0, pn = poolD ? poolN / poolD : 0;
+    // prêmio médio de TODAS as placas — usado quando a projeção é da operação inteira, não de uma frota
+    const allPl = (U.fleets || []).reduce((a, f) => a.concat(f.placas || []), []);
+    const poolPrem = allPl.length ? allPl.reduce((s, pl) => s + (1 + premOf(pl)), 0) / allPl.length : 1.10;
+    const out = { __pool: { gross: pg, net: pn, prem: poolPrem } };
+    Object.entries(per).forEach(([id, v]) => {
+      const expo = v.carDays / MESd;                       // exposição madura em carro-meses
+      const w = expo / (expo + FINES_CRED_K);              // credibilidade do dado próprio
+      const og = v.carDays ? v.g / v.carDays : pg, on = v.carDays ? v.n / v.carDays : pn;
+      out[id] = {
+        gross: w * og + (1 - w) * pg,                      // R$/carro/dia (bruto, sem prêmio)
+        net: w * on + (1 - w) * pn,                        // R$/carro/dia (o que sai para a LM)
+        prem: v.prem, w, expo, ownGross: og, poolGross: pg,
+      };
+    });
+    _finesRates = out;
+    return out;
+  }
+
   // ---------- InDrive: benefício por placa, recebido em LEVAS (uma data + uma lista de placas) ----------
   // Fonte única: alimenta a linha "Initial Fee / Vehicle Sell" no UE real e no P&L (que tem um
   // botão para tirar o efeito da conta, igual ao "No deposit").
@@ -2242,14 +2303,12 @@
         // (10% v1/v2, 20% v3+) e pagamos o LÍQUIDO + 5% à LM. Usar o "total cobrado" da API aqui
         // reproduzia o repasse atual, que aplica o prêmio sobre o valor JÁ descontado e deixava a
         // margem em ~7% em vez dos ~30% que o contrato prevê.
-        const desc = (U.multasBase && U.multasBase.descontoMedio) || 0.8;
-        const ctv = U.contratos || {};
-        const premOf = (pl) => ((ctv[pl] || 1) >= 3 ? 0.20 : 0.10);
-        const brutoOf = (x) => (x.bruto > 0 ? x.bruto : (x.liq > 0 ? x.liq / desc : (x.v || 0) / 1.05 / desc));
-        const finesInDay = plates.reduce((s, pl) => s + (((U.multasBase || {}).placas || {})[pl] || [])
-          .reduce((a, x) => a + brutoOf(x) * (1 + premOf(pl)), 0), 0) / dias / cars;
-        const finesOutDay = plates.reduce((s, pl) => s + (((U.multasBase || {}).placas || {})[pl] || [])
-          .reduce((a, x) => a + (x.liq > 0 ? x.liq : (x.v || 0) / 1.05) * 1.05, 0), 0) / dias / cars;
+        // O ritmo vem de finesRatesByFleet(): janela madura + mistura com as outras frotas por
+        // credibilidade. Dividir pelo total de dias corridos (como era aqui) subestimava a frota de
+        // referência do Tera em ~3,8x, porque ela mal começou e quase nenhuma multa dela chegou.
+        const FR = finesRatesByFleet()[fid] || finesRatesByFleet().__pool;
+        const finesInDay = (FR.gross || 0) * (FR.prem || 1.10);
+        const finesOutDay = FR.net || 0;
         const recDay = sumBy((U.judBase || {}).placas, (x) => x.recovery || 0) / dias / cars;
         const repDay = sumBy((U.judBase || {}).placas, (x) => x.repair || 0) / dias / cars;
         const termDay = sumBy((U.judBase || {}).placas, (x) => x.term || 0) / dias / cars;
@@ -2522,14 +2581,19 @@
           cogs['Repair cost'][m] = blend(cogs['Repair cost'], -ACT.rep[m]);
           cogs['Part Replacement'][m] = blend(cogs['Part Replacement'], -ACT.parts[m]);
         }
-        const days = Math.max(1, (new Date(hojeIso + 'T12:00:00') - new Date('2026-04-01T12:00:00')) / 86400000);
-        if (days > 30) {
-          const inDay = ACT.finesIn.reduce((a, b) => a + b, 0) / days;
-          const outDay = ACT.finesOut.reduce((a, b) => a + b, 0) / days;
+        // Multas dos meses FUTUROS: o Theoric não modela essa linha, então ela vem do ritmo
+        // histórico observado — mas POR CARRO, multiplicado pela frota ativa de cada mês.
+        // Antes era o R$/dia da operação inteira dividido pelos dias corridos, um número fixo que
+        // congelava as multas no tamanho de frota de hoje: com a frota indo de 415 para 757 carros,
+        // novembro projetava o mesmo que setembro (só variava 30/31 dias). Some-se a isso a
+        // maturação (multa leva ~20 dias para chegar), e a linha saía subestimada duas vezes.
+        {
+          const FRp = finesRatesByFleet().__pool;
           const dim = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
           for (let m = curM + 1; m < FIN_MONTHS; m++) {
-            rev['Traffic fines'][m] = (inDay * dim[m]) / fx;
-            cogs['Traffic fines (out)'][m] = -(outDay * dim[m]) / fx;
+            const carDays = (active[m] || 0) * dim[m];
+            rev['Traffic fines'][m] = (FRp.gross * FRp.prem * carDays) / fx;
+            cogs['Traffic fines (out)'][m] = -(FRp.net * carDays) / fx;
           }
         }
         actualsThrough = curM;
@@ -4929,9 +4993,12 @@
       // infrações FUTURAS: ritmo histórico de valor BRUTO por dia × (1 + prêmio médio das placas
       // desta frota hoje). Antes a base era o total já cobrado — que embute o prêmio antigo — e
       // precisava de um fator de escala; com o bruto o prêmio entra uma vez só, explicitamente.
-      const dias = Math.max(1, (hoje - ini) / MS);
+      // ritmo de infrações NOVAS: janela madura + credibilidade (ver finesRatesByFleet). Antes era
+      // brutoTot / dias corridos, que conta os ~27 dias finais cujas multas ainda não chegaram.
       const premioHoje = avgByVersion(f, VER_PREMIO, 0.10);
-      const perDay = (brutoTot / dias) * (1 + premioHoje) * taxa;
+      const carsNow = plateView ? 1 : Math.max(1, f.cars || (f.placas || []).length || 1);
+      const FR = finesRatesByFleet()[f.id];
+      const perDay = (FR ? FR.gross * carsNow : brutoTot / Math.max(1, (hoje - ini) / MS)) * (1 + premioHoje) * taxa;
       for (let p = 1; p <= PMAX; p++) {
         const winStart = new Date(ini.getTime() + (p - 1) * SEMANAS_MES * 7 * MS);
         const winEnd = new Date(ini.getTime() + p * SEMANAS_MES * 7 * MS);
@@ -4977,9 +5044,12 @@
         mo = Math.min(Math.max(mo, 1), PMAX);
         if (venceu) finesOutRealRS[mo] += x.v; else finesOutProjRS[mo] += x.v;
       }));
-      // ritmo histórico de multas (R$/dia) para projetar as infrações que ainda vão acontecer
-      const diasCorridos = Math.max(1, (hoje - curIni) / MS);
-      const perDay = total / diasCorridos;
+      // ritmo histórico de multas (R$/dia) para projetar as infrações que ainda vão acontecer —
+      // mesma correção de maturação/credibilidade da linha de entrada, para os dois lados falarem
+      // do mesmo universo de infrações
+      const carsOut = plateView ? 1 : Math.max(1, f.cars || (f.placas || []).length || 1);
+      const FRo = finesRatesByFleet()[f.id];
+      const perDay = FRo ? FRo.net * carsOut : total / Math.max(1, (hoje - curIni) / MS);
       for (let p = 1; p <= PMAX; p++) {
         const winStart = new Date(curIni.getTime() + (p - 1) * SEMANAS_MES * 7 * MS);
         const winEnd = new Date(curIni.getTime() + p * SEMANAS_MES * 7 * MS);

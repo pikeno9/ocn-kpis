@@ -4421,6 +4421,34 @@
     // na vida do contrato (pesa na entrega ou dilui nos 12 meses?) e um what-if de %.
     let costsSel = 'Subrental fee', costsCharts = {}, costsWhatifPct = 0;
     const COSTS_LIST = ['Subrental fee', 'Maintenance', 'Insurance', 'Recovery cost', 'Repair cost', 'Traffic fines (out)', 'Part Replacement', 'GPS', 'Car Preparation', 'Sticker'];
+    // uma cor por linha de custo — a página inteira (picker, cartões, gráficos, what-if) veste a
+    // cor da linha selecionada, e o ranking mostra cada linha na sua própria cor
+    const COSTS_COLOR = {
+      'Subrental fee': '#5A00F8', 'Maintenance': '#0891B2', 'Insurance': '#2563EB',
+      'Recovery cost': '#EB6834', 'Repair cost': '#DC2626', 'Traffic fines (out)': '#D97706',
+      'Part Replacement': '#7C3AED', 'GPS': '#0D9488', 'Car Preparation': '#DB2777', 'Sticker': '#64748B',
+    };
+    const costsTint = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`; };
+    // textos longos saem da página e viram caixas de ajuda (botões "?")
+    const COSTS_HELP = {
+      rank: { t: 'Where it sits in COGS', d: 'Full-year total of every vehicle cost line, biggest first, each in its own colour — the selected one at full strength. It answers "how much does this line matter" before any deeper look.' },
+      age: { t: 'When it hits a car’s life', d: 'The per-car cost over the contract (theoric profile): M0 is the delivery month, M1–M12 the recurring months, M13 the closing month. FRONT-LOAD INDEX = the share of a car’s lifetime cost that falls in the first four months (M0–M3) divided by the 25% that a cost spread evenly across the 12 recurring months would put there. So 1.0 = evenly spread; 4.0 = everything at delivery (hurts the cash exactly while the fleet ramps); below 1.0 = back-loaded, lands at the end of the contract. AVERAGE MONTH OF SPEND is the profile’s center of mass — a cost spread evenly over M2–M13 averages M7.5.' },
+      monthly: { t: 'Monthly view', d: 'Bars = the line month by month, in the display currency. Orange line = active cars (right axis). For Recovery/Repair a dotted line adds the underlying events. Months up to today are consolidated actuals; ahead is the projection.' },
+      percar: { t: 'Cost per active car', d: 'The monthly cost divided by the active fleet. A flat line means the cost simply follows the fleet (each car costs the same); a rising line means each car is getting more expensive — that is the chart that flags real problems. FLEET-LINK (ELASTICITY) is the slope of ln(cost) vs ln(fleet) across the year: 1.0 = 10% more cars → 10% more cost (proportional); near 0 = a fixed cost that dilutes as the fleet grows.' },
+      whatif: { t: 'What-if', d: 'Moves the selected line by a percentage and shows the first-order effect on the year: the line itself, its share of revenue, Gross Margin and Net cashflow. Taxes and credits are not recomputed — and in 2027 the sublease tax netting would also move with the Subrental line.' },
+    };
+    function costsHelpOpen(k) {
+      const h = COSTS_HELP[k]; if (!h) return;
+      const ov = document.createElement('div');
+      ov.className = 'ue-modal-overlay';
+      ov.innerHTML = `<div class="ue-modal costs-helpbox"><div class="ue-modal-title">${escH(h.t)}</div>` +
+        `<div class="costs-help-d">${escH(h.d)}</div>` +
+        `<div class="ue-modal-actions"><button type="button" class="ue-modal-cancel">Close</button></div></div>`;
+      document.body.appendChild(ov);
+      const close = () => ov.remove();
+      ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+      ov.querySelector('.ue-modal-cancel').addEventListener('click', close);
+    }
     const COSTS_INFO = {
       'Subrental fee': 'Monthly rent per car paid to LM on the 26th — 1st installment pro-rata of the arrival month, a 13th charge closes the 12 months. The single biggest cost of the operation.',
       'Maintenance': 'Revisions every 10.000 km at each fleet’s real km pace, priced from the revisions site with the 25% discount and paid ~33 days later.',
@@ -4469,91 +4497,136 @@
         perOk = true;
       });
       const perTot = S(per);
-      // Front-load Index: fatia do custo nos 4 primeiros meses do carro ÷ 4/14 (o "espalhado por
-      // igual"). >1 = concentrado na entrega (pesa no caixa quando a frota cresce); ~1 = diluído.
+      // Front-load Index: fatia do custo de vida do carro que cai nos 4 primeiros meses (M0–M3)
+      // ÷ 25% — que é o que um custo espalhado POR IGUAL nos 12 meses recorrentes colocaria ali
+      // (3 dos 12 meses M1..M12; o M0 não tem recorrência). Assim "igualmente espalhado" dá
+      // exatamente 1,0; tudo na entrega dá o teto de 4,0; abaixo de 1 é carga no fim do contrato.
       let fli = null, com = null;
       if (perOk && perTot > 0) {
-        fli = (S(per.slice(0, 4)) / perTot) / (4 / 14);
+        fli = (S(per.slice(0, 4)) / perTot) / 0.25;
         com = per.reduce((s, v, i) => s + v * i, 0) / perTot;
       }
-      // eventos por trás do custo (só onde faz sentido): recuperações / casos de reparo
+      // eventos por trás do custo (só onde faz sentido): recuperações / casos de reparo.
+      // O custo por evento usa APENAS o realizado dos dois lados — o total do ano inclui projeção
+      // mas a contagem de eventos não, e dividir um pelo outro inflava a média por caso.
       const evts = (() => {
+        const hoje = (OCN.ue && OCN.ue.hoje) || '';
+        const fx = finPar('__fin_fx__') || 5.5;
+        const judReal = (field) => {
+          let rs = 0;
+          Object.values(((OCN.ue || {}).judBase || {}).placas || {}).forEach((a) => a.forEach((c) => {
+            const iso = c.d || hoje; if (String(iso).slice(0, 4) === String(finYear)) rs += c[field] || 0;
+          }));
+          return rs / fx; // USD
+        };
         if (costsSel === 'Recovery cost') {
           const z = new Array(FIN_MONTHS).fill(0);
           (((OCN.payments || {}).weeks) || []).forEach((w) => { if (!w.date || String(w.date).slice(0, 4) !== String(finYear)) return; const m = parseInt(String(w.date).slice(5, 7), 10) - 1; if (m >= 0 && m < FIN_MONTHS) z[m] += (w.counts && w.counts.recovered) || 0; });
-          return { z, label: 'repossessions' };
+          return { z, label: 'repossessions', realUSD: judReal('recovery') };
         }
         if (costsSel === 'Repair cost') {
           const z = new Array(FIN_MONTHS).fill(0);
-          const hoje = (OCN.ue && OCN.ue.hoje) || '';
           Object.values(((OCN.ue || {}).judBase || {}).placas || {}).forEach((a) => a.forEach((c) => {
             if (!(c.repair > 0)) return;
             const iso = c.d || hoje; if (String(iso).slice(0, 4) !== String(finYear)) return;
             const m = parseInt(String(iso).slice(5, 7), 10) - 1; if (m >= 0 && m < FIN_MONTHS) z[m] += 1;
           }));
-          return { z, label: 'repair cases' };
+          return { z, label: 'repair cases', realUSD: judReal('repair') };
         }
         return null;
       })();
-      // ---- seletor + moeda + nota da linha ----
+      // ---- seletor (picker com cor e subtítulo por linha, mesmo modelo do Dashboard) + moeda ----
+      const C = COSTS_COLOR[costsSel] || '#5A00F8';
       const ctl = document.getElementById('costsCtl');
-      ctl.innerHTML = '<div class="costs-bar"><select class="costs-sel" id="costsSel">' +
-        COSTS_LIST.map((L) => `<option value="${escH(L)}"${L === costsSel ? ' selected' : ''}>${escH(L)}</option>`).join('') +
-        '</select>' + finCurFlags() + '</div>' +
-        `<div class="costs-note">${escH(COSTS_INFO[costsSel] || '')}</div>`;
-      ctl.querySelector('#costsSel').addEventListener('change', (e) => { costsSel = e.target.value; costsWhatifPct = 0; renderCosts(); });
+      ctl.innerHTML = '<div class="costs-bar"><div class="costs-pk" id="costsPk">' +
+        `<button type="button" class="costs-pk-btn" id="costsPkBtn" style="--cl:${C}"><span class="costs-pk-dot" style="background:${C}"></span><b>${escH(costsSel)}</b><span class="costs-pk-car">▾</span></button>` +
+        '<div class="costs-pk-pop" id="costsPkPop" hidden>' + COSTS_LIST.map((L) =>
+          `<button type="button" class="costs-pk-o${L === costsSel ? ' on' : ''}" data-v="${escH(L)}">` +
+          `<span class="costs-pk-dot" style="background:${COSTS_COLOR[L]}"></span>` +
+          `<span class="costs-pk-txt"><b>${escH(L)}</b><i>${escH(COSTS_INFO[L] || '')}</i></span></button>`).join('') +
+        '</div></div>' + finCurFlags() + '</div>';
+      const pk = document.getElementById('costsPk'), pkB = document.getElementById('costsPkBtn'), pkP = document.getElementById('costsPkPop');
+      const closePk = () => { pkP.hidden = true; pkB.classList.remove('open'); document.removeEventListener('click', outPk); };
+      const outPk = (e) => { if (!pk.contains(e.target)) closePk(); };
+      pkB.addEventListener('click', () => { const open = pkP.hidden; pkP.hidden = !open; pkB.classList.toggle('open', open); if (open) setTimeout(() => document.addEventListener('click', outPk), 0); });
+      pkP.querySelectorAll('.costs-pk-o').forEach((b) => b.addEventListener('click', () => { costsSel = b.dataset.v; costsWhatifPct = 0; closePk(); renderCosts(); }));
       wireCurFlags(ctl, () => renderCosts());
-      // ---- cartões ----
-      const card = (t, v, sub) => `<div class="costs-card"><span>${escH(t)}</span><b>${v}</b><span class="sub">${escH(sub || '')}</span></div>`;
+      sec.querySelectorAll('.costs-help').forEach((b) => { b.onclick = () => costsHelpOpen(b.dataset.h); });
+      // ---- cartões de peso (indicadores criados ficam DENTRO das caixas dos gráficos deles) ----
+      const card = (t, v, sub, strong) => `<div class="costs-card${strong ? ' cc-strong' : ''}" style="--cl:${C}"><span>${escH(t)}</span><b>${v}</b><span class="sub">${escH(sub || '')}</span></div>`;
       const evFY = evts ? S(evts.z) : 0;
+      const perEvent = (evts && evFY && evts.realUSD) ? evts.realUSD / evFY : null;
       document.getElementById('costsHero').innerHTML = '<div class="costs-cards">' +
-        card('FY total', money(fy), (cogsFY ? (fy / cogsFY * 100).toFixed(1) : '0') + '% of COGS') +
+        card('FY total', money(fy), (cogsFY ? (fy / cogsFY * 100).toFixed(1) : '0') + '% of COGS', true) +
         card('Share of revenue', revFY ? (fy / revFY * 100).toFixed(1) + '%' : '—', 'gross revenue FY ' + money(revFY)) +
         card('Per active car · month', carMonths ? money(fy / carMonths) : '—', Math.round(carMonths).toLocaleString('pt-BR') + ' car-months in the year') +
         (perOk ? card('Per car · full contract', 'R$ ' + fmtQty(perTot), 'theoric M0–M13 profile') : '') +
-        card('Fleet-link (elasticity)', elast == null ? '—' : elast.toFixed(2),
-          elast == null ? 'not enough months to measure' : (elast >= 0.75 ? 'scales with the fleet — grows as cars grow' : elast >= 0.35 ? 'partly fleet-driven' : 'mostly flat / fixed')) +
-        (fli != null ? card('Front-load index', fli.toFixed(2) + '×', fli >= 1.4 ? 'concentrated at delivery — hits the cash early' : fli >= 0.8 ? 'evenly spread over the contract' : 'back-loaded (end of contract)') : '') +
-        (fli != null ? card('Average month of spend', 'M' + com.toFixed(1), 'center of mass of the per-car profile (M0–M13)') : '') +
-        (evts && evFY ? card(evts.label + ' (FY)', String(evFY), money(fy / evFY) + ' per event') : '') +
+        (evts && evFY ? card(evts.label + ' (FY)', String(evFY), perEvent != null ? money(perEvent) + ' per event — realized only' : 'no realized cost yet') : '') +
         '</div>';
-      // ---- gráficos ----
+      // ---- gráficos (todos vestem a cor da linha selecionada) ----
       const mk = (id, cfg) => { if (costsCharts[id]) { costsCharts[id].destroy(); delete costsCharts[id]; } const c = document.getElementById(id); if (!c) return; costsCharts[id] = new Chart(c.getContext('2d'), cfg); };
       const MONL = Array.from({ length: FIN_MONTHS }, (_, m) => monthLbl(m));
       const noDL = { datalabels: { display: false } };
-      document.getElementById('ccMainT').textContent = costsSel + ' — monthly';
-      document.getElementById('ccMainS').textContent = 'bars = cost (' + cs + ') · orange line = active cars' + (evts ? ' · dotted = ' + evts.label : '');
+      document.getElementById('ccMainT').innerHTML = `<span class="costs-pk-dot" style="background:${C}"></span>${escH(costsSel)} — monthly`;
       mk('ccMain', { data: { labels: MONL, datasets: [
-          { type: 'bar', label: costsSel, data: arr.map((v) => Math.round(v * K)), backgroundColor: '#5A00F8', yAxisID: 'y', borderRadius: 3, maxBarThickness: 26 },
+          { type: 'bar', label: costsSel, data: arr.map((v) => Math.round(v * K)), backgroundColor: C, yAxisID: 'y', borderRadius: 3, maxBarThickness: 26 },
           { type: 'line', label: 'Active cars', data: act.map((v) => Math.round(v)), borderColor: '#EB6834', backgroundColor: 'transparent', yAxisID: 'y2', tension: .3, pointRadius: 2, borderWidth: 2 },
         ].concat(evts ? [{ type: 'line', label: evts.label, data: evts.z, borderColor: '#0891B2', backgroundColor: 'transparent', yAxisID: 'y2', borderDash: [4, 3], pointRadius: 3, tension: 0, borderWidth: 1.5 }] : []) },
         options: { responsive: true, maintainAspectRatio: false, plugins: Object.assign({ legend: { labels: { boxWidth: 10, font: { size: 9 } } } }, noDL),
           scales: { y: { beginAtZero: true, ticks: { font: { size: 9 } } }, y2: { position: 'right', beginAtZero: true, grid: { display: false }, ticks: { font: { size: 9 } } }, x: { ticks: { font: { size: 9 } } } } } });
-      mk('ccPerCar', { type: 'line', data: { labels: MONL, datasets: [{ label: cs + ' per car', data: arr.map((v, m) => act[m] > 1 ? Math.round(v * K / act[m]) : null), borderColor: '#5A00F8', backgroundColor: 'rgba(90,0,248,.06)', fill: true, tension: .3, pointRadius: 3 }] },
+      // elasticidade — enfática, na caixa do custo por carro (é o gráfico que conta essa história)
+      const elEl = document.getElementById('ccElast');
+      if (elEl) elEl.innerHTML = elast == null ? '' :
+        `<b style="color:${C}">${elast.toFixed(2)}</b><span>fleet-link · ${elast >= 0.75 ? 'follows the fleet' : elast >= 0.35 ? 'partly fleet-driven' : 'mostly fixed'}</span>`;
+      mk('ccPerCar', { type: 'line', data: { labels: MONL, datasets: [{ label: cs + ' per car', data: arr.map((v, m) => act[m] > 1 ? Math.round(v * K / act[m]) : null), borderColor: C, backgroundColor: costsTint(C, .08), fill: true, tension: .3, pointRadius: 3, pointBackgroundColor: C }] },
         options: { responsive: true, maintainAspectRatio: false, plugins: Object.assign({ legend: { display: false } }, noDL), scales: { y: { beginAtZero: true, ticks: { font: { size: 9 } } }, x: { ticks: { font: { size: 9 } } } } } });
+      // ranking: cada linha na PRÓPRIA cor — a selecionada cheia, as outras esmaecidas
       const rankRows = COSTS_LIST.map((L) => ({ L, v: S(lineOfL(L)) })).filter((r) => r.v > 0).sort((a, b) => b.v - a.v);
-      mk('ccRank', { type: 'bar', data: { labels: rankRows.map((r) => r.L), datasets: [{ data: rankRows.map((r) => Math.round(r.v * K)), backgroundColor: rankRows.map((r) => r.L === costsSel ? '#5A00F8' : '#DDD6FE'), borderRadius: 3 }] },
-        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: Object.assign({ legend: { display: false } }, noDL), scales: { x: { beginAtZero: true, ticks: { font: { size: 9 } } }, y: { ticks: { font: { size: 9 } } } } } });
+      mk('ccRank', { type: 'bar', data: { labels: rankRows.map((r) => r.L), datasets: [{ data: rankRows.map((r) => Math.round(r.v * K)), backgroundColor: rankRows.map((r) => r.L === costsSel ? COSTS_COLOR[r.L] : costsTint(COSTS_COLOR[r.L], .35)), borderRadius: 4, maxBarThickness: 22 }] },
+        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'end', color: '#6b7280', font: { size: 9, weight: 700 }, formatter: (v) => cs + ' ' + Math.round(v / 1000) + 'k' } },
+          scales: { x: { beginAtZero: true, ticks: { font: { size: 9 } }, grace: '12%' }, y: { ticks: { font: { size: 10, weight: 600 } } } } } });
+      // perfil por idade + os DOIS indicadores enfáticos na mesma caixa
       const ageBox = document.getElementById('ccAgeBox');
       if (ageBox) ageBox.style.display = perOk ? '' : 'none';
-      if (perOk) mk('ccAge', { type: 'bar', data: { labels: Array.from({ length: UET_PERIODS }, (_, p) => 'M' + p), datasets: [{ data: per.map((v) => Math.round(v)), backgroundColor: per.map((_, p) => p < 4 ? '#7C3AED' : '#C4B5FD'), borderRadius: 3 }] },
+      const inds = document.getElementById('ccAgeInds');
+      if (inds) inds.innerHTML = fli == null ? '' :
+        `<div class="cc-big" style="--cl:${C}"><b>${fli.toFixed(2)}×</b><span>Front-load index</span><i>${fli >= 1.4 ? 'concentrated at delivery — hits the cash early' : fli >= 0.8 ? 'evenly spread over the contract' : 'back-loaded — lands at the end'}</i></div>` +
+        `<div class="cc-big" style="--cl:${C}"><b>M${com.toFixed(1)}</b><span>Average month of spend</span><i>center of mass, M0–M13</i></div>`;
+      if (perOk) mk('ccAge', { type: 'bar', data: { labels: Array.from({ length: UET_PERIODS }, (_, p) => 'M' + p), datasets: [{ data: per.map((v) => Math.round(v)), backgroundColor: per.map((_, p) => p < 4 ? C : costsTint(C, .35)), borderRadius: 3 }] },
         options: { responsive: true, maintainAspectRatio: false, plugins: Object.assign({ legend: { display: false } }, noDL), scales: { y: { beginAtZero: true, ticks: { font: { size: 9 } } }, x: { ticks: { font: { size: 9 } } } } } });
       // ---- what-if: % sobre a linha, efeito primário em COGS / margem / caixa ----
+      // Painel na cor da linha: % gigante + slider + 4 blocos de resultado com o delta em chip
+      // colorido (vermelho = pior para o caixa, verde = melhor). Atualiza em cima, sem re-render.
       const wf = document.getElementById('costsWhatif');
       const gmFY = S(P.gm), ncfFY = S(P.netCf);
-      wf.innerHTML = `<div class="sub2-title">What-if — move ${escH(costsSel)} by a %</div>` +
-        `<div class="costs-bar"><input type="range" id="costsWfR" min="-50" max="50" step="5" value="${costsWhatifPct}" style="width:min(280px,60vw)"><b id="costsWfLbl" style="min-width:48px"></b></div>` +
-        `<div id="costsWfOut"></div>` +
-        `<div class="costs-note">First-order effect: taxes and credits are not recomputed${finYear >= 2027 && costsSel === 'Subrental fee' ? ' — and in 2027 the sublease tax netting would also move with this line' : ''}.</div>`;
+      wf.style.setProperty('--cl', C);
+      wf.innerHTML =
+        `<div class="cw-head"><div class="cw-title"><span class="costs-pk-dot" style="background:${C}"></span>What-if · <b>${escH(costsSel)}</b></div>` +
+          `<button type="button" class="costs-help" data-h="whatif">?</button></div>` +
+        `<div class="cw-body">` +
+          `<div class="cw-slider">` +
+            `<div class="cw-pct" id="cwPct"></div>` +
+            `<input type="range" id="costsWfR" min="-50" max="50" step="5" value="${costsWhatifPct}" style="accent-color:${C}">` +
+            `<div class="cw-scale"><span>−50%</span><span>even</span><span>+50%</span></div>` +
+          `</div>` +
+          `<div class="cw-tiles" id="cwOut"></div>` +
+        `</div>`;
+      wf.querySelector('.costs-help').onclick = () => costsHelpOpen('whatif');
+      const chip = (d, goodWhenUp) => {
+        if (Math.round(Math.abs(d) * K) === 0) return '<em class="cw-chip zero">—</em>';
+        const up = d > 0, good = goodWhenUp ? up : !up;
+        return `<em class="cw-chip ${good ? 'good' : 'bad'}">${up ? '▲' : '▼'} ${money(Math.abs(d))}</em>`;
+      };
+      const tile = (t, v, chipHtml, sub) => `<div class="cw-tile"><span>${escH(t)}</span><b>${v}</b>${chipHtml}<i>${escH(sub || '')}</i></div>`;
       const wfOut = () => {
         const d = fy * costsWhatifPct / 100;                    // Δ custo (positivo = mais caro)
-        document.getElementById('costsWfLbl').textContent = (costsWhatifPct >= 0 ? '+' : '') + costsWhatifPct + '%';
-        document.getElementById('costsWfOut').innerHTML = '<div class="costs-cards" style="margin-top:8px">' +
-          card('Line FY', money(fy + d), costsWhatifPct === 0 ? 'unchanged' : ((d >= 0 ? '+' : '−') + money(Math.abs(d)))) +
-          card('Share of revenue', revFY ? ((fy + d) / revFY * 100).toFixed(1) + '%' : '—', 'was ' + (revFY ? (fy / revFY * 100).toFixed(1) : 0) + '%') +
-          card('Gross Margin FY', money(gmFY - d), 'was ' + money(gmFY)) +
-          card('Net cashflow FY', money(ncfFY - d), 'was ' + money(ncfFY)) +
-          '</div>';
+        document.getElementById('cwPct').innerHTML = `<b style="color:${C}">${costsWhatifPct >= 0 ? '+' : ''}${costsWhatifPct}%</b><span>on ${escH(costsSel)}</span>`;
+        document.getElementById('cwOut').innerHTML =
+          tile('Line FY', money(fy + d), chip(d, false), 'was ' + money(fy)) +
+          tile('Share of revenue', revFY ? ((fy + d) / revFY * 100).toFixed(1) + '%' : '—', '', 'was ' + (revFY ? (fy / revFY * 100).toFixed(1) : 0) + '%') +
+          tile('Gross Margin FY', money(gmFY - d), chip(-d, true), 'was ' + money(gmFY)) +
+          tile('Net cashflow FY', money(ncfFY - d), chip(-d, true), 'was ' + money(ncfFY));
       };
       wf.querySelector('#costsWfR').addEventListener('input', (e) => { costsWhatifPct = +e.target.value; wfOut(); });
       wfOut();

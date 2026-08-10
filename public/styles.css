@@ -476,6 +476,10 @@ html { scrollbar-gutter: stable; }
 .ins-inp span { font-size: 11px; font-weight: 700; color: var(--text-2); }
 .ins-mid input[type=range] { width: 100%; cursor: pointer; }
 .ins-types { font-size: 10px; color: var(--text-2); line-height: 1.4; }
+/* rodapé: competência × caixa lado a lado, para a diferença ficar explícita */
+.ins-basis { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border-2); font-size: 11px; color: var(--text-2); }
+.ins-basis b { color: var(--text); font-size: 12px; }
+.ins-basis span { opacity: .7; }
 @media (max-width: 980px) { .ins-grid { grid-template-columns: 1fr; } }
 /* vida do carro: os dois indicadores ENFÁTICOS ao lado do gráfico */
 .cc-agewrap { display: flex; gap: 14px; align-items: stretch; }

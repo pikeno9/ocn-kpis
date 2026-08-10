@@ -4450,7 +4450,7 @@
     const COSTS_HELP = {
       pareto: { t: 'Pareto — where the COGS money goes', d: 'Every vehicle cost line sorted biggest first (each in its own colour), with the cumulative share on the right axis. Where the curve crosses the dashed 80% guide tells you how few lines concentrate almost all the cost — those are the ones worth negotiating; everything after the crossing is operational noise. CLICK any bar to open that line below, month by month and split by fleet.' },
       drill: { t: 'Monthly by fleet', d: 'The line you clicked on the Pareto, month by month, stacked by REAL fleet — each fleet in its own colour. This is realized data only (schedules and imported bases per plate); the projection lives in the plan and has no fleet concept. The big number is the average cost per active car per month across the fleets shown, computed over the realized window.' },
-      ins: { t: 'Is the insurance paying for itself?', d: 'CLAIMS are the fleet-site occurrences flagged with an insurance claim (sinistro) in the displayed year — collisions, window damage and total loss; mechanical failures never trigger it. BREAK-EVEN PER CLAIM is the premium we pay divided by the number of claims: it is how much each occurrence would have to cost us out of pocket for "having insurance" and "not having it" to come out the same. Below that number the insurance is costing more than the damage it covers; above it, it pays for itself. The SAVING compares the two worlds: number of claims × the average cost you type (we do not have the workshop quote per occurrence, so it is your input) against the premium actually paid. Green means insurance saved money, red means it cost more than the damage would have.' },
+      ins: { t: 'Is the insurance paying for itself?', d: 'ACCRUED, NOT PAID. The premium is disbursed in about four installments at the start of each fleet, but it covers the full 12 months of the contract. Comparing the cash of a period against the claims of that same period mismatches the two: a fleet that started in june carries almost all of its cash in 2026 while half of its coverage runs into 2027. So each fleet\'s premium is spread pro-rata, day by day, across its 365 days of coverage, and every month is charged only the risk it actually ran. The footer shows both numbers side by side. CLAIMS are the fleet-site occurrences flagged with a sinistro in the period — collisions, window damage and total loss; mechanical failures never trigger it. BREAK-EVEN PER CLAIM is the accrued premium divided by the number of claims: how much each occurrence would have to cost us out of pocket for "having insurance" and "not having it" to come out the same. The SAVING compares the two worlds: claims × the average cost you type (we have no workshop quote per occurrence, so it is your input) against the accrued premium. Green means insurance saved money, red means it cost more than the damage would have.' },
       filters: { t: 'View filters', d: 'FORECAST is the plan engine (actuals + projection). ACTUALS keeps only what already happened, rebuilt from the real per-fleet bases and cut at the current month. The month selector isolates one month in the cards — picking the CURRENT month shows only its realized value, never the blend. The fleet selector isolates one real fleet, which implies realized data. The what-if panels hide under any filter: they move the full-year projection.' },
       rank: { t: 'Where it sits in COGS', d: 'Full-year total of every vehicle cost line, biggest first, each in its own colour — the selected one at full strength. It answers "how much does this line matter" before any deeper look.' },
       age: { t: 'When it hits a car’s life', d: 'The per-car cost over the contract (theoric profile): M0 is the delivery month, M1–M12 the recurring months, M13 the closing month. FRONT-LOAD INDEX = the share of a car’s lifetime cost that falls in the first four months (M0–M3) divided by the 25% that a cost spread evenly across the 12 recurring months would put there. So 1.0 = evenly spread; 4.0 = everything at delivery (hurts the cash exactly while the fleet ramps); below 1.0 = back-loaded, lands at the end of the contract. AVERAGE MONTH OF SPEND is the profile’s center of mass — a cost spread evenly over M2–M13 averages M7.5.' },
@@ -4556,6 +4556,34 @@
       });
       _costsRF = out; _costsRFyear = finYear;
       return out;
+    }
+    // ---- SEGURO APROPRIADO (competência) por mês calendário, em USD ----
+    // O prêmio é PAGO em ~4 parcelas nos primeiros meses de cada frota, mas COBRE os 12 meses do
+    // contrato. Comparar o caixa do período com os sinistros do período mistura as duas coisas:
+    // uma frota que entrou em junho tem quase todo o prêmio no caixa de 2026 e metade da cobertura
+    // em 2027. Aqui o prêmio de cada frota é rateado pro-rata dia a dia ao longo dos 365 dias de
+    // cobertura, então cada mês recebe só a parcela de risco que ele efetivamente correu.
+    function insuranceAccrued(fleetFilter) {
+      const U = OCN.ue || {}, MS = 86400000, DIAS = 365;
+      const fx = finPar('__fin_fx__') || 5.5;
+      const per = new Array(FIN_MONTHS).fill(0);
+      (U.fleets || []).forEach((f) => {
+        if (!f.inicio) return;
+        if (fleetFilter != null && f.id !== fleetFilter) return;
+        const FP2 = realFleetParams[f.id] || {};
+        const v = FP2['__ins_total__@@0'];
+        const insT = v != null ? Number(v) : 0;
+        if (!(insT > 0)) return;
+        const cars = Math.max(1, f.cars || (f.placas || []).length || 1);
+        const ini = new Date(f.inicio + 'T12:00:00');
+        const fim = new Date(ini.getTime() + DIAS * MS);
+        for (let m = 0; m < FIN_MONTHS; m++) {
+          const a = new Date(finYear, m, 1, 12), b = new Date(finYear, m + 1, 1, 12);
+          const ov = Math.max(0, Math.min(b.getTime(), fim.getTime()) - Math.max(a.getTime(), ini.getTime())) / MS;
+          if (ov > 0) per[m] += (insT * cars) * (ov / DIAS) / fx;
+        }
+      });
+      return per;
     }
     // "Main": Pareto do COGS inteiro (clicável) + drill mensal por frota da barra escolhida
     function renderCostsMain(P, H) {
@@ -4766,36 +4794,51 @@
         if (costsSel !== 'Insurance') { insBox.innerHTML = ''; insBox.style.display = 'none'; } else {
           insBox.style.display = '';
           const casos = ((OCN.ocorrencias || {}).casos) || [];
-          const claims = casos.filter((c) => c.sinistro && String(c.iso).slice(0, 4) === String(finYear));
+          const claims = casos.filter((c) => c.sinistro && String(c.iso).slice(0, 4) === String(finYear)
+            && (mSel == null || parseInt(String(c.iso).slice(5, 7), 10) - 1 === mSel));
           const nCl = claims.length;
           const byTipo = {}; claims.forEach((c) => { byTipo[c.tipo] = (byTipo[c.tipo] || 0) + 1; });
-          const paid = fy;                                   // prêmio do recorte atual (ano/mês/frota)
-          const be = nCl > 0 ? paid / nCl : null;            // break-even por acionamento
+          // COMPETÊNCIA, não caixa: o prêmio rateado pelos 365 dias de cobertura de cada frota.
+          // `fy` (o que a linha do P&L mostra) é o desembolso, concentrado nas ~4 primeiras
+          // parcelas — usá-lo aqui inflava o break-even, porque comparava o prêmio de um ano
+          // inteiro de cobertura contra os sinistros de apenas parte dele.
+          const accArr = insuranceAccrued(costsFleet);
+          const accrued = mSel == null ? accArr.reduce((a, b) => a + b, 0) : (accArr[mSel] || 0);
+          // o caixa do rodapé vem das MESMAS frotas reais do rateio (não da linha do P&L, que na
+          // visão Forecast é do plano e traria 775 carros contra os 170 reais do apropriado)
+          const cashArr = rfLine('Insurance');
+          const cash = mSel == null ? cashArr.reduce((a, b) => a + b, 0) : (cashArr[mSel] || 0);
+          const be = nCl > 0 ? accrued / nCl : null;         // break-even por acionamento
           if (costsInsAvg == null) costsInsAvg = be != null ? Math.round(be) : 0;
+          const perLbl = mSel == null ? 'the year' : monthLbl(mSel);
           insBox.innerHTML =
             `<div class="ins-panel" style="--cl:${C}">` +
-              `<div class="cc-head"><h4>Is the insurance paying for itself?</h4><button type="button" class="costs-help" data-h="ins">?</button></div>` +
+              `<div class="cc-head"><h4>Is the insurance paying for itself?</h4><span class="cc-hint">premium accrued over the coverage, not as paid</span><button type="button" class="costs-help" data-h="ins">?</button></div>` +
               `<div class="ins-grid">` +
                 `<div class="cc-big cc-huge" style="--cl:${C}"><b>${be == null ? '—' : money(be)}</b><span>break-even per claim</span>` +
-                  `<i>${nCl} claim${nCl === 1 ? '' : 's'} · each would have to cost this much to match the premium</i></div>` +
+                  `<i>${nCl} claim${nCl === 1 ? '' : 's'} in ${escH(perLbl)} · each would have to cost this much to match the premium</i></div>` +
                 `<div class="ins-mid">` +
                   `<label class="ins-lab">If each claim cost us, on average</label>` +
                   `<div class="ins-inp"><input type="number" id="insAvg" min="0" step="100" value="${Math.round(costsInsAvg)}"><span>${escH(cs)}</span></div>` +
                   `<input type="range" id="insAvgR" min="0" max="${Math.max(2000, Math.round((be || 1000) * 3))}" step="50" value="${Math.round(costsInsAvg)}" style="accent-color:${C}">` +
-                  `<div class="ins-types">${Object.keys(byTipo).map((t) => `${escH(t)}: ${byTipo[t]}`).join(' · ') || 'no claims in the year'}</div>` +
+                  `<div class="ins-types">${Object.keys(byTipo).map((t) => `${escH(t)}: ${byTipo[t]}`).join(' · ') || 'no claims in the period'}</div>` +
                 `</div>` +
                 `<div class="cc-big cc-huge" id="insSave" style="--cl:${C}"></div>` +
-              `</div></div>`;
+              `</div>` +
+              `<div class="ins-basis">Premium <b>accrued</b> for ${escH(perLbl)}: <b>${money(accrued)}</b>` +
+                `<span>·</span>disbursed in cash by the same fleets: <b>${money(cash)}</b>` +
+                `<span>${cash > 0 ? Math.round((accrued / cash) * 100) + '% of the cash is risk actually run in this window — the rest covers ' + (finYear + 1) : ''}</span></div>` +
+            `</div>`;
           const paint = () => {
-            const would = nCl * costsInsAvg, save = would - paid;
+            const would = nCl * costsInsAvg, save = would - accrued;
             // empate: o valor padrão é o break-even arredondado, então uma diferença menor que
             // 0,1% do prêmio é ruído de arredondamento — não "prejuízo de 1"
-            const even = Math.abs(save) < Math.max(1, paid * 0.001);
+            const even = Math.abs(save) < Math.max(1, accrued * 0.001);
             const el2 = document.getElementById('insSave');
             el2.style.setProperty('--cl', even ? '#6B7280' : (save > 0 ? '#15803D' : '#B91C1C'));
             el2.innerHTML = `<b>${even ? money(0) : (save > 0 ? '+' : '−') + money(Math.abs(save))}</b>` +
               `<span>${even ? 'exactly break-even' : (save > 0 ? 'saved by having insurance' : 'lost by having insurance')}</span>` +
-              `<i>${money(would)} we would have paid out of pocket vs ${money(paid)} of premium</i>`;
+              `<i>${money(would)} we would have paid out of pocket vs ${money(accrued)} of accrued premium</i>`;
           };
           const inp = document.getElementById('insAvg'), rng = document.getElementById('insAvgR');
           inp.addEventListener('input', () => { costsInsAvg = Math.max(0, +inp.value || 0); rng.value = Math.min(+rng.max, costsInsAvg); paint(); });

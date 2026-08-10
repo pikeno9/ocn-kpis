@@ -218,6 +218,8 @@
       if (tab.dataset.sub === 'payments') initPayments();
       if (tab.dataset.sub === 'redeployment') initRedeployment();
       if (tab.dataset.sub === 'headcount') initHeadcount();
+      // trilho de % do P&L: alturas foram medidas com a seção oculta (tudo 0) — re-mede ao abrir
+      if (tab.dataset.sub === 'pnl' && window.__pnlVaLayout) window.__pnlVaLayout();
     });
   });
 
@@ -2415,6 +2417,10 @@
       }));
       // Linhas de AGENDA com os parâmetros REAIS de cada frota (caixinhas do UE): subrental (dia 26),
       // seguro (parcelas), GPS (M0 + mensal), preparação e adesivo (M0) — frota a frota, mês calendário.
+      // A janela vai até o FIM do mês vigente, não até hoje: a parcela do dia 26 é agenda certa, e
+      // cortá-la em `hoje` fazia agosto (visto no dia 10) mostrar só a fração do modelo — a "queda"
+      // do subrental em agosto era isso, não um evento real.
+      const endCur = new Date(hojeD.getFullYear(), hojeD.getMonth() + 1, 0, 23, 59, 0);
       const losses = U.losses || {};
       (U.fleets || []).forEach((f) => {
         if (!f.inicio) return;
@@ -2434,7 +2440,7 @@
           const proR = Math.max(0, Math.min(1, (dimIni - ini.getDate()) / dimIni));
           for (let i = 1; i <= 13; i++) {
             const d = new Date(ini.getFullYear(), ini.getMonth() + i, 26, 12);
-            if (d > hojeD || d.getFullYear() !== finYear) continue;
+            if (d > endCur || d.getFullYear() !== finYear) continue;
             const frac = i === 1 ? proR : (i === 13 ? 1 - proR : 1);
             out.subr[d.getMonth()] += subr * frac * Math.max(0, cars - lostBefore(d)); out.any = true;
           }
@@ -2442,14 +2448,14 @@
         const insT = par('__ins_total__'), insN = par('__ins_parcelas__');
         if (insT > 0 && insN >= 1) for (let n = 1; n <= insN; n++) {
           const d = new Date(ini.getTime() + (n - 0.5) * UET_WPM * 7 * MS);
-          if (d > hojeD || d.getFullYear() !== finYear) continue;
+          if (d > endCur || d.getFullYear() !== finYear) continue;
           out.ins[d.getMonth()] += (insT / insN) * cars; out.any = true; // seguro paga pelos carros TOTAIS
         }
         const gps0 = par('__gps_m0__'), gpsM = par('__gps_mensal__');
         if (gps0 > 0 && m0 != null && ini <= hojeD) { out.gps[m0] += gps0 * cars; out.any = true; }
         if (gpsM > 0) for (let n = 1; n <= 12; n++) {
           const d = new Date(ini.getTime() + (n - 0.5) * UET_WPM * 7 * MS);
-          if (d > hojeD || d.getFullYear() !== finYear) continue;
+          if (d > endCur || d.getFullYear() !== finYear) continue;
           out.gps[d.getMonth()] += gpsM * Math.max(0, cars - lostBefore(d)); out.any = true;
         }
       });
@@ -2489,6 +2495,18 @@
       const hojeCoh = (OCN.ue && OCN.ue.hoje) || new Date().toISOString().slice(0, 10);
       const scaleOf = (c) => ((scale !== 1 && c.date && c.date <= hojeCoh) ? 1 : scale);
       const cohorts = opts.extra ? finCohorts.concat(opts.extra) : finCohorts; // coortes sintéticas (solver)
+      // PERDA TOTAL: o carro sai da frota no mês do sinistro (U.losses: placa -> data, da aba de
+      // clientes). A subtração para quando a coorte da placa completaria as 52 semanas — senão o
+      // carro seria descontado duas vezes (uma pelo sinistro, outra pela saída por idade).
+      // Receitas/custos da placa NÃO mudam aqui: o realizado dela continua entrando normalmente;
+      // o que muda é só a contagem de frota, que alimenta as projeções por carro (multas etc.).
+      const UPT = OCN.ue || {};
+      const ptMonthAbs = (iso) => (parseInt(String(iso).slice(0, 4), 10) - FIN_BASE_YEAR) * 12 + parseInt(String(iso).slice(5, 7), 10) - 1;
+      const ptCases = Object.entries(UPT.losses || {}).map(([pl, dIso]) => {
+        const f = (UPT.fleets || []).find((x) => (x.placas || []).includes(pl));
+        return { from: ptMonthAbs(dIso), until: (f && f.inicio) ? ptMonthAbs(f.inicio) + 12 : Infinity };
+      });
+      const ptLostAt = (Mabs) => ptCases.reduce((n, c) => n + ((Mabs >= c.from && Mabs < c.until) ? 1 : 0), 0);
       for (let m = 0; m < FIN_MONTHS; m++) {
         cohorts.forEach((c) => {
           const cm = cohMonth(c);
@@ -2498,7 +2516,11 @@
           delivered[m] += qty;
           const age = M - cm;                       // 0 = mês de recebimento
           const activeN = qty * Math.pow(1 - decomm, age);
-          active[m] += activeN;
+          // O carro SAI da frota ao completar as 52 semanas do contrato (age 12 = o 13º mês de
+          // vida, quando ele é vendido/devolvido). Os eventos do M13 — venda, refund, termination,
+          // 13ª parcela do subrental — continuam acontecendo; só a CONTAGEM de frota é que para,
+          // e com ela as projeções por carro (multas etc.). Antes o carro ficava ativo para sempre.
+          if (age < 12) active[m] += activeN;
           const p = age + 1;                        // idade no UE (mês de entrega = M1)
           if (p > UET_PERIODS - 1) {
             // "M14": a 13ª cobrança do subrental (complemento do pro-rata) cai um mês depois do
@@ -2549,6 +2571,7 @@
           // principal do calção que volta neste mês (base do imposto: só o JURO é receita nova)
           if (p === 13) { const d0 = val('Security Deposit', 0); if (d0 != null) refundPrin[m] += (-d0 * activeN) / fx; }
         });
+        active[m] = Math.max(0, active[m] - ptLostAt(FIN_YOFF() + m)); // perda total sai da contagem
       }
       // ---- MESES DECORRIDOS: troca o modelo pelo REALIZADO consolidado da frota inteira ----
       // Mesmas fontes do UE real (matriz de pagamentos, multas, import_rev, multas_consolidado),
@@ -2571,12 +2594,15 @@
           rev['Traffic fines'][m] = blend(rev['Traffic fines'], ACT.finesIn[m]);
           cogs['Maintenance'][m] = blend(cogs['Maintenance'], -ACT.maint[m]);
           cogs['Traffic fines (out)'][m] = blend(cogs['Traffic fines (out)'], -ACT.finesOut[m]);
-          // linhas de agenda com os parâmetros REAIS de cada frota (subrental/seguro/GPS/prep/adesivo)
-          cogs['Subrental fee'][m] = blend(cogs['Subrental fee'], -ACT.subr[m]);
-          cogs['Insurance'][m] = blend(cogs['Insurance'], -ACT.ins[m]);
-          cogs['GPS'][m] = blend(cogs['GPS'], -ACT.gps[m]);
-          cogs['Car Preparation'][m] = blend(cogs['Car Preparation'], -ACT.prep[m]);
-          cogs['Sticker'][m] = blend(cogs['Sticker'], -ACT.stick[m]);
+          // Linhas de AGENDA (subrental/seguro/GPS/prep/adesivo): a agenda do finActuals já cobre o
+          // mês vigente INTEIRO (inclusive a parcela do dia 26 que ainda não chegou), então aqui o
+          // valor entra seco, sem o complemento pro-rata do modelo — que servia para linhas que
+          // pingam ao longo do mês e, numa linha de parcela única, só somava em dobro.
+          cogs['Subrental fee'][m] = -ACT.subr[m] / fx;
+          cogs['Insurance'][m] = -ACT.ins[m] / fx;
+          cogs['GPS'][m] = -ACT.gps[m] / fx;
+          cogs['Car Preparation'][m] = -ACT.prep[m] / fx;
+          cogs['Sticker'][m] = -ACT.stick[m] / fx;
           cogs['Recovery cost'][m] = blend(cogs['Recovery cost'], -ACT.rec[m]);
           cogs['Repair cost'][m] = blend(cogs['Repair cost'], -ACT.rep[m]);
           cogs['Part Replacement'][m] = blend(cogs['Part Replacement'], -ACT.parts[m]);
@@ -2713,6 +2739,25 @@
     const PNL_GROUPS = ['grev', 'tax', 'cogs', 'opex', 'cac', 'sga', 'hc'];
     const pnlSnap = () => (pnlVersions.find((v) => v.id === pnlVersion) || {}).snapshot || null;
     let pnlActualsThrough = null; // último mês calendário coberto por dados realizados
+    // Trilho de análise vertical: divs posicionadas na altura de cada linha da tabela (medida no
+    // DOM real), num irmão do wrap — fora da tabela e do scroll horizontal, como pedido. Se a
+    // seção estiver oculta (alturas = 0), guarda a lista e re-mede no clique da sub-aba P&L.
+    let pnlVaCache = null;
+    function renderPnlVA(vaList) {
+      if (vaList) pnlVaCache = vaList;
+      const va = document.getElementById('pnlVA'), tbl = document.getElementById('pnlTable');
+      if (!va || !tbl || !pnlVaCache) return;
+      if (!tbl.offsetHeight) { va.innerHTML = ''; return; }
+      const trs = tbl.querySelectorAll('tbody tr');
+      let h = '';
+      pnlVaCache.forEach((v, i) => {
+        const tr = trs[i]; if (!tr) return;
+        h += `<div class="pnl-va-c${v.l1 ? ' l1' : ''}" style="top:${tr.offsetTop}px;height:${tr.offsetHeight}px">${v.pct != null ? v.pct + '%' : ''}</div>`;
+      });
+      va.style.height = tbl.offsetHeight + 'px';
+      va.innerHTML = h;
+    }
+    window.__pnlVaLayout = () => renderPnlVA(null);
     function renderPnl() {
       const el = document.getElementById('pnlTable'); if (!el) return;
       // 4 modos: Live (realizado + projeção), Budget (orçado: só UE Teórico, sem realizado),
@@ -2799,6 +2844,12 @@
       html += `<tr><th class="ue-rowlabel">P&amp;L (${cs === 'R$' ? 'BRL' : 'USD'})</th>`;
       for (let m = 0; m < FIN_MONTHS; m++) html += `<th>${monthLbl(m)}</th>`;
       html += `<th class="ue-totalcol">FY-${String(finYear).slice(2)}E</th></tr></thead><tbody>`;
+      // Análise VERTICAL (trilho fora da tabela): FY da linha ÷ FY da categoria mais próxima.
+      // O grupo de impostos fica de fora — federal negativo + crédito positivo dariam percentuais
+      // acima de 100% que confundem mais do que explicam.
+      const groupFY = {};
+      N.forEach((n) => { if (n.group) groupFY[n.group] = (n.isQty || n.isAcc) ? n.arr[FIN_MONTHS - 1] : sum(n.arr); });
+      const vaList = [];
       N.forEach((n) => {
         if (n.ancestors.some((a) => pnlCollapsed.has(a))) return; // dentro de grupo recolhido
         const isParent = !!n.group, collapsed = isParent && pnlCollapsed.has(n.group);
@@ -2815,9 +2866,15 @@
         const tot = (n.isQty || n.isAcc) ? n.arr[FIN_MONTHS - 1] : sum(n.arr);
         tr += `<td class="ue-cell ue-totalcol${sgn(tot)}">${n.isQty ? fmtQty(tot) : fmtC(tot)}${sub(n.pctTot)}</td>`;
         html += tr + '</tr>';
+        const nearest = n.ancestors.length ? n.ancestors[n.ancestors.length - 1] : null;
+        let vaPct = null;
+        if (n.group && !nearest) vaPct = 100;
+        else if (nearest && nearest !== 'tax' && groupFY[nearest]) vaPct = Math.round((tot / groupFY[nearest]) * 100);
+        vaList.push({ pct: vaPct, l1: !!n.group && !nearest });
       });
       html += '</tbody>';
       el.innerHTML = html;
+      renderPnlVA(vaList);
       el.querySelectorAll('.pnl-parent').forEach((tr) => tr.addEventListener('click', () => {
         const g = tr.dataset.g; if (pnlCollapsed.has(g)) pnlCollapsed.delete(g); else pnlCollapsed.add(g); renderPnl();
       }));
@@ -3114,7 +3171,7 @@
         ]},
         { id: 'eng', name: 'Engine & globals', dot: FAM_DOT.eng, rows: [
           { t: 'Fleet (delivered / active)', src: 'Fleet Plan cohorts', upd: 'manual',
-            d: 'Each cohort enters on its calendar date (pro-rata in the delivery month) and decays by the monthly decommissioning rate. Every per-car line multiplies by this active count.' },
+            d: 'Each cohort enters on its calendar date (pro-rata in the delivery month) and decays by the monthly decommissioning rate. Every per-car line multiplies by this active count. A car LEAVES the count when its 52 contract weeks are over — the M13 events (sale, refund, termination, last sub-rental charge) still happen, but the car no longer scales the per-car projections — and a total-loss car leaves in the month of the write-off, while its own realized revenue and costs keep flowing normally.' },
           { t: 'Actuals override', src: 'All revenue/cost sources', upd: 'auto',
             d: 'Months up to today replace the model with consolidated ACTUALS of the whole fleet. The current month is a blend: what already happened plus the model for the remaining days — so early in the month revenue does not look like a cliff.' },
           { t: 'How the fines pace is measured', src: 'measured on 292 fines', upd: 'auto',
@@ -5082,7 +5139,10 @@
         totRec += c.recovery; totRep += c.repair; totTerm += c.term;
         const cur = currentMonthIdx();
         const mo = c.d ? Math.min(moOf(new Date(c.d + 'T12:00:00')), PMAX) : cur; // sem data -> mês vigente
-        const realized = !!c.d && new Date(c.d + 'T12:00:00') <= hoje;
+        // Caso SEM data é um caso que JÁ ACONTECEU (está importado na planilha) — só não sabemos o
+        // dia. Tratá-lo como projeção escondia 44% dos casos do realizado (14 de 32 hoje, R$9k de
+        // recovery + R$6k de repair) e era por isso que o realizado do UE ficava abaixo da planilha.
+        const realized = c.d ? new Date(c.d + 'T12:00:00') <= hoje : true;
         if (realized) { judRecRealRS[mo] += c.recovery; judRepRealRS[mo] += c.repair; }
         else { judRecProjRS[mo] += c.recovery; judRepProjRS[mo] += c.repair; }
       }));

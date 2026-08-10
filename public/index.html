@@ -502,7 +502,12 @@
           </div>
         </div>
         <div class="ue-head" id="pnlControls"></div>
-        <div class="ue-table-wrap"><table class="ue-table" id="pnlTable"></table></div>
+        <!-- trilho de análise vertical FORA da tabela (irmão do wrap): a coluna de % não entra no
+             scroll horizontal nem empurra as colunas do P&L -->
+        <div class="pnl-withva">
+          <div class="ue-table-wrap"><table class="ue-table" id="pnlTable"></table></div>
+          <div class="pnl-va" id="pnlVA" title="Vertical analysis — share of the line inside its category (full-year totals)"></div>
+        </div>
         <div id="pnlSim"></div>
         <div id="pnlExtras"></div>
       </div>

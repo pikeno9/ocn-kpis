@@ -394,6 +394,14 @@ html { scrollbar-gutter: stable; }
    negativo (tons suaves, legíveis sobre o roxo escuro das linhas L1) */
 #pnlTable tbody tr.pnl-l1 td.pnl-pos { color: #A8E6BE; }
 #pnlTable tbody tr.pnl-l1 td.pnl-neg { color: #F3AEAE; }
+/* Trilho de ANÁLISE VERTICAL: coluna estreita FORA da tabela (irmã do wrap) com o % que cada
+   linha representa do FY da sua categoria. Discreto: cinza pequeno, sem fundo, sem bordas. */
+.pnl-withva { display: flex; align-items: flex-start; }
+.pnl-withva .ue-table-wrap { flex: 1 1 auto; min-width: 0; }
+.pnl-va { flex: none; width: 44px; position: relative; overflow: hidden; }
+.pnl-va-c { position: absolute; left: 0; right: 0; display: flex; align-items: center; padding-left: 8px; font-size: 9.5px; color: var(--text-2); opacity: .8; white-space: nowrap; }
+.pnl-va-c.l1 { font-weight: 700; opacity: 1; }
+@media (max-width: 900px) { .pnl-va { display: none; } }
 #pnlTable tbody tr.pnl-l2 td { background: #C4B5FD; color: var(--text); font-weight: 600; }
 #pnlTable tbody tr.pnl-l2 td.ue-totalcol { background: #B3A1F7; }
 #pnlTable tbody tr.pnl-l3 td { background: #EDE9FE; color: var(--text); font-weight: 500; }

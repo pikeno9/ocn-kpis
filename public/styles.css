@@ -292,6 +292,10 @@ button { font-family: inherit; cursor: pointer; }
 #uetTable th, #uetTable td { padding-top: 9px; padding-bottom: 9px; }
 /* Finance: Fleet Plan / Assumptions / P&L */
 #pnlTable th, #pnlTable td { padding-top: 8px; padding-bottom: 8px; }
+/* meio ponto menor que as outras tabelas: em R$ o número tem ~5,5x mais dígitos e, no ano cheio de
+   2027, o total do ano e o rótulo "Sub-rental security deposit" passavam do contêiner e criavam
+   barra de rolagem horizontal. Medido: 10,5px estoura 2px, 10px fecha em 0 sem cortar nada. */
+#pnlTable { font-size: 10px; }
 .fin-table .fin-in, .fin-table .fin-ass { font: inherit; font-size: 12.5px; padding: 4px 6px; border: 1px solid var(--border-2); border-radius: 5px; background: var(--surface); color: var(--text); }
 .fin-table .fin-in[type=number], .fin-table .fin-ass { width: 110px; text-align: right; }
 .fin-table .fin-in:focus, .fin-table .fin-ass:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
@@ -400,7 +404,14 @@ html { scrollbar-gutter: stable; }
 .pnl-withva .ue-table-wrap { flex: 1 1 auto; min-width: 0; }
 .pnl-va { flex: none; width: 44px; position: relative; overflow: hidden; }
 .pnl-va-c { position: absolute; left: 0; right: 0; display: flex; align-items: center; padding-left: 8px; font-size: 9.5px; color: var(--text-2); opacity: .8; white-space: nowrap; }
-.pnl-va-c.l1 { font-weight: 700; opacity: 1; }
+/* peso da linha dentro da categoria: escala de INTENSIDADE (não de bom/ruim — a mesma faixa
+   serve para receita e para custo). t5 = domina a categoria · t1 = quase irrelevante. */
+.pnl-va-c.t5 { color: #5A00F8; font-weight: 800; opacity: 1; }
+.pnl-va-c.t4 { color: #7C3AED; font-weight: 700; opacity: 1; }
+.pnl-va-c.t3 { color: #8B5CF6; font-weight: 600; opacity: .95; }
+.pnl-va-c.t2 { color: #A78BFA; font-weight: 600; opacity: .85; }
+.pnl-va-c.t1 { color: var(--text-2); font-weight: 500; opacity: .5; }
+.pnl-va-c.l1 { font-weight: 800; opacity: 1; color: var(--text); }
 @media (max-width: 900px) { .pnl-va { display: none; } }
 #pnlTable tbody tr.pnl-l2 td { background: #C4B5FD; color: var(--text); font-weight: 600; }
 #pnlTable tbody tr.pnl-l2 td.ue-totalcol { background: #B3A1F7; }

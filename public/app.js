@@ -2750,9 +2750,13 @@
       if (!tbl.offsetHeight) { va.innerHTML = ''; return; }
       const trs = tbl.querySelectorAll('tbody tr');
       let h = '';
+      // faixa de peso: quanto mais a linha representa da categoria, mais forte o roxo. Escala de
+      // intensidade (não de bom/ruim) — a mesma linha pode ser receita ou custo.
+      const vaTier = (p) => (p >= 60 ? 5 : p >= 35 ? 4 : p >= 15 ? 3 : p >= 5 ? 2 : 1);
       pnlVaCache.forEach((v, i) => {
         const tr = trs[i]; if (!tr) return;
-        h += `<div class="pnl-va-c${v.l1 ? ' l1' : ''}" style="top:${tr.offsetTop}px;height:${tr.offsetHeight}px">${v.pct != null ? v.pct + '%' : ''}</div>`;
+        const cls = 'pnl-va-c' + (v.l1 ? ' l1' : (v.pct != null ? ' t' + vaTier(v.pct) : ''));
+        h += `<div class="${cls}" style="top:${tr.offsetTop}px;height:${tr.offsetHeight}px">${v.pct != null ? v.pct + '%' : ''}</div>`;
       });
       va.style.height = tbl.offsetHeight + 'px';
       va.innerHTML = h;
@@ -2793,7 +2797,7 @@
       const gmBase = P.coreRev || P.grossRev;
       const gmPct = gmBase.map((v, m) => (v ? (P.gm[m] / v) * 100 : null));
       // árvore de linhas (grupos colapsáveis) — #1
-      const N = [];
+      let N = [];
       const push = (label, arr, cls, o) => N.push(Object.assign({ label, arr: cut(arr, !!(o && o.isAcc)), cls: cls || 'ue-leaf', ancestors: [] }, o || {}));
       // Color code por NÍVEL: L1 = resultados (Gross/Net Revenue, Gross Margin, Net cashflow),
       // L2 = blocos (COGS, Payment processing, OPEX), L3 = componentes, L4 = detalhe dentro de um L3.
@@ -2827,6 +2831,30 @@
       push('IT', P.itTot, 'pnl-l3', { ancestors: ['opex', 'sga'] });
       push('Net cashflow', P.netCf, 'pnl-l1', { signColor: true });
       push('Acc. Net cashflow', P.accCf, 'pnl-l1 pnl-acc', { isAcc: true, signColor: true });
+
+      // ---- ordem por REPRESENTATIVIDADE dentro de cada categoria ----
+      // As linhas de dentro de um grupo são reordenadas pelo total do ANO (maior primeiro), para a
+      // leitura começar pelo que pesa. O nível de cima NÃO é mexido: ali a ordem é a do próprio
+      // demonstrativo (Gross Revenue → Taxes → Net Revenue → COGS → Margin → OPEX → cashflow), e
+      // embaralhar isso quebraria a conta. Subscription e Subrental fee ficam sempre em primeiro na
+      // sua categoria — são a espinha da operação, é por onde se começa a ler mesmo quando um mês
+      // atípico deixaria outra linha maior. A árvore é preservada: cada pai continua imediatamente
+      // seguido da própria subárvore, então os grupos colapsáveis seguem funcionando.
+      const PIN_FIRST = { 'Subscription': 1, 'Subrental fee': 1 };
+      const fyAbs = (n) => Math.abs((n.isQty || n.isAcc) ? (n.arr[FIN_MONTHS - 1] || 0) : sum(n.arr));
+      const kidsOf = new Map();
+      N.forEach((n) => {
+        const pk = n.ancestors.length ? n.ancestors[n.ancestors.length - 1] : null;
+        if (!kidsOf.has(pk)) kidsOf.set(pk, []);
+        kidsOf.get(pk).push(n);
+      });
+      const ordered = [];
+      const emit = (list, doSort) => {
+        (doSort ? list.slice().sort((a, b) => (PIN_FIRST[b.label] || 0) - (PIN_FIRST[a.label] || 0) || fyAbs(b) - fyAbs(a)) : list)
+          .forEach((n) => { ordered.push(n); if (n.group && kidsOf.has(n.group)) emit(kidsOf.get(n.group), true); });
+      };
+      emit(kidsOf.get(null) || [], false);
+      N = ordered;
 
       // faixa de frota acima dos meses: carros ativos e quantos chegaram no mês
       let html = '<thead><tr class="pnl-fleetrow"><th class="ue-rowlabel">Fleet</th>';

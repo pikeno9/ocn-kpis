@@ -2169,7 +2169,7 @@
       finActCache = {};
       refProfiles = buildProfiles();
       hcEnsurePeople(); hcSyncPlan();
-      renderFleetPlan(); renderHc(); renderAdmin(); renderCac(); renderPnl(); renderDash();
+      renderFleetPlan(); renderHc(); renderAdmin(); renderCac(); renderPnl(); renderDash(); renderCosts();
     }
     // seletor de ano — mesmo visual do P&L, reaproveitado no cabeçalho de Fleet Plan/SG&A/CAC
     function renderFinYearSwitcher(elId) {
@@ -2209,7 +2209,7 @@
       if (!root) return;
       root.querySelectorAll('.fin-edit-cb').forEach((cb) => cb.addEventListener('change', () => { finEdit = cb.checked; renderFinanceAll(); }));
     }
-    function renderFinanceAll() { renderFleetPlan(); renderHc(); renderAdmin(); renderCac(); renderAssump(); renderPnl(); }
+    function renderFinanceAll() { renderFleetPlan(); renderHc(); renderAdmin(); renderCac(); renderAssump(); renderPnl(); renderCosts(); }
     // tabela totalizadora (uma linha por despesa) — visual diferenciado, usada em SG&A e CAC
     function totalsTable(rows, firstCol) {
       let h = `<div class="ue-table-wrap"><table class="ue-table fin-grid fin-totals"><thead><tr><th class="ue-rowlabel">${escH(firstCol || 'Cost line')}</th>`;
@@ -2989,7 +2989,7 @@
       scenActive = next;
       pnlVersion = v;
       finActCache = {};
-      renderPnl(); renderFleetPlan(); renderCac(); renderAdmin(); renderAssump(); renderHc();
+      renderPnl(); renderFleetPlan(); renderCac(); renderAdmin(); renderAssump(); renderHc(); renderCosts();
     }
     // grava o cenário ativo (chamado por todos os saves do Finance no lugar dos endpoints do Live)
     let scenTimer = null;
@@ -4415,6 +4415,149 @@
       }
     }
 
+    // ===================== COSTS — mergulho nas linhas de custo de veículo =====================
+    // Cada linha do COGS aberta em: peso (sobre COGS, sobre a receita, por carro-mês, por carro no
+    // contrato), ELASTICIDADE frota (o custo acompanha os carros ou é fixo?), perfil de INCIDÊNCIA
+    // na vida do contrato (pesa na entrega ou dilui nos 12 meses?) e um what-if de %.
+    let costsSel = 'Subrental fee', costsCharts = {}, costsWhatifPct = 0;
+    const COSTS_LIST = ['Subrental fee', 'Maintenance', 'Insurance', 'Recovery cost', 'Repair cost', 'Traffic fines (out)', 'Part Replacement', 'GPS', 'Car Preparation', 'Sticker'];
+    const COSTS_INFO = {
+      'Subrental fee': 'Monthly rent per car paid to LM on the 26th — 1st installment pro-rata of the arrival month, a 13th charge closes the 12 months. The single biggest cost of the operation.',
+      'Maintenance': 'Revisions every 10.000 km at each fleet’s real km pace, priced from the revisions site with the 25% discount and paid ~33 days later.',
+      'Insurance': 'Per-fleet total split into N installments — from each fleet’s UE boxes.',
+      'Recovery cost': 'Towing + recovery per judicial case (import_jud). Directly tied to how many cars are repossessed — the dotted line in the chart.',
+      'Repair cost': 'Damages + cleaning + others per judicial case (import_jud) when a car comes back.',
+      'Traffic fines (out)': 'NET fine × 1.05 paid to LM. Scales with the fleet; the margin of the fines business lives on the revenue side.',
+      'Part Replacement': 'Brake pads, discs and tires by each plate’s km pace × the ⚙ Parts panel costs (natural wear only).',
+      'GPS': 'Install at M0 plus a monthly fee per active car.',
+      'Car Preparation': 'Flat R$50 per car, in the delivery month.',
+      'Sticker': 'Flat R$15 per car, in the delivery month.',
+    };
+    function renderCosts() {
+      const sec = document.getElementById('sub-fincosts');
+      if (!sec || !sec.classList.contains('active')) return;   // canvas oculto mede 0 — só desenha visível
+      renderFinYearSwitcher('costsYear');
+      const S = (a) => a.reduce((x, y) => x + (y || 0), 0);
+      const P = computePnl();
+      const K = finCurK(), cs = finCS();
+      const money = (v) => cs + ' ' + fmtQty(v * K);
+      const act = P.active || [];
+      const carMonths = S(act);
+      const lineOfL = (L) => ((P.cogs[L] || new Array(FIN_MONTHS).fill(0))).map((v) => Math.max(0, -v));
+      const arr = lineOfL(costsSel);
+      const fy = S(arr);
+      const cogsFY = -S(P.cogsTot), revFY = S(P.grossRev);
+      // ---- elasticidade frota: inclinação de ln(custo) ~ ln(carros ativos) nos meses com os dois.
+      // 1,0 = 10% mais carros → 10% mais custo (proporcional). ~0 = custo fixo, não segue a frota.
+      const pts = [];
+      for (let m = 0; m < FIN_MONTHS; m++) if (act[m] > 1 && arr[m] > 0) pts.push([Math.log(act[m]), Math.log(arr[m])]);
+      let elast = null;
+      if (pts.length >= 3) {
+        const n = pts.length, mx = S(pts.map((p) => p[0])) / n, my = S(pts.map((p) => p[1])) / n;
+        const vx = S(pts.map((p) => (p[0] - mx) * (p[0] - mx)));
+        if (vx > 1e-6) elast = S(pts.map((p) => (p[0] - mx) * (p[1] - my))) / vx;
+      }
+      // ---- perfil por IDADE do carro (M0..M13): média dos modelos ponderada pelas coortes ----
+      const per = new Array(UET_PERIODS).fill(0); let perOk = false;
+      const qtyByModel = {};
+      finCohorts.forEach((c) => { qtyByModel[c.model] = (qtyByModel[c.model] || 0) + c.qty; });
+      const totQ = Math.max(1, S(Object.values(qtyByModel)));
+      Object.entries(qtyByModel).forEach(([mod, q]) => {
+        const pr = refProfiles && refProfiles[mod] && refProfiles[mod][costsSel];
+        if (!pr) return;
+        for (let p = 0; p < UET_PERIODS; p++) per[p] += Math.abs(pr[p] || 0) * (q / totQ);
+        perOk = true;
+      });
+      const perTot = S(per);
+      // Front-load Index: fatia do custo nos 4 primeiros meses do carro ÷ 4/14 (o "espalhado por
+      // igual"). >1 = concentrado na entrega (pesa no caixa quando a frota cresce); ~1 = diluído.
+      let fli = null, com = null;
+      if (perOk && perTot > 0) {
+        fli = (S(per.slice(0, 4)) / perTot) / (4 / 14);
+        com = per.reduce((s, v, i) => s + v * i, 0) / perTot;
+      }
+      // eventos por trás do custo (só onde faz sentido): recuperações / casos de reparo
+      const evts = (() => {
+        if (costsSel === 'Recovery cost') {
+          const z = new Array(FIN_MONTHS).fill(0);
+          (((OCN.payments || {}).weeks) || []).forEach((w) => { if (!w.date || String(w.date).slice(0, 4) !== String(finYear)) return; const m = parseInt(String(w.date).slice(5, 7), 10) - 1; if (m >= 0 && m < FIN_MONTHS) z[m] += (w.counts && w.counts.recovered) || 0; });
+          return { z, label: 'repossessions' };
+        }
+        if (costsSel === 'Repair cost') {
+          const z = new Array(FIN_MONTHS).fill(0);
+          const hoje = (OCN.ue && OCN.ue.hoje) || '';
+          Object.values(((OCN.ue || {}).judBase || {}).placas || {}).forEach((a) => a.forEach((c) => {
+            if (!(c.repair > 0)) return;
+            const iso = c.d || hoje; if (String(iso).slice(0, 4) !== String(finYear)) return;
+            const m = parseInt(String(iso).slice(5, 7), 10) - 1; if (m >= 0 && m < FIN_MONTHS) z[m] += 1;
+          }));
+          return { z, label: 'repair cases' };
+        }
+        return null;
+      })();
+      // ---- seletor + moeda + nota da linha ----
+      const ctl = document.getElementById('costsCtl');
+      ctl.innerHTML = '<div class="costs-bar"><select class="costs-sel" id="costsSel">' +
+        COSTS_LIST.map((L) => `<option value="${escH(L)}"${L === costsSel ? ' selected' : ''}>${escH(L)}</option>`).join('') +
+        '</select>' + finCurFlags() + '</div>' +
+        `<div class="costs-note">${escH(COSTS_INFO[costsSel] || '')}</div>`;
+      ctl.querySelector('#costsSel').addEventListener('change', (e) => { costsSel = e.target.value; costsWhatifPct = 0; renderCosts(); });
+      wireCurFlags(ctl, () => renderCosts());
+      // ---- cartões ----
+      const card = (t, v, sub) => `<div class="costs-card"><span>${escH(t)}</span><b>${v}</b><span class="sub">${escH(sub || '')}</span></div>`;
+      const evFY = evts ? S(evts.z) : 0;
+      document.getElementById('costsHero').innerHTML = '<div class="costs-cards">' +
+        card('FY total', money(fy), (cogsFY ? (fy / cogsFY * 100).toFixed(1) : '0') + '% of COGS') +
+        card('Share of revenue', revFY ? (fy / revFY * 100).toFixed(1) + '%' : '—', 'gross revenue FY ' + money(revFY)) +
+        card('Per active car · month', carMonths ? money(fy / carMonths) : '—', Math.round(carMonths).toLocaleString('pt-BR') + ' car-months in the year') +
+        (perOk ? card('Per car · full contract', 'R$ ' + fmtQty(perTot), 'theoric M0–M13 profile') : '') +
+        card('Fleet-link (elasticity)', elast == null ? '—' : elast.toFixed(2),
+          elast == null ? 'not enough months to measure' : (elast >= 0.75 ? 'scales with the fleet — grows as cars grow' : elast >= 0.35 ? 'partly fleet-driven' : 'mostly flat / fixed')) +
+        (fli != null ? card('Front-load index', fli.toFixed(2) + '×', fli >= 1.4 ? 'concentrated at delivery — hits the cash early' : fli >= 0.8 ? 'evenly spread over the contract' : 'back-loaded (end of contract)') : '') +
+        (fli != null ? card('Average month of spend', 'M' + com.toFixed(1), 'center of mass of the per-car profile (M0–M13)') : '') +
+        (evts && evFY ? card(evts.label + ' (FY)', String(evFY), money(fy / evFY) + ' per event') : '') +
+        '</div>';
+      // ---- gráficos ----
+      const mk = (id, cfg) => { if (costsCharts[id]) { costsCharts[id].destroy(); delete costsCharts[id]; } const c = document.getElementById(id); if (!c) return; costsCharts[id] = new Chart(c.getContext('2d'), cfg); };
+      const MONL = Array.from({ length: FIN_MONTHS }, (_, m) => monthLbl(m));
+      const noDL = { datalabels: { display: false } };
+      document.getElementById('ccMainT').textContent = costsSel + ' — monthly';
+      document.getElementById('ccMainS').textContent = 'bars = cost (' + cs + ') · orange line = active cars' + (evts ? ' · dotted = ' + evts.label : '');
+      mk('ccMain', { data: { labels: MONL, datasets: [
+          { type: 'bar', label: costsSel, data: arr.map((v) => Math.round(v * K)), backgroundColor: '#5A00F8', yAxisID: 'y', borderRadius: 3, maxBarThickness: 26 },
+          { type: 'line', label: 'Active cars', data: act.map((v) => Math.round(v)), borderColor: '#EB6834', backgroundColor: 'transparent', yAxisID: 'y2', tension: .3, pointRadius: 2, borderWidth: 2 },
+        ].concat(evts ? [{ type: 'line', label: evts.label, data: evts.z, borderColor: '#0891B2', backgroundColor: 'transparent', yAxisID: 'y2', borderDash: [4, 3], pointRadius: 3, tension: 0, borderWidth: 1.5 }] : []) },
+        options: { responsive: true, maintainAspectRatio: false, plugins: Object.assign({ legend: { labels: { boxWidth: 10, font: { size: 9 } } } }, noDL),
+          scales: { y: { beginAtZero: true, ticks: { font: { size: 9 } } }, y2: { position: 'right', beginAtZero: true, grid: { display: false }, ticks: { font: { size: 9 } } }, x: { ticks: { font: { size: 9 } } } } } });
+      mk('ccPerCar', { type: 'line', data: { labels: MONL, datasets: [{ label: cs + ' per car', data: arr.map((v, m) => act[m] > 1 ? Math.round(v * K / act[m]) : null), borderColor: '#5A00F8', backgroundColor: 'rgba(90,0,248,.06)', fill: true, tension: .3, pointRadius: 3 }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: Object.assign({ legend: { display: false } }, noDL), scales: { y: { beginAtZero: true, ticks: { font: { size: 9 } } }, x: { ticks: { font: { size: 9 } } } } } });
+      const rankRows = COSTS_LIST.map((L) => ({ L, v: S(lineOfL(L)) })).filter((r) => r.v > 0).sort((a, b) => b.v - a.v);
+      mk('ccRank', { type: 'bar', data: { labels: rankRows.map((r) => r.L), datasets: [{ data: rankRows.map((r) => Math.round(r.v * K)), backgroundColor: rankRows.map((r) => r.L === costsSel ? '#5A00F8' : '#DDD6FE'), borderRadius: 3 }] },
+        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: Object.assign({ legend: { display: false } }, noDL), scales: { x: { beginAtZero: true, ticks: { font: { size: 9 } } }, y: { ticks: { font: { size: 9 } } } } } });
+      const ageBox = document.getElementById('ccAgeBox');
+      if (ageBox) ageBox.style.display = perOk ? '' : 'none';
+      if (perOk) mk('ccAge', { type: 'bar', data: { labels: Array.from({ length: UET_PERIODS }, (_, p) => 'M' + p), datasets: [{ data: per.map((v) => Math.round(v)), backgroundColor: per.map((_, p) => p < 4 ? '#7C3AED' : '#C4B5FD'), borderRadius: 3 }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: Object.assign({ legend: { display: false } }, noDL), scales: { y: { beginAtZero: true, ticks: { font: { size: 9 } } }, x: { ticks: { font: { size: 9 } } } } } });
+      // ---- what-if: % sobre a linha, efeito primário em COGS / margem / caixa ----
+      const wf = document.getElementById('costsWhatif');
+      const gmFY = S(P.gm), ncfFY = S(P.netCf);
+      wf.innerHTML = `<div class="sub2-title">What-if — move ${escH(costsSel)} by a %</div>` +
+        `<div class="costs-bar"><input type="range" id="costsWfR" min="-50" max="50" step="5" value="${costsWhatifPct}" style="width:min(280px,60vw)"><b id="costsWfLbl" style="min-width:48px"></b></div>` +
+        `<div id="costsWfOut"></div>` +
+        `<div class="costs-note">First-order effect: taxes and credits are not recomputed${finYear >= 2027 && costsSel === 'Subrental fee' ? ' — and in 2027 the sublease tax netting would also move with this line' : ''}.</div>`;
+      const wfOut = () => {
+        const d = fy * costsWhatifPct / 100;                    // Δ custo (positivo = mais caro)
+        document.getElementById('costsWfLbl').textContent = (costsWhatifPct >= 0 ? '+' : '') + costsWhatifPct + '%';
+        document.getElementById('costsWfOut').innerHTML = '<div class="costs-cards" style="margin-top:8px">' +
+          card('Line FY', money(fy + d), costsWhatifPct === 0 ? 'unchanged' : ((d >= 0 ? '+' : '−') + money(Math.abs(d)))) +
+          card('Share of revenue', revFY ? ((fy + d) / revFY * 100).toFixed(1) + '%' : '—', 'was ' + (revFY ? (fy / revFY * 100).toFixed(1) : 0) + '%') +
+          card('Gross Margin FY', money(gmFY - d), 'was ' + money(gmFY)) +
+          card('Net cashflow FY', money(ncfFY - d), 'was ' + money(ncfFY)) +
+          '</div>';
+      };
+      wf.querySelector('#costsWfR').addEventListener('input', (e) => { costsWhatifPct = +e.target.value; wfOut(); });
+      wfOut();
+    }
 
     (async () => {
       const getVals = async (fleet) => { const o = {}; try { const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(fleet), { credentials: 'include' }); const d = await r.json(); (d.values || []).forEach((v) => { const lbl = v.line === 'Initial Fee / Vehicle Sell' ? 'Vehicle Sell' : v.line; if (o[lbl + '@@' + v.period] == null) o[lbl + '@@' + v.period] = v.value; }); } catch (e) {} return o; };
@@ -4451,6 +4594,8 @@
       renderFleetPlan(); renderHc(); renderAdmin(); renderCac(); renderAssump(); renderPnl();
       const dashTab = document.querySelector('.sub-tab[data-sub="findash"]');
       if (dashTab) dashTab.addEventListener('click', () => setTimeout(renderDash, 60));
+      const costsTab = document.querySelector('.sub-tab[data-sub="fincosts"]');
+      if (costsTab) costsTab.addEventListener('click', () => setTimeout(renderCosts, 60));
     })();
   }
 

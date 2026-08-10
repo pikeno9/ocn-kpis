@@ -492,6 +492,7 @@
         <button class="sub-tab" data-sub="fincac">CAC &amp; Marketing</button>
         <span class="sub-sep"></span>
         <button class="sub-tab sub-tab-dash" data-sub="findash"><span>Dashboard</span></button>
+        <button class="sub-tab" data-sub="fincosts"><span>Costs</span></button>
       </div>
 
       <!-- ---------- P&L (consolidado) ---------- -->
@@ -583,6 +584,26 @@
         </div>
         <!-- os cartões de baixo mudam conforme o totalizador escolhido no seletor acima -->
         <div class="dash-grid" id="dashGrid"></div>
+      </div>
+
+      <!-- ---------- COSTS (mergulho nas linhas de custo de veículo) ---------- -->
+      <div class="subsection" id="sub-fincosts">
+        <div class="section-head">
+          <div>
+            <div class="section-title"><i class="ti ti-report-money"></i> Vehicle Costs</div>
+            <div class="section-desc">Deep dive on the COGS lines — weight, per-car, timing over the contract and what-ifs</div>
+          </div>
+          <div id="costsYear"></div>
+        </div>
+        <div id="costsCtl"></div>
+        <div id="costsHero"></div>
+        <div class="costs-charts">
+          <div class="costs-chart"><h4 id="ccMainT"></h4><div class="cc-sub" id="ccMainS"></div><canvas id="ccMain"></canvas></div>
+          <div class="costs-chart"><h4>Cost per active car</h4><div class="cc-sub">flat line = the cost simply follows the fleet · rising = each car is getting more expensive</div><canvas id="ccPerCar"></canvas></div>
+          <div class="costs-chart"><h4>Where it sits in COGS</h4><div class="cc-sub">full-year totals, selected line highlighted</div><canvas id="ccRank"></canvas></div>
+          <div class="costs-chart" id="ccAgeBox"><h4>When it hits a car&#8217;s life</h4><div class="cc-sub">per-car profile over the contract — M0 is the delivery month</div><canvas id="ccAge"></canvas></div>
+        </div>
+        <div class="costs-whatif" id="costsWhatif"></div>
       </div>
 
 </section>

@@ -413,6 +413,23 @@ html { scrollbar-gutter: stable; }
 .pnl-va-c.t1 { color: var(--text-2); font-weight: 500; opacity: .5; }
 .pnl-va-c.l1 { font-weight: 800; opacity: 1; color: var(--text); }
 @media (max-width: 900px) { .pnl-va { display: none; } }
+/* ---- Costs: mergulho por linha de custo ---- */
+.costs-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.costs-sel { font: inherit; font-size: 12.5px; font-weight: 600; padding: 8px 12px; border: 1px solid var(--border-2); border-radius: 10px; background: var(--surface); color: var(--text); cursor: pointer; }
+.costs-sel:hover { border-color: var(--accent); }
+.costs-note { font-size: 11px; color: var(--text-2); margin: 2px 0 14px; max-width: 760px; line-height: 1.5; }
+.costs-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.costs-card { border: 1px solid var(--border); border-radius: 12px; padding: 11px 13px; background: var(--surface); }
+.costs-card > span { display: block; font-size: 9.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-2); margin-bottom: 4px; font-weight: 700; }
+.costs-card b { font-size: 15.5px; }
+.costs-card .sub { font-size: 10px; color: var(--text-2); font-weight: 500; display: block; margin-top: 3px; text-transform: none; letter-spacing: 0; line-height: 1.35; }
+.costs-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.costs-chart { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; background: var(--surface); }
+.costs-chart h4 { font-size: 12px; margin: 0 0 2px; }
+.costs-chart .cc-sub { font-size: 10.5px; color: var(--text-2); margin-bottom: 8px; line-height: 1.4; }
+.costs-chart canvas { width: 100% !important; height: 190px !important; }
+.costs-whatif { border: 1.5px dashed var(--border-2); border-radius: 12px; padding: 14px 16px; margin-top: 16px; }
+@media (max-width: 900px) { .costs-charts { grid-template-columns: 1fr; } }
 #pnlTable tbody tr.pnl-l2 td { background: #C4B5FD; color: var(--text); font-weight: 600; }
 #pnlTable tbody tr.pnl-l2 td.ue-totalcol { background: #B3A1F7; }
 #pnlTable tbody tr.pnl-l3 td { background: #EDE9FE; color: var(--text); font-weight: 500; }

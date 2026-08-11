@@ -488,6 +488,8 @@ html { scrollbar-gutter: stable; }
 .cc-big b { display: block; font-size: 26px; line-height: 1; color: var(--cl, var(--accent)); letter-spacing: -.01em; }
 .cc-big span { display: block; font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--text-2); margin-top: 5px; }
 .cc-big i { display: block; font-style: normal; font-size: 10px; color: var(--text-2); line-height: 1.35; margin-top: 3px; }
+/* de onde sai a média (prêmio ÷ meses de cobertura etc.) — o dado que evita a leitura errada */
+.cc-basis { display: inline-block; margin-top: 4px; font-size: 10px; font-weight: 700; color: var(--text); }
 .cc-agecv { flex: 1; min-width: 0; }
 /* elasticidade: chip enfático no cabeçalho do custo por carro */
 .cc-elast { display: flex; align-items: baseline; gap: 6px; }

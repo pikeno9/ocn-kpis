@@ -2196,7 +2196,7 @@
     // continuam sempre em USD — converter campo editável convidaria a salvar R$ como US$.
     const finCS = () => (pnlCur === 'BRL' ? 'R$' : 'US$');
     const finCurK = () => (pnlCur === 'BRL' ? (finPar('__fin_fx__') || 5.5) : 1);
-    const finCurFlags = () => `<div class="fin-curbar"><div class="ue-cur-toggle">${CUR_FLAGS(pnlCur)}</div><span class="fin-curnote">${pnlCur === 'BRL' ? 'shown in R$ at the FX assumption — inputs stay in US$' : ''}</span></div>`;
+    const finCurFlags = () => `<div class="fin-curbar"><div class="ue-cur-toggle">${CUR_FLAGS(pnlCur)}</div></div>`;
     function wireCurFlags(root, rerender) {
       root.querySelectorAll('.ue-cur-btn').forEach((b) => b.addEventListener('click', () => {
         pnlCur = b.dataset.c === 'BRL' ? 'BRL' : 'USD';
@@ -4619,6 +4619,8 @@
           { type: 'line', label: '80% guide', order: 2, data: rows.map(() => 80), yAxisID: 'y2', borderColor: '#B91C1C', borderDash: [5, 4], borderWidth: 1.2, pointRadius: 0, datalabels: { display: false } },
         ] },
         options: { responsive: true, maintainAspectRatio: false,
+          // o rótulo da barra mais alta é desenhado ACIMA dela: sem folga no topo ele saía cortado
+          layout: { padding: { top: 26 } },
           interaction: { mode: 'index', intersect: false },
           onClick: (e, els) => { if (els && els.length) { costsDrillSel = rows[els[0].index].L; renderCosts(); } },
           onHover: (e, els) => { e.native.target.style.cursor = els && els.length ? 'pointer' : 'default'; },
@@ -4629,7 +4631,7 @@
                 ? ccNum(c.parsed.y) + '  ·  ' + (tot ? (rows[c.dataIndex].v / tot * 100).toFixed(1) : 0) + '% of COGS'
                 : 'cumulative: ' + c.parsed.y + '%'),
                 afterBody: (items) => (items && items.length ? 'click to open by fleet' : '') } } },
-          scales: { y: { grid: { display: false }, border: { display: false }, beginAtZero: true, ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } },
+          scales: { y: { grid: { display: false }, border: { display: false }, beginAtZero: true, grace: '10%', ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } },
             y2: { position: 'right', min: 0, max: 112, grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280', callback: (v) => (v <= 100 ? v + '%' : '') } },
             x: { grid: { display: false }, border: { display: false }, ticks: { font: { size: 10.5 }, color: '#374151' } } } } });
       // ---- drill da barra clicada: mensal EMPILHADO POR FROTA (realizado) + custo médio/carro ----
@@ -4672,9 +4674,26 @@
       rfF.forEach((f) => { for (let m = 0; m <= RF.curM; m++) { dTot += (f.arr[drillL] || [])[m] || 0; dAcc += ((f.accr || f.arr)[drillL] || [])[m] || 0; dCarM += f.cars[m] || 0; } });
       const avg = dCarM > 0 ? dAcc / dCarM : null;
       const difCaixa = Math.abs(dAcc - dTot) > Math.max(1, dTot * 0.01);
+      // De onde sai a média das linhas de AGENDA — sem isso o número vira adivinhação: o seguro,
+      // por exemplo, é pago em poucas parcelas grandes mas rateado nos 12 meses de cobertura, e a
+      // parcela (o que se lembra de pagar) é sempre bem maior que o custo mensal apropriado.
+      const baseTxt = (() => {
+        const fxr = finPar('__fin_fx__') || 5.5;
+        const par = (id, k) => { const v = (realFleetParams[id] || {})[k + '@@0']; return v != null ? Number(v) : 0; };
+        const ids = rfF.map((f) => f.id);
+        const wavg = (k) => { let s = 0, n = 0; ids.forEach((id) => { const f2 = ((OCN.ue || {}).fleets || []).find((x) => x.id === id); const c = f2 ? (f2.cars || (f2.placas || []).length || 0) : 0; s += par(id, k) * c; n += c; }); return n ? s / n : 0; };
+        if (drillL === 'Insurance') {
+          const t = wavg('__ins_total__'), np = Math.round(wavg('__ins_parcelas__'));
+          if (!(t > 0)) return '';
+          return money(t / fxr) + ' premium per car' + (np > 1 ? ' (' + np + ' installments of ' + money(t / np / fxr) + ')' : '') + ' ÷ 12 months of coverage';
+        }
+        if (drillL === 'Subrental fee') { const v = wavg('__subrental_mensal__'); return v > 0 ? money(v / fxr) + ' rent per car · month' : ''; }
+        if (drillL === 'GPS') { const mo = wavg('__gps_mensal__'), i0 = wavg('__gps_m0__'); return mo > 0 ? money(mo / fxr) + '/month + ' + money(i0 / fxr) + ' install spread over the contract' : ''; }
+        return '';
+      })();
       document.getElementById('ccDrillInds').innerHTML =
         `<div class="cc-big cc-huge" style="--cl:${DC}"><b>${avg == null ? '—' : money(avg)}</b><span>avg per car · month</span>` +
-          `<i>${rfF.length} fleet${rfF.length > 1 ? 's' : ''} · ${ccNum(dCarM)} car-months held${difCaixa ? ' · cost accrued to the months the cars were held' : ''}</i></div>` +
+          `<i>${rfF.length} fleet${rfF.length > 1 ? 's' : ''} · ${ccNum(dCarM)} car-months held${baseTxt ? '<br><b class="cc-basis">' + escH(baseTxt) + '</b>' : (difCaixa ? ' · cost accrued to the months the cars were held' : '')}</i></div>` +
         `<div class="cc-big" style="--cl:${DC}"><b>${money(dTot)}</b><span>cash to date</span>` +
           `<i>through ${RF.curM >= 0 ? monthLbl(RF.curM) : '—'}${difCaixa ? ' · ' + money(dAcc) + ' accrued' : ''} · click another Pareto bar to switch</i></div>`;
     }

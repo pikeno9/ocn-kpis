@@ -4462,6 +4462,9 @@
     // textos longos saem da página e viram caixas de ajuda (botões "?")
     const COSTS_HELP = {
       pareto: { t: 'Pareto — where the COGS money goes', d: 'Every vehicle cost line sorted biggest first (each in its own colour), with the cumulative share on the right axis. Where the curve crosses the dashed 80% guide tells you how few lines concentrate almost all the cost — those are the ones worth negotiating; everything after the crossing is operational noise. CLICK any bar to open that line below, month by month and split by fleet.' },
+      share: { t: 'Share of COGS by month', d: 'Each month as 100%: how much of that month\'s vehicle cost each line represents — the five biggest lines in their own colours, the rest grouped as grey "Others". Months ahead of today are the PROJECTION and render lighter (the tooltip also says "projected"). Watch for a line quietly growing its slice as the fleet ramps: absolute values always grow with more cars, but the SHARE only grows when the line outpaces the others.' },
+      u_ret: { t: 'Return per car — vs its budget', d: 'One thin bar per plate: everything the car has brought in since delivery (subscriptions received, interest, fines charged to the client) minus everything it has cost (sub-rental, insurance accrued to date, GPS, preparation, sticker, maintenance, fines paid, recovery, repair, parts). Security deposit and its refund are OUT — they are cash parked, not result — and so are the car purchase/sale and termination fees. The dashed line is each car\'s BUDGET at its current age: what its fleet\'s contractual economics (weekly fee, rent, insurance, GPS) plus the pooled event rates (fines, maintenance, recovery, repair, parts by car age) say it should have accumulated by now. GREEN bars are at or above budget, RED are below. Cars of different fleets have different ages, so bars are not directly comparable to each other — always compare each bar to the dashed line at its position.' },
+      u_delta: { t: 'Delta vs budget per car', d: 'The same data as the chart above, reduced to one number per car: realized return minus the budget for its age. Positive (green, up) = the car is ahead of plan; negative (red, down) = behind. This is the chart to scan for problem cars — the deepest red bars are the plates bleeding most against expectation, whatever their age.' },
       drill: { t: 'Monthly by fleet', d: 'The line you clicked on the Pareto, month by month, stacked by REAL fleet — each fleet in its own colour. This is realized data only (schedules and imported bases per plate); the projection lives in the plan and has no fleet concept. The big number is the average cost per active car per month across the fleets shown, computed over the realized window.' },
       ins: { t: 'Is the insurance paying for itself?', d: 'ACCRUED, NOT PAID. The premium is disbursed in about four installments at the start of each fleet, but it covers the full 12 months of the contract. Comparing the cash of a period against the claims of that same period mismatches the two: a fleet that started in june carries almost all of its cash in 2026 while half of its coverage runs into 2027. So each fleet\'s premium is spread pro-rata, day by day, across its 365 days of coverage, and every month is charged only the risk it actually ran. The footer shows both numbers side by side. CLAIMS are the fleet-site occurrences flagged with a sinistro in the period — collisions, window damage and total loss; mechanical failures never trigger it. BREAK-EVEN PER CLAIM is the accrued premium divided by the number of claims: how much each occurrence would have to cost us out of pocket for "having insurance" and "not having it" to come out the same. The SAVING compares the two worlds: claims × the average cost you type (we have no workshop quote per occurrence, so it is your input) against the accrued premium. Green means insurance saved money, red means it cost more than the damage would have.' },
       filters: { t: 'View filters', d: 'FORECAST is the plan engine (actuals + projection). ACTUALS keeps only what already happened, rebuilt from the real per-fleet bases and cut at the current month. The month selector isolates one month in the cards — picking the CURRENT month shows only its realized value, never the blend. The fleet selector isolates one real fleet, which implies realized data. The what-if panels hide under any filter: they move the full-year projection.' },
@@ -4699,13 +4702,45 @@
       // Ela vem do PLANO (coortes), que não tem conceito de frota — por isso entra como uma série
       // única hachurada em vez de fingir uma divisão por frota que os dados não têm.
       const showProj = H.mSel == null && costsView === 'fc' && costsFleet == null && RF.curM >= 0 && RF.curM < FIN_MONTHS - 1;
-      const projArr = showProj ? H.lineOfL(drillL).map((v, m) => (m > RF.curM ? Math.round(v * K) : null)) : null;
-      const projTot = showProj ? H.lineOfL(drillL).reduce((s, v, m) => s + (m > RF.curM ? (v || 0) : 0), 0) : 0;
+      const planLine = H.lineOfL(drillL);
+      const projTot = showProj ? planLine.reduce((s, v, m) => s + (m > RF.curM ? (v || 0) : 0), 0) : 0;
+      // Projeção REPARTIDA por frota: o plano projeta por carro, então cada frota real leva a
+      // fatia proporcional aos carros DELA na frota ativa do plano naquele mês (dentro da janela
+      // de 12 meses do contrato dela). O que o plano tem além das frotas reais — as entregas que
+      // ainda vão acontecer — fica no balde "Future fleets", porque esses carros não são de
+      // nenhuma frota existente.
+      const projByFleet = {}; const projFuture = new Array(FIN_MONTHS).fill(null);
+      if (showProj) {
+        const U2 = OCN.ue || {}, losses2 = U2.losses || {};
+        const meta = (U2.fleets || []).filter((f) => f.inicio).map((f) => {
+          const m0 = (String(f.inicio).slice(0, 4) === String(finYear)) ? parseInt(String(f.inicio).slice(5, 7), 10) - 1 : null;
+          const cars = Math.max(1, f.cars || (f.placas || []).length || 1);
+          const lost = (mEnd) => (f.placas || []).reduce((n2, pl) => n2 + ((losses2[pl] && new Date(losses2[pl] + 'T12:00:00') <= mEnd) ? 1 : 0), 0);
+          return { id: f.id, m0, cars, lost };
+        });
+        for (let m = RF.curM + 1; m < FIN_MONTHS; m++) {
+          const plan = (P.active || [])[m] || 0, tot2 = planLine[m] || 0;
+          let used = 0;
+          meta.forEach((f) => {
+            const inWin = f.m0 != null && m >= f.m0 && m <= f.m0 + 11;
+            const c = inWin ? Math.max(0, f.cars - f.lost(new Date(finYear, m + 1, 0, 12))) : 0;
+            const share = plan > 0 ? Math.min(1, c / plan) : 0;
+            used += share;
+            if (!projByFleet[f.id]) projByFleet[f.id] = new Array(FIN_MONTHS).fill(null);
+            projByFleet[f.id][m] = Math.round(tot2 * share * K);
+          });
+          projFuture[m] = Math.round(tot2 * Math.max(0, 1 - used) * K);
+        }
+      }
       document.getElementById('ccDrillT').innerHTML = `<span class="costs-pk-dot" style="background:${DC}"></span>${escH(COSTS_LABEL(drillL))} — monthly by fleet${showProj ? ' · realized + forecast' : ' · realized'}`;
       const MONL = Array.from({ length: FIN_MONTHS }, (_, m) => monthLbl(m));
       mk('ccDrill', { type: 'bar', data: { labels: MONL, datasets: rfF.map((f) => (
           { label: 'Fleet ' + f.id, fleetId: f.id, data: (f.arr[drillL] || []).map((v, m) => (RF.curM >= 0 && m <= RF.curM ? Math.round(v * K) : null)), backgroundColor: FLEET_COLOR(f.id), stack: 's', maxBarThickness: 40, borderRadius: 2 }
-        )).concat(showProj ? [{ label: 'Projected', proj: true, data: projArr, backgroundColor: costsStripe(DC), borderColor: costsTint(DC, .55), borderWidth: 1, stack: 's', maxBarThickness: 40, borderRadius: 2 }] : []) },
+        )).concat(showProj ? rfF.map((f) => (
+          // mesma cor da frota, mas HACHURADA — é a fatia projetada dela; fora da legenda para
+          // não duplicar as entradas (a cor já identifica a frota)
+          { label: 'Fleet ' + f.id + ' · projected', proj: true, legendHide: true, data: projByFleet[f.id] || new Array(FIN_MONTHS).fill(null), backgroundColor: costsStripe(FLEET_COLOR(f.id)), borderColor: costsTint(FLEET_COLOR(f.id), .5), borderWidth: 1, stack: 's', maxBarThickness: 40, borderRadius: 2 }
+        )).concat([{ label: 'Future fleets', proj: true, data: projFuture, backgroundColor: costsStripe('#6B7280'), borderColor: 'rgba(107,114,128,.5)', borderWidth: 1, stack: 's', maxBarThickness: 40, borderRadius: 2 }]) : []) },
         // total de cada mês acima da pilha (o datalabels não soma stacks sozinho)
         plugins: [{ id: 'stackTot', afterDatasetsDraw(ch) {
           const { ctx } = ch; const tots = {}; let top = {};
@@ -4720,11 +4755,11 @@
         options: { responsive: true, maintainAspectRatio: false,
           layout: { padding: { top: 18 } },
           interaction: { mode: 'index', intersect: false },
-          plugins: { legend: { position: 'bottom', align: 'start', labels: Object.assign({}, CC_LEG, { padding: 14 }) },
+          plugins: { legend: { position: 'bottom', align: 'start', labels: Object.assign({}, CC_LEG, { padding: 14, filter: (item, data) => !data.datasets[item.datasetIndex].legendHide }) },
             // VALOR dentro da fatia (abreviado), e só quando a fatia tem altura para não apertar
             datalabels: { display: (c) => { const el = c.chart.getDatasetMeta(c.datasetIndex).data[c.dataIndex]; return c.dataset.data[c.dataIndex] > 0 && el && Math.abs(el.base - el.y) > 20; },
-              // na barra hachurada o branco some — ali o rótulo vai na cor da linha
-              color: (c) => (c.dataset.proj ? DC : '#fff'), font: { size: 9.5, weight: 800 }, formatter: ccK },
+              // na barra hachurada o branco some — ali o rótulo vai em cinza-escuro
+              color: (c) => (c.dataset.proj ? '#374151' : '#fff'), font: { size: 9.5, weight: 800 }, formatter: ccK },
             tooltip: { padding: 10, titleFont: { size: 12 }, bodyFont: { size: 11.5 },
               callbacks: { label: (c) => c.dataset.label + ': ' + ccNum(c.parsed.y),
                 footer: (items) => 'total: ' + ccNum(items.reduce((a, i2) => a + i2.parsed.y, 0)) } } },
@@ -4774,6 +4809,28 @@
           (showProj ? `<i><b class="cc-proj-lg">${money(dTot + projTot)}</b> full year · realized through ${monthLbl(RF.curM)} + forecast ahead</i>` : '') +
         `</div>`;
       document.querySelectorAll('#ccDrillInds .costs-help').forEach((b) => { b.onclick = () => costsHelpOpen('avg'); });
+      // ---- share do COGS por mês: 100% empilhado, top-5 linhas + Others, projeção mais clara ----
+      const shareTop = rows.slice(0, 5).map((r) => r.L);
+      const shareTotM = new Array(FIN_MONTHS).fill(0);
+      COSTS_LIST.forEach((L) => { const a = H.lineOfL(L); for (let m = 0; m < FIN_MONTHS; m++) shareTotM[m] += a[m] || 0; });
+      const sharePct = (L) => H.lineOfL(L).map((v, m) => (shareTotM[m] > 0 ? (v / shareTotM[m]) * 100 : null));
+      const othersPct = new Array(FIN_MONTHS).fill(0);
+      COSTS_LIST.filter((L) => !shareTop.includes(L)).forEach((L) => { const p = sharePct(L); for (let m = 0; m < FIN_MONTHS; m++) othersPct[m] += p[m] || 0; });
+      const futuro = (m) => costsView === 'fc' && RF.curM >= 0 && m > RF.curM;   // projeção fica mais clara
+      mk('ccShare', { type: 'bar', data: { labels: MONL, datasets: shareTop.map((L) => (
+          { label: COSTS_LABEL(L), data: sharePct(L).map((v) => (v == null ? null : Math.round(v * 10) / 10)),
+            backgroundColor: sharePct(L).map((v, m) => (futuro(m) ? costsTint(COSTS_COLOR[L], .45) : COSTS_COLOR[L])), stack: 's', maxBarThickness: 34 }
+        )).concat([{ label: 'Others', data: othersPct.map((v, m) => (shareTotM[m] > 0 ? Math.round(v * 10) / 10 : null)),
+          backgroundColor: othersPct.map((_, m) => (futuro(m) ? 'rgba(156,163,175,.45)' : '#9CA3AF')), stack: 's', maxBarThickness: 34 }]) },
+        options: { responsive: true, maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { position: 'bottom', align: 'start', labels: Object.assign({}, CC_LEG, { padding: 14 }) },
+            datalabels: { display: (c) => (c.dataset.data[c.dataIndex] || 0) >= 9, color: '#fff', font: { size: 9, weight: 800 }, formatter: (v) => Math.round(v) + '%' },
+            tooltip: { padding: 10, titleFont: { size: 12 }, bodyFont: { size: 11.5 },
+              callbacks: { label: (c) => c.dataset.label + ': ' + (c.parsed.y == null ? '—' : c.parsed.y.toFixed(1) + '%'),
+                afterTitle: (items) => (items.length && futuro(items[0].dataIndex) ? 'projected' : '') } } },
+          scales: { x: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280' } },
+            y: { stacked: true, min: 0, max: 100, grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280', callback: (v) => v + '%' } } } } });
     }
     function renderCosts() {
       const sec = document.getElementById('sub-fincosts');
@@ -5098,6 +5155,146 @@
       wfOut();
     }
 
+    // ===================== UNIT — rentabilidade CARRO A CARRO =====================
+    // Uma barra fininha por placa: tudo que o carro trouxe desde a entrega menos tudo que custou,
+    // contra o BUDGET da idade dele (a economia contratual da frota + os ritmos de evento por
+    // idade). Caução/refund, compra/venda e termination ficam FORA — é resultado da operação, não
+    // movimentação de capital. Valores em USD (mesma base do Costs); moeda de exibição via K.
+    let unitSort = 'delta', unitFleet = null, _unitCache = null;
+    function unitData() {
+      if (_unitCache) return _unitCache;
+      const U = OCN.ue || {}, MS = 86400000, MESd = UET_WPM * 7;
+      const fx = finPar('__fin_fx__') || 5.5;
+      const hoje = new Date(((U.hoje) || new Date().toISOString().slice(0, 10)) + 'T12:00:00');
+      const FRK = finesRatesByFleet();
+      const AGE = {
+        Maintenance: costsAgeProfile('Maintenance'),
+        Recovery: costsAgeProfile('Recovery cost'),
+        Repair: costsAgeProfile('Repair cost'),
+        Parts: costsAgeProfile('Part Replacement'),
+      };
+      const pc = { pastilhas: cpar('__part_pastilhas_rs__', 250), disco: cpar('__part_disco_rs__', 350), pneus: cpar('__part_pneus_rs__', 700) };
+      const out = [];
+      (U.fleets || []).forEach((f) => {
+        if (!f.inicio) return;
+        const FP2 = realFleetParams[f.id] || {};
+        const par = (k) => { const v = FP2[k + '@@0']; return v != null ? Number(v) : 0; };
+        const ini = new Date(f.inicio + 'T12:00:00');
+        if (ini > hoje) return;
+        const ageM = Math.min(13, (hoje - ini) / MS / 30.44);
+        const FR = FRK[f.id] || FRK.__pool || { gross: 0, net: 0, prem: 1.1 };
+        // ---- budget mensal por carro (R$), mês de vida p ----
+        const bm = (p) => {
+          let v = 0;
+          if (p === 0) v -= par('__gps_m0__') + 50 + 15;
+          if (p >= 1 && p <= 12) {
+            v += par('__sub_semanal__') * UET_WPM;                     // receita contratual
+            v -= par('__subrental_mensal__') + par('__ins_total__') / 12 + par('__gps_mensal__');
+            v += (FR.gross || 0) * (FR.prem || 1.1) * MESd;            // multas repassadas
+            v -= (FR.net || 0) * MESd;                                 // multas pagas à LM
+            v -= (AGE.Maintenance.ok ? AGE.Maintenance.per[p] || 0 : 0);
+            v -= (AGE.Recovery.ok ? AGE.Recovery.per[p] || 0 : 0);
+            v -= (AGE.Repair.ok ? AGE.Repair.per[p] || 0 : 0);
+            v -= (AGE.Parts.ok ? AGE.Parts.per[p] || 0 : 0);
+          }
+          return v;
+        };
+        let bud = 0; const full = Math.floor(ageM);
+        for (let p = 0; p < full && p <= 13; p++) bud += bm(p);
+        if (full <= 13) bud += bm(full) * (ageM - full);
+        bud /= fx;
+        // ---- custos de AGENDA por carro (iguais para toda a frota), realizados até hoje ----
+        let sched = 50 + 15 + par('__gps_m0__');
+        const subr = par('__subrental_mensal__');
+        if (subr > 0) {
+          const dim = new Date(ini.getFullYear(), ini.getMonth() + 1, 0).getDate();
+          const proR = Math.max(0, Math.min(1, (dim - ini.getDate()) / dim));
+          for (let i = 1; i <= 13; i++) {
+            const d = new Date(ini.getFullYear(), ini.getMonth() + i, 26, 12);
+            if (d > hoje) break;
+            sched += subr * (i === 1 ? proR : (i === 13 ? 1 - proR : 1));
+          }
+        }
+        sched += par('__ins_total__') * Math.min(365, Math.max(0, (hoje - ini) / MS)) / 365;   // seguro apropriado
+        const gpsM = par('__gps_mensal__');
+        if (gpsM > 0) for (let n2 = 1; n2 <= 12; n2++) { const d = new Date(ini.getTime() + (n2 - 0.5) * MESd * MS); if (d <= hoje) sched += gpsM; }
+        (f.placas || []).forEach((pl) => {
+          let rev = 0, ev = 0;
+          ((((U.pagamentos || {}).placas) || {})[pl] || []).forEach((s) => { rev += s.r != null ? s.r : (s.e != null ? s.e : 0); });
+          ((((U.multas || {}).placas) || {})[pl] || []).forEach((x) => { if (x.pago) rev += x.v; });
+          ((((U.multasBase || {}).placas) || {})[pl] || []).forEach((x) => { ev += (x.liq > 0 ? x.liq : (x.v || 0) / 1.05) * 1.05; });
+          ((((U.revBase || {}).placas) || {})[pl] || []).forEach((r) => { if (r.valor) ev += r.valor; });
+          ((((U.judBase || {}).placas) || {})[pl] || []).forEach((c) => { ev += (c.recovery || 0) + (c.repair || 0); });
+          ((((U.reposicao || {}).placas) || {})[pl] || []).forEach((e2) => { (e2.itens || []).forEach((it) => { if (pc[it]) ev += pc[it]; }); });
+          const real = (rev - ev - sched) / fx;
+          out.push({ pl, fleet: f.id, ageM, real, bud, delta: real - bud, rev: rev / fx, cost: (ev + sched) / fx });
+        });
+      });
+      _unitCache = out;
+      return out;
+    }
+    function renderUnit() {
+      const sec = document.getElementById('sub-finunit');
+      if (!sec || !sec.classList.contains('active')) return;
+      const K = finCurK(), cs = finCS();
+      const money = (v) => fmtQty(v * K);
+      const all = unitData();
+      let rows = unitFleet != null ? all.filter((r) => r.fleet === unitFleet) : all.slice();
+      const sorters = {
+        delta: (a, b) => b.delta - a.delta,
+        real: (a, b) => b.real - a.real,
+        fleet: (a, b) => (a.fleet === b.fleet ? b.delta - a.delta : String(a.fleet).localeCompare(String(b.fleet))),
+        age: (a, b) => b.ageM - a.ageM,
+      };
+      rows.sort(sorters[unitSort] || sorters.delta);
+      // ---- controles ----
+      const ctl = document.getElementById('unitCtl');
+      const fleets = ((OCN.ue || {}).fleets) || [];
+      ctl.innerHTML = '<div class="costs-bar">' +
+        `<select class="costs-mini" id="unitFleetSel"><option value="">All fleets</option>` +
+          fleets.map((f) => `<option value="${escH(f.id)}"${unitFleet === f.id ? ' selected' : ''}>Fleet ${escH(f.id)} · ${f.cars || (f.placas || []).length} cars</option>`).join('') + '</select>' +
+        `<select class="costs-mini" id="unitSortSel">` +
+          [['delta', 'Sort: Δ vs budget'], ['real', 'Sort: return'], ['fleet', 'Sort: fleet'], ['age', 'Sort: age']].map(([v, t]) => `<option value="${v}"${unitSort === v ? ' selected' : ''}>${t}</option>`).join('') + '</select>' +
+        finCurFlags() + '</div>';
+      ctl.querySelector('#unitFleetSel').addEventListener('change', (e) => { unitFleet = e.target.value === '' ? null : e.target.value; renderUnit(); });
+      ctl.querySelector('#unitSortSel').addEventListener('change', (e) => { unitSort = e.target.value; renderUnit(); });
+      wireCurFlags(ctl, () => renderUnit());
+      sec.querySelectorAll('.costs-help').forEach((b) => { b.onclick = () => costsHelpOpen(b.dataset.h); });
+      // ---- cartões ----
+      const above = rows.filter((r) => r.delta >= 0).length, below = rows.length - above;
+      const positive = rows.filter((r) => r.real >= 0).length;
+      const totD = rows.reduce((s, r) => s + r.delta, 0);
+      const card = (t, v, sub, cl) => `<div class="costs-card${cl ? ' cc-strong' : ''}" style="--cl:${cl || '#6D28D9'}"><span>${escH(t)}</span><b>${v}</b><span class="sub">${escH(sub || '')}</span></div>`;
+      document.getElementById('unitHero').innerHTML = '<div class="costs-cards">' +
+        card('Cars evaluated', String(rows.length), unitFleet != null ? 'fleet ' + unitFleet : 'all fleets') +
+        card('Above budget', String(above), Math.round(above / Math.max(1, rows.length) * 100) + '% of the cars', '#059669') +
+        card('Below budget', String(below), 'the red bars', '#DC2626') +
+        card('Cash-positive', String(positive), 'return ≥ 0 regardless of budget') +
+        card('Total Δ vs budget', (totD >= 0 ? '+' : '−') + money(Math.abs(totD)), 'sum of every car\'s delta', totD >= 0 ? '#059669' : '#DC2626') +
+        '</div>';
+      // ---- gráficos: barras fininhas, tooltip com o dossiê do carro ----
+      const mk = (id, cfg) => { if (costsCharts[id]) { costsCharts[id].destroy(); delete costsCharts[id]; } const c = document.getElementById(id); if (!c) return; costsCharts[id] = new Chart(c.getContext('2d'), cfg); };
+      const labels = rows.map((r) => r.pl);
+      const tip = { padding: 10, titleFont: { size: 12 }, bodyFont: { size: 11 }, displayColors: false, callbacks: {
+        title: (items) => { const r = rows[items[0].dataIndex]; return r.pl + ' · fleet ' + r.fleet + ' · M' + r.ageM.toFixed(1); },
+        label: (c) => { const r = rows[c.dataIndex]; return ['return: ' + money(r.real), 'budget at this age: ' + money(r.bud), 'delta: ' + (r.delta >= 0 ? '+' : '−') + money(Math.abs(r.delta)), 'in: ' + money(r.rev) + ' · out: ' + money(r.cost)]; },
+      } };
+      const thin = { maxBarThickness: 9, barPercentage: .92, categoryPercentage: .95 };
+      document.getElementById('unitRetHint').textContent = rows.length + ' bars — one per plate · dashed line = budget at each car\'s age';
+      mk('unitRet', { data: { labels, datasets: [
+          Object.assign({ type: 'bar', label: 'Return', data: rows.map((r) => Math.round(r.real * K)), backgroundColor: rows.map((r) => (r.delta >= 0 ? '#059669' : '#DC2626')), borderRadius: 2 }, thin),
+          { type: 'line', label: 'Budget', data: rows.map((r) => Math.round(r.bud * K)), borderColor: '#111827', borderDash: [5, 4], borderWidth: 1.8, pointRadius: 0, tension: 0 },
+        ] },
+        options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { position: 'bottom', align: 'start', labels: CC_LEG }, datalabels: { display: false }, tooltip: tip },
+          scales: { x: { display: false }, y: { grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } } } } });
+      mk('unitDelta', { type: 'bar', data: { labels, datasets: [
+          Object.assign({ label: 'Δ vs budget', data: rows.map((r) => Math.round(r.delta * K)), backgroundColor: rows.map((r) => (r.delta >= 0 ? '#059669' : '#DC2626')), borderRadius: 2 }, thin),
+        ] },
+        options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { display: false }, datalabels: { display: false }, tooltip: tip },
+          scales: { x: { display: false }, y: { grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } } } } });
+    }
     (async () => {
       const getVals = async (fleet) => { const o = {}; try { const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(fleet), { credentials: 'include' }); const d = await r.json(); (d.values || []).forEach((v) => { const lbl = v.line === 'Initial Fee / Vehicle Sell' ? 'Vehicle Sell' : v.line; if (o[lbl + '@@' + v.period] == null) o[lbl + '@@' + v.period] = v.value; }); } catch (e) {} return o; };
       try { const r = await fetch('/api/theoric/models', { credentials: 'include' }); const d = await r.json(); finModels = d.models || []; } catch (e) { finModels = []; }
@@ -5127,6 +5324,7 @@
       const realFleets = ((OCN.ue || {}).fleets) || [];
       await Promise.all(realFleets.map(async (f) => { realFleetParams[f.id] = await getVals(f.id); }));
       refProfiles = buildProfiles();
+      _unitCache = null;   // os parâmetros reais das frotas acabaram de chegar — invalida o por-placa
       await loadIndrive();
       await loadPnlVersions();
       try { const r = await fetch('/api/finance/scenarios', { credentials: 'include' }); const d = await r.json(); pnlScenarios = (d && d.scenarios) || []; } catch (e) { pnlScenarios = []; }
@@ -5135,6 +5333,8 @@
       if (dashTab) dashTab.addEventListener('click', () => setTimeout(renderDash, 60));
       const costsTab = document.querySelector('.sub-tab[data-sub="fincosts"]');
       if (costsTab) costsTab.addEventListener('click', () => setTimeout(renderCosts, 60));
+      const unitTab = document.querySelector('.sub-tab[data-sub="finunit"]');
+      if (unitTab) unitTab.addEventListener('click', () => setTimeout(renderUnit, 60));
     })();
   }
 

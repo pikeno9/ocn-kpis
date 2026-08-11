@@ -493,6 +493,7 @@
         <span class="sub-sep"></span>
         <button class="sub-tab sub-tab-dash" data-sub="findash"><span>Dashboard</span></button>
         <button class="sub-tab" data-sub="fincosts"><span>Costs</span></button>
+        <button class="sub-tab" data-sub="finunit"><span>Unit</span></button>
       </div>
 
       <!-- ---------- P&L (consolidado) ---------- -->
@@ -608,6 +609,10 @@
               <div class="cc-agecv"><div class="cc-cv cv-mid"><canvas id="ccDrill"></canvas></div></div>
             </div>
           </div>
+          <div class="costs-chart" style="margin-top:14px">
+            <div class="cc-head"><h4>Share of COGS by month</h4><button type="button" class="costs-help" data-h="share">?</button></div>
+            <div class="cc-cv cv-mid"><canvas id="ccShare"></canvas></div>
+          </div>
         </div>
         <!-- visão POR LINHA -->
         <div id="costsLineView">
@@ -642,6 +647,25 @@
             </div>
           </div>
           <div class="costs-whatif" id="costsWhatif"></div>
+        </div>
+      </div>
+
+      <!-- ---------- UNIT (rentabilidade carro a carro) ---------- -->
+      <div class="subsection" id="sub-finunit">
+        <div class="section-head">
+          <div>
+            <div class="section-title"><i class="ti ti-car"></i> Unit — per-car profitability</div>
+          </div>
+        </div>
+        <div id="unitCtl"></div>
+        <div id="unitHero"></div>
+        <div class="costs-chart">
+          <div class="cc-head"><h4>Return per car — vs its budget</h4><span class="cc-hint" id="unitRetHint"></span><button type="button" class="costs-help" data-h="u_ret">?</button></div>
+          <div class="cc-cv cv-tall"><canvas id="unitRet"></canvas></div>
+        </div>
+        <div class="costs-chart" style="margin-top:14px">
+          <div class="cc-head"><h4>Delta vs budget per car</h4><button type="button" class="costs-help" data-h="u_delta">?</button></div>
+          <div class="cc-cv cv-mid"><canvas id="unitDelta"></canvas></div>
         </div>
       </div>
 

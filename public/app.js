@@ -4424,6 +4424,7 @@
     // filtros da aba: visão (forecast × só realizado), mês isolado e frota isolada — e a barra
     // clicada no Pareto (drill). Frota isolada implica realizado: projeção é do PLANO, não da frota.
     let costsView = 'fc', costsMonth = null, costsFleet = null, costsDrillSel = null, costsInsAvg = null;
+    let costsMonthInit = false;   // a aba abre no MÊS VIGENTE; depois disso a escolha é do usuário
     // paleta das frotas: matizes bem separados no círculo cromático, para pilhas vizinhas nunca
     // se confundirem (roxo · verde · âmbar · azul · rosa · teal · vermelho · lima)
     const FLEET_PALETTE = ['#6D28D9', '#059669', '#F59E0B', '#2563EB', '#DB2777', '#0891B2', '#DC2626', '#65A30D'];
@@ -4709,6 +4710,7 @@
       // ---- filtros: "Actuals" ou frota isolada trocam o motor (plano) pelas bases REAIS por
       // frota; mês isolado faz os cartões/totais olharem só aquele mês (vigente = só realizado) ----
       const RF = costsRealByFleet();
+      if (!costsMonthInit) { costsMonthInit = true; if (RF.curM >= 0) costsMonth = RF.curM; }
       const scoped = costsFleet != null || costsView === 'act';
       const rfFleets = costsFleet != null ? RF.fleets.filter((f) => f.id === costsFleet) : RF.fleets;
       const rfLine = (L) => { const a = new Array(FIN_MONTHS).fill(0); rfFleets.forEach((f) => { for (let m = 0; m < FIN_MONTHS; m++) a[m] += (f.arr[L] || [])[m] || 0; }); return a; };
@@ -4799,8 +4801,19 @@
         // filtros: visão · mês isolado · frota isolada
         `<div class="costs-tgl"><button type="button" class="${costsView === 'fc' ? 'on' : ''}" data-v="fc">Forecast</button>` +
         `<button type="button" class="${costsView === 'act' ? 'on' : ''}" data-v="act">Actuals</button></div>` +
-        `<select class="costs-mini" id="costsMonthSel" title="Isolate one month — the current month shows its realized only">` +
-          '<option value="">Full year</option>' + Array.from({ length: FIN_MONTHS }, (_, m) => `<option value="${m}"${costsMonth === m ? ' selected' : ''}>${monthLbl(m)}${m === RF.curM ? ' · current' : ''}</option>`).join('') + '</select>' +
+        // seletor de PERÍODO em calendário: botão pequeno + o que está escolhido em itálico ao lado
+        `<div class="costs-cal" id="costsCal">` +
+          `<button type="button" class="costs-cal-btn" id="costsCalBtn" title="Choose the period"><i class="ti ti-calendar-month"></i></button>` +
+          `<span class="costs-cal-lbl">${costsMonth == null ? 'full year' : monthLbl(costsMonth)}</span>` +
+          `<div class="costs-cal-pop" id="costsCalPop" hidden>` +
+            `<button type="button" class="cal-year${costsMonth == null ? ' on' : ''}" data-m="">Full year ${finYear}</button>` +
+            `<div class="cal-grid">` +
+              Array.from({ length: FIN_MONTHS }, (_, m) =>
+                `<button type="button" class="cal-m${costsMonth === m ? ' on' : ''}${m === RF.curM ? ' cur' : ''}" data-m="${m}">` +
+                `${monthLbl(m)}${m === RF.curM ? '<em>current</em>' : ''}</button>`).join('') +
+            `</div>` +
+          `</div>` +
+        `</div>` +
         `<select class="costs-mini" id="costsFleetSel" title="Isolate one fleet — realized data only">` +
           '<option value="">All fleets · plan</option>' + (((OCN.ue || {}).fleets) || []).map((f) => `<option value="${escH(f.id)}"${costsFleet === f.id ? ' selected' : ''}>Fleet ${escH(f.id)} · ${f.cars || (f.placas || []).length} cars</option>`).join('') + '</select>' +
         (scoped ? '<span class="costs-scope-chip">realized only</span>' : '') +
@@ -4812,7 +4825,14 @@
       pkP.querySelectorAll('.costs-pk-o').forEach((b) => b.addEventListener('click', () => { costsSel = b.dataset.v; costsWhatifPct = 0; closePk(); renderCosts(); }));
       wireCurFlags(ctl, () => renderCosts());
       ctl.querySelectorAll('.costs-tgl button').forEach((b) => b.addEventListener('click', () => { costsView = b.dataset.v; if (costsView === 'fc') costsFleet = null; renderCosts(); }));
-      ctl.querySelector('#costsMonthSel').addEventListener('change', (e) => { costsMonth = e.target.value === '' ? null : +e.target.value; renderCosts(); });
+      const cal = document.getElementById('costsCal'), calB = document.getElementById('costsCalBtn'), calP = document.getElementById('costsCalPop');
+      const closeCal = () => { calP.hidden = true; calB.classList.remove('open'); document.removeEventListener('click', outCal); };
+      const outCal = (e) => { if (!cal.contains(e.target)) closeCal(); };
+      calB.addEventListener('click', () => { const open = calP.hidden; calP.hidden = !open; calB.classList.toggle('open', open); if (open) setTimeout(() => document.addEventListener('click', outCal), 0); });
+      calP.querySelectorAll('[data-m]').forEach((b) => b.addEventListener('click', () => {
+        costsMonth = b.dataset.m === '' ? null : +b.dataset.m;
+        closeCal(); renderCosts();
+      }));
       ctl.querySelector('#costsFleetSel').addEventListener('change', (e) => { costsFleet = e.target.value === '' ? null : e.target.value; if (costsFleet != null) costsView = 'act'; renderCosts(); });
       sec.querySelectorAll('.costs-help').forEach((b) => { b.onclick = () => costsHelpOpen(b.dataset.h); });
       // ---- Main (visão geral do COGS) × visão por linha ----

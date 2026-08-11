@@ -461,6 +461,22 @@ html { scrollbar-gutter: stable; }
 .costs-tgl button.on { background: var(--accent); color: #fff; }
 .costs-mini { font: inherit; font-size: 11.5px; font-weight: 600; padding: 8px 10px; border: 1px solid var(--border-2); border-radius: 10px; background: var(--surface); color: var(--text); cursor: pointer; max-width: 190px; }
 .costs-mini:hover { border-color: var(--accent); }
+/* seletor de período: botão de calendário + o escolhido em itálico, e a grade 4x3 de meses */
+.costs-cal { position: relative; display: flex; align-items: center; gap: 8px; }
+.costs-cal-btn { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; font-size: 17px; border: 1px solid var(--border-2); border-radius: 10px; background: var(--surface); color: var(--text-2); cursor: pointer; }
+.costs-cal-btn:hover, .costs-cal-btn.open { border-color: var(--accent); color: var(--accent); }
+.costs-cal-lbl { font-size: 12.5px; font-style: italic; font-weight: 600; color: var(--text); }
+.costs-cal-pop { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; width: 292px; padding: 10px; background: var(--surface); border: 1px solid var(--border-2); border-radius: 13px; box-shadow: 0 10px 32px rgba(20,10,60,.16); }
+.cal-year { width: 100%; font: inherit; font-size: 12px; font-weight: 800; padding: 9px 10px; margin-bottom: 9px; border: 0; border-radius: 10px; cursor: pointer; color: #fff; background: linear-gradient(135deg, var(--accent), #7C3AED); box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 35%, transparent); }
+.cal-year:hover { filter: brightness(1.08); }
+.cal-year.on { outline: 2px solid var(--text); outline-offset: 2px; }
+.cal-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.cal-m { position: relative; font: inherit; font-size: 11px; font-weight: 600; padding: 11px 2px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); cursor: pointer; }
+.cal-m:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.cal-m.cur { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.cal-m.cur em { position: absolute; left: 0; right: 0; bottom: 2px; font-style: normal; font-size: 7.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--accent); }
+.cal-m.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.cal-m.on em { color: #fff; opacity: .85; }
 .costs-scope-chip { font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; padding: 4px 10px; border-radius: 999px; background: #FEF3C7; color: #92400E; }
 .cc-hint { font-size: 10px; color: var(--text-2); font-weight: 600; }
 /* big number do drill (média por carro·mês) — o destaque da seção */

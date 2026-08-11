@@ -4461,8 +4461,9 @@
       percar: { t: 'Per car — vs the year’s average', d: 'The monthly cost divided by the active fleet, against the dashed line of the YEAR’S AVERAGE per car. Months above the average light up in full colour — that is where we spent more than normal per car and it is worth asking why. FLEET-LINK (ELASTICITY) is the slope of ln(cost) vs ln(fleet) across the year: 1.0 = 10% more cars → 10% more cost (proportional); near 0 = a fixed cost that dilutes as the fleet grows.' },
       whatif: { t: 'What-if', d: 'Moves the selected line by a percentage and shows the first-order effect on the year: the line itself, its share of revenue, Gross Margin and Net cashflow. Taxes and credits are not recomputed — and in 2027 the sublease tax netting would also move with the Subrental line.' },
     };
+    let costsAvgHelp = null;   // explicação do "avg per car · month" — muda conforme a linha
     function costsHelpOpen(k) {
-      const h = COSTS_HELP[k]; if (!h) return;
+      const h = (k === 'avg') ? costsAvgHelp : COSTS_HELP[k]; if (!h) return;
       const ov = document.createElement('div');
       ov.className = 'ue-modal-overlay';
       ov.innerHTML = `<div class="ue-modal costs-helpbox"><div class="ue-modal-title">${escH(h.t)}</div>` +
@@ -4613,6 +4614,11 @@
     // recuperação custe zero. Para essas, a média vem do perfil PROJETADO por idade do carro
     // (M0..M13, das frotas de referência), dividido pelos 12 meses de contrato.
     const AVG_REALIZED = { 'Subrental fee': 1, 'Insurance': 1, 'GPS': 1, 'Car Preparation': 1, 'Sticker': 1 };
+    // O SEGURO é a exceção: aqui a média usa o DESEMBOLSO de fato (tudo que já saiu do caixa com
+    // seguro, somando todas as frotas), não o prêmio rateado pela cobertura. É a leitura pedida —
+    // "quanto de seguro já saiu ÷ quanto tempo de carro tivemos" — e responde uma pergunta
+    // diferente da apropriação: o peso do seguro no caixa por carro que rodou até aqui.
+    const AVG_CASH = { Insurance: 1 };
     function costsAgeProfile(line) {
       const per = new Array(UET_PERIODS).fill(0); let ok = false;
       const qty = {};
@@ -4628,13 +4634,17 @@
     }
     function costsAvgPerCarMonth(line, RF, fleets) {
       if (AVG_REALIZED[line]) {
+        const cash = !!AVG_CASH[line];
         let c = 0, cm = 0;
-        fleets.forEach((f) => { for (let m = 0; m <= RF.curM; m++) { c += ((f.accr || f.arr)[line] || [])[m] || 0; cm += f.cars[m] || 0; } });
-        return { v: cm > 0 ? c / cm : null, proj: false, cm, tot: c };
+        fleets.forEach((f) => {
+          const src = cash ? f.arr : (f.accr || f.arr);
+          for (let m = 0; m <= RF.curM; m++) { c += (src[line] || [])[m] || 0; cm += f.cars[m] || 0; }
+        });
+        return { v: cm > 0 ? c / cm : null, proj: false, cash, cm, tot: c };
       }
       const A = costsAgeProfile(line);
       const fx = finPar('__fin_fx__') || 5.5;
-      return { v: A.ok ? (A.tot / fx) / 12 : null, proj: true, cm: null, tot: null };
+      return { v: A.ok ? (A.tot / fx) / 12 : null, proj: true, cash: false, cm: null, tot: null };
     }
     function renderCostsMain(P, H) {
       const { S, K, cs, money, lineOfL, sumOf, mSel } = H;
@@ -4712,6 +4722,7 @@
       // De onde sai a média das linhas de AGENDA — sem isso o número vira adivinhação: o seguro,
       // por exemplo, é pago em poucas parcelas grandes mas rateado nos 12 meses de cobertura, e a
       // parcela (o que se lembra de pagar) é sempre bem maior que o custo mensal apropriado.
+      // parâmetros contratuais da linha, para a ajuda mostrar de onde vêm os valores
       const baseTxt = (() => {
         const fxr = finPar('__fin_fx__') || 5.5;
         const par = (id, k) => { const v = (realFleetParams[id] || {})[k + '@@0']; return v != null ? Number(v) : 0; };
@@ -4719,22 +4730,29 @@
         const wavg = (k) => { let s = 0, n = 0; ids.forEach((id) => { const f2 = ((OCN.ue || {}).fleets || []).find((x) => x.id === id); const c = f2 ? (f2.cars || (f2.placas || []).length || 0) : 0; s += par(id, k) * c; n += c; }); return n ? s / n : 0; };
         if (drillL === 'Insurance') {
           const t = wavg('__ins_total__'), np = Math.round(wavg('__ins_parcelas__'));
-          if (!(t > 0)) return '';
-          return money(t / fxr) + ' premium per car' + (np > 1 ? ' (' + np + ' installments of ' + money(t / np / fxr) + ')' : '') + ' ÷ 12 months of coverage';
+          return t > 0 ? ' The policy in the UE boxes is ' + money(t / fxr) + ' per car' + (np > 1 ? ' in ' + np + ' installments of ' + money(t / np / fxr) : '') + '.' : '';
         }
-        if (drillL === 'Subrental fee') { const v = wavg('__subrental_mensal__'); return v > 0 ? money(v / fxr) + ' rent per car · month' : ''; }
-        if (drillL === 'GPS') { const mo = wavg('__gps_mensal__'), i0 = wavg('__gps_m0__'); return mo > 0 ? money(mo / fxr) + '/month + ' + money(i0 / fxr) + ' install spread over the contract' : ''; }
+        if (drillL === 'Subrental fee') { const v = wavg('__subrental_mensal__'); return v > 0 ? ' The rent in the UE boxes is ' + money(v / fxr) + ' per car per month.' : ''; }
+        if (drillL === 'GPS') { const mo = wavg('__gps_mensal__'), i0 = wavg('__gps_m0__'); return mo > 0 ? ' The UE boxes carry ' + money(mo / fxr) + ' per month plus ' + money(i0 / fxr) + ' of install.' : ''; }
         return '';
       })();
-      const avgSub = AV.proj
-        ? 'projected — the realized sample is still too short for this line'
-        : `${rfF.length} fleet${rfF.length > 1 ? 's' : ''} · ${ccNum(dCarM)} car-months since each fleet started`;
+      // a explicação longa saiu do cartão e virou o "?" — o número fica limpo
+      const frotasTxt = rfF.map((f) => {
+        const f2 = ((OCN.ue || {}).fleets || []).find((x) => x.id === f.id);
+        return 'fleet ' + f.id + ' = ' + (f2 ? (f2.cars || (f2.placas || []).length) : '?') + ' cars × months since ' + (f2 && f2.inicio ? f2.inicio.slice(0, 7) : '?');
+      }).join(' · ');
+      costsAvgHelp = { t: COSTS_LABEL(drillL) + ' — avg per car · month', d: AV.proj
+        ? 'This line is event-driven and the realized sample is still too short to average: a four-month-old fleet has not reached its first 10.000 km revision, and a month with no claim does not mean the cost is zero. So the figure comes from the PROJECTED per-car profile over the contract (M0–M13 of the reference fleets, weighted by the cohort mix) divided by the 12 contract months.'
+        : (AV.cash
+          ? 'Everything actually DISBURSED on this line since inception, across all fleets shown (' + money(AV.tot) + '), divided by the car-months each fleet has accumulated since its own start: ' + frotasTxt + ' — ' + ccNum(dCarM) + ' car-months in total. It is cash, not the premium spread over the coverage, so it answers "how much has insurance weighed per car that actually ran so far".' + baseTxt
+          : 'Everything this line has cost since inception (' + money(AV.tot) + '), divided by the car-months each fleet has accumulated since its own start: ' + frotasTxt + ' — ' + ccNum(dCarM) + ' car-months in total. The cost is accrued to the months the cars were held, because the sub-rental is billed the month after delivery and raw cash would understate it.' + baseTxt) };
       document.getElementById('ccDrillInds').innerHTML =
-        `<div class="cc-big cc-huge" style="--cl:${DC}"><b>${avg == null ? '—' : money(avg)}</b>` +
-          `<span>avg per car · month${AV.proj ? ' <em class="cc-tag">projected</em>' : ''}</span>` +
-          `<i>${escH(avgSub)}${baseTxt ? '<br><b class="cc-basis">' + escH(baseTxt) + '</b>' : ''}</i></div>` +
-        `<div class="cc-big" style="--cl:${DC}"><b>${money(dTot)}</b><span>cash · ${escH(perName(H.mSel))}</span>` +
-          `<i>click another Pareto bar to switch</i></div>`;
+        `<div class="cc-big cc-huge" style="--cl:${DC}">` +
+          `<button type="button" class="costs-help cc-help-in" data-h="avg" title="How this is calculated">?</button>` +
+          `<b>${avg == null ? '—' : money(avg)}</b>` +
+          `<span>avg per car · month${AV.proj ? ' <em class="cc-tag">projected</em>' : ''}</span></div>` +
+        `<div class="cc-big" style="--cl:${DC}"><b>${money(dTot)}</b><span>cash · ${escH(perName(H.mSel))}</span></div>`;
+      document.querySelectorAll('#ccDrillInds .costs-help').forEach((b) => { b.onclick = () => costsHelpOpen('avg'); });
     }
     function renderCosts() {
       const sec = document.getElementById('sub-fincosts');

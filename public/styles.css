@@ -486,6 +486,9 @@ html { scrollbar-gutter: stable; }
 .cc-hint { font-size: 10px; color: var(--text-2); font-weight: 600; }
 /* big number do drill (média por carro·mês) — o destaque da seção */
 .cc-big.cc-huge b { font-size: 32px; }
+/* "?" no canto do big number — a explicação saiu do cartão para o número respirar */
+.cc-big { position: relative; }
+.cc-help-in { position: absolute; top: 9px; right: 9px; width: 19px; height: 19px; font-size: 10px; }
 /* marca a média que vem do PROJETADO, não do realizado */
 .cc-tag { font-style: normal; font-size: 8px; font-weight: 800; letter-spacing: .04em; padding: 2px 6px; border-radius: 999px; background: color-mix(in srgb, var(--cl, var(--accent)) 16%, transparent); color: var(--cl, var(--accent)); vertical-align: middle; }
 /* Insurance: break-even por acionamento · entrada de custo médio · economia */

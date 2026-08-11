@@ -463,13 +463,18 @@ html { scrollbar-gutter: stable; }
 .costs-mini:hover { border-color: var(--accent); }
 /* seletor de período: botão de calendário + o escolhido em itálico, e a grade 4x3 de meses */
 .costs-cal { position: relative; display: flex; align-items: center; gap: 8px; }
-.costs-cal-btn { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; font-size: 17px; border: 1px solid var(--border-2); border-radius: 10px; background: var(--surface); color: var(--text-2); cursor: pointer; }
+.costs-cal-btn { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 1px solid var(--border-2); border-radius: 10px; background: var(--surface); color: var(--text-2); cursor: pointer; }
+.costs-cal-btn svg { width: 19px; height: 19px; }
 .costs-cal-btn:hover, .costs-cal-btn.open { border-color: var(--accent); color: var(--accent); }
 .costs-cal-lbl { font-size: 12.5px; font-style: italic; font-weight: 600; color: var(--text); }
 .costs-cal-pop { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; width: 292px; padding: 10px; background: var(--surface); border: 1px solid var(--border-2); border-radius: 13px; box-shadow: 0 10px 32px rgba(20,10,60,.16); }
-.cal-year { width: 100%; font: inherit; font-size: 12px; font-weight: 800; padding: 9px 10px; margin-bottom: 9px; border: 0; border-radius: 10px; cursor: pointer; color: #fff; background: linear-gradient(135deg, var(--accent), #7C3AED); box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 35%, transparent); }
-.cal-year:hover { filter: brightness(1.08); }
-.cal-year.on { outline: 2px solid var(--text); outline-offset: 2px; }
+.cal-tops { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 9px; }
+.cal-year, .cal-ytd { font: inherit; font-size: 11.5px; font-weight: 800; padding: 9px 8px; border: 0; border-radius: 10px; cursor: pointer; color: #fff; line-height: 1.2; }
+.cal-year { background: linear-gradient(135deg, var(--accent), #7C3AED); box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 35%, transparent); }
+.cal-ytd { background: linear-gradient(135deg, #0891B2, #0D9488); box-shadow: 0 2px 8px rgba(8,145,178,.32); }
+.cal-ytd em { display: block; font-style: normal; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; opacity: .85; margin-top: 1px; }
+.cal-year:hover, .cal-ytd:hover { filter: brightness(1.08); }
+.cal-year.on, .cal-ytd.on { outline: 2px solid var(--text); outline-offset: 2px; }
 .cal-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .cal-m { position: relative; font: inherit; font-size: 11px; font-weight: 600; padding: 11px 2px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); cursor: pointer; }
 .cal-m:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
@@ -504,8 +509,9 @@ html { scrollbar-gutter: stable; }
 .cc-big b { display: block; font-size: 26px; line-height: 1; color: var(--cl, var(--accent)); letter-spacing: -.01em; }
 .cc-big span { display: block; font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--text-2); margin-top: 5px; }
 .cc-big i { display: block; font-style: normal; font-size: 10px; color: var(--text-2); line-height: 1.35; margin-top: 3px; }
-/* de onde sai a média (prêmio ÷ meses de cobertura etc.) — o dado que evita a leitura errada */
-.cc-basis { display: inline-block; margin-top: 4px; font-size: 10px; font-weight: 700; color: var(--text); }
+/* de onde sai a média (prêmio ÷ meses de cobertura etc.) — o dado que evita a leitura errada.
+   Precisa vencer `.cc-big b` na especificidade, senão herda o tamanho do número gigante. */
+.cc-big i .cc-basis, .cc-big .cc-basis { display: inline-block; margin-top: 4px; font-size: 10px; font-weight: 700; line-height: 1.35; color: var(--text-2); }
 .cc-agecv { flex: 1; min-width: 0; }
 /* elasticidade: chip enfático no cabeçalho do custo por carro */
 .cc-elast { display: flex; align-items: baseline; gap: 6px; }

@@ -4601,6 +4601,7 @@
       return out;
     }
     // "Main": Pareto do COGS inteiro (clicável) + drill mensal por frota da barra escolhida
+    const perName = (m) => (m == null ? 'full year' : (m === 'ytd' ? 'year to date' : monthLbl(m)));
     function renderCostsMain(P, H) {
       const { S, K, cs, money, lineOfL, sumOf, mSel } = H;
       const mk = (id, cfg) => { if (costsCharts[id]) { costsCharts[id].destroy(); delete costsCharts[id]; } const c = document.getElementById(id); if (!c) return; costsCharts[id] = new Chart(c.getContext('2d'), cfg); };
@@ -4672,7 +4673,7 @@
       // média por carro·mês em COMPETÊNCIA: o caixa das linhas de agenda chega desalinhado da
       // posse (subrental cobra no mês seguinte), o que puxava a média para baixo
       let dTot = 0, dAcc = 0, dCarM = 0;
-      rfF.forEach((f) => { for (let m = 0; m <= RF.curM; m++) { dTot += (f.arr[drillL] || [])[m] || 0; dAcc += ((f.accr || f.arr)[drillL] || [])[m] || 0; dCarM += f.cars[m] || 0; } });
+      rfF.forEach((f) => { for (let m = 0; m <= RF.curM; m++) { if (!H.inScope(m)) continue; dTot += (f.arr[drillL] || [])[m] || 0; dAcc += ((f.accr || f.arr)[drillL] || [])[m] || 0; dCarM += f.cars[m] || 0; } });
       const avg = dCarM > 0 ? dAcc / dCarM : null;
       const difCaixa = Math.abs(dAcc - dTot) > Math.max(1, dTot * 0.01);
       // De onde sai a média das linhas de AGENDA — sem isso o número vira adivinhação: o seguro,
@@ -4717,17 +4718,26 @@
       const rfAccr = (L) => { const a = new Array(FIN_MONTHS).fill(0); rfFleets.forEach((f) => { for (let m = 0; m < FIN_MONTHS; m++) a[m] += ((f.accr || f.arr)[L] || [])[m] || 0; }); return a; };
       const lineOfL = scoped ? rfLine : (L) => ((P.cogs[L] || new Array(FIN_MONTHS).fill(0))).map((v) => Math.max(0, -v));
       const act = scoped ? (() => { const a = new Array(FIN_MONTHS).fill(0); rfFleets.forEach((f) => { for (let m = 0; m < FIN_MONTHS; m++) a[m] += f.cars[m]; }); return a; })() : (P.active || []);
-      const carMonths = S(act);
+      const carMonths = S(act);   // ano inteiro (usado só onde o período não se aplica)
       const arr = lineOfL(costsSel);
+      // ---- PERÍODO em escopo: ano inteiro · YTD (só o realizado) · um mês ----
+      // Um único predicado alimenta totais, cartões, gráficos e o drill, para o número na tela
+      // nunca discordar do que o seletor diz.
       const mSel = costsMonth;
+      const mIdx = (typeof mSel === 'number') ? mSel : null;
+      const isYtd = mSel === 'ytd';
+      const inScope = (m) => (mIdx != null ? m === mIdx : (isYtd ? m <= RF.curM : true));
+      const sumIn = (a) => a.reduce((s, v, m) => s + (inScope(m) ? (v || 0) : 0), 0);
       const sumOf = (L) => {
-        if (mSel == null) return S(lineOfL(L));
-        if (mSel === RF.curM && !scoped) return rfLine(L)[mSel];   // mês vigente: só o realizado dele
-        return lineOfL(L)[mSel] || 0;
+        // mês VIGENTE isolado mostra só o realizado dele, nunca a mistura com o modelo
+        if (mIdx != null && mIdx === RF.curM && !scoped) return rfLine(L)[mIdx] || 0;
+        if (isYtd) return sumIn(rfLine(L));                          // YTD é realizado por definição
+        return sumIn(lineOfL(L));
       };
       const fy = sumOf(costsSel);
-      const cogsFY = (scoped || mSel != null) ? COSTS_LIST.reduce((a2, L2) => a2 + sumOf(L2), 0) : -S(P.cogsTot);
-      const revFY = (scoped || mSel != null) ? null : S(P.grossRev);
+      const restrito = scoped || mSel != null;
+      const cogsFY = restrito ? COSTS_LIST.reduce((a2, L2) => a2 + sumOf(L2), 0) : -S(P.cogsTot);
+      const revFY = restrito ? null : S(P.grossRev);
       // ---- elasticidade frota: inclinação de ln(custo) ~ ln(carros ativos) nos meses com os dois.
       // 1,0 = 10% mais carros → 10% mais custo (proporcional). ~0 = custo fixo, não segue a frota.
       const pts = [];
@@ -4803,10 +4813,17 @@
         `<button type="button" class="${costsView === 'act' ? 'on' : ''}" data-v="act">Actuals</button></div>` +
         // seletor de PERÍODO em calendário: botão pequeno + o que está escolhido em itálico ao lado
         `<div class="costs-cal" id="costsCal">` +
-          `<button type="button" class="costs-cal-btn" id="costsCalBtn" title="Choose the period"><i class="ti ti-calendar-month"></i></button>` +
-          `<span class="costs-cal-lbl">${costsMonth == null ? 'full year' : monthLbl(costsMonth)}</span>` +
+          // SVG inline em vez da fonte de ícones: o botão saía em branco quando o glifo não existia
+          `<button type="button" class="costs-cal-btn" id="costsCalBtn" title="Choose the period">` +
+            `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">` +
+            `<rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/>` +
+            `<rect x="7" y="12.5" width="3" height="3" rx=".6" fill="currentColor" stroke="none"/></svg></button>` +
+          `<span class="costs-cal-lbl">${escH(perName(costsMonth))}</span>` +
           `<div class="costs-cal-pop" id="costsCalPop" hidden>` +
-            `<button type="button" class="cal-year${costsMonth == null ? ' on' : ''}" data-m="">Full year ${finYear}</button>` +
+            `<div class="cal-tops">` +
+              `<button type="button" class="cal-year${costsMonth == null ? ' on' : ''}" data-m="">Full year ${finYear}</button>` +
+              `<button type="button" class="cal-ytd${costsMonth === 'ytd' ? ' on' : ''}" data-m="ytd">Year to date<em>realized</em></button>` +
+            `</div>` +
             `<div class="cal-grid">` +
               Array.from({ length: FIN_MONTHS }, (_, m) =>
                 `<button type="button" class="cal-m${costsMonth === m ? ' on' : ''}${m === RF.curM ? ' cur' : ''}" data-m="${m}">` +
@@ -4830,7 +4847,7 @@
       const outCal = (e) => { if (!cal.contains(e.target)) closeCal(); };
       calB.addEventListener('click', () => { const open = calP.hidden; calP.hidden = !open; calB.classList.toggle('open', open); if (open) setTimeout(() => document.addEventListener('click', outCal), 0); });
       calP.querySelectorAll('[data-m]').forEach((b) => b.addEventListener('click', () => {
-        costsMonth = b.dataset.m === '' ? null : +b.dataset.m;
+        costsMonth = b.dataset.m === '' ? null : (b.dataset.m === 'ytd' ? 'ytd' : +b.dataset.m);
         closeCal(); renderCosts();
       }));
       ctl.querySelector('#costsFleetSel').addEventListener('change', (e) => { costsFleet = e.target.value === '' ? null : e.target.value; if (costsFleet != null) costsView = 'act'; renderCosts(); });
@@ -4840,7 +4857,7 @@
       const isMain = costsSel === COSTS_MAIN;
       if (mainEl) mainEl.hidden = !isMain;
       if (lineEl) lineEl.hidden = isMain;
-      if (isMain) { renderCostsMain(P, { S, K, cs, money, lineOfL, sumOf, mSel }); return; }
+      if (isMain) { renderCostsMain(P, { S, K, cs, money, lineOfL, sumOf, mSel, inScope }); return; }
       // ---- cartões de peso (indicadores criados ficam DENTRO das caixas dos gráficos deles) ----
       const card = (t, v, sub, strong) => `<div class="costs-card${strong ? ' cc-strong' : ''}" style="--cl:${C}"><span>${escH(t)}</span><b>${v}</b><span class="sub">${escH(sub || '')}</span></div>`;
       const evFY = evts ? S(evts.z) : 0;
@@ -4857,7 +4874,7 @@
           insBox.style.display = '';
           const casos = ((OCN.ocorrencias || {}).casos) || [];
           const claims = casos.filter((c) => c.sinistro && String(c.iso).slice(0, 4) === String(finYear)
-            && (mSel == null || parseInt(String(c.iso).slice(5, 7), 10) - 1 === mSel));
+            && inScope(parseInt(String(c.iso).slice(5, 7), 10) - 1));
           const nCl = claims.length;
           const byTipo = {}; claims.forEach((c) => { byTipo[c.tipo] = (byTipo[c.tipo] || 0) + 1; });
           // COMPETÊNCIA, não caixa: o prêmio rateado pelos 365 dias de cobertura de cada frota.
@@ -4865,14 +4882,14 @@
           // parcelas — usá-lo aqui inflava o break-even, porque comparava o prêmio de um ano
           // inteiro de cobertura contra os sinistros de apenas parte dele.
           const accArr = rfAccr('Insurance');   // mesma competência usada no resto da aba
-          const accrued = mSel == null ? accArr.reduce((a, b) => a + b, 0) : (accArr[mSel] || 0);
+          const accrued = sumIn(accArr);
           // o caixa do rodapé vem das MESMAS frotas reais do rateio (não da linha do P&L, que na
           // visão Forecast é do plano e traria 775 carros contra os 170 reais do apropriado)
           const cashArr = rfLine('Insurance');
-          const cash = mSel == null ? cashArr.reduce((a, b) => a + b, 0) : (cashArr[mSel] || 0);
+          const cash = sumIn(cashArr);
           const be = nCl > 0 ? accrued / nCl : null;         // break-even por acionamento
           if (costsInsAvg == null) costsInsAvg = be != null ? Math.round(be) : 0;
-          const perLbl = mSel == null ? 'the year' : monthLbl(mSel);
+          const perLbl = perName(mSel);
           insBox.innerHTML =
             `<div class="ins-panel" style="--cl:${C}">` +
               `<div class="cc-head"><h4>Is the insurance paying for itself?</h4><span class="cc-hint">premium accrued over the coverage, not as paid</span><button type="button" class="costs-help" data-h="ins">?</button></div>` +
@@ -4887,7 +4904,7 @@
                 `</div>` +
                 `<div class="cc-big cc-huge" id="insSave" style="--cl:${C}"></div>` +
               `</div>` +
-              `<div class="ins-basis">Premium <b>accrued</b> for ${escH(mSel == null ? 'the realized window' : perLbl)}: <b>${money(accrued)}</b>` +
+              `<div class="ins-basis">Premium <b>accrued</b> for ${escH(perLbl)}: <b>${money(accrued)}</b>` +
                 `<span>·</span>disbursed in cash by the same fleets: <b>${money(cash)}</b>` +
                 `<span>${cash > 0 ? Math.round((accrued / cash) * 100) + '% of the cash is risk actually run in this window — the rest covers ' + (finYear + 1) : ''}</span></div>` +
             `</div>`;
@@ -4909,14 +4926,14 @@
           paint();
         }
       }
-      const periodLbl = mSel == null ? 'FY total' : monthLbl(mSel) + (mSel === RF.curM ? ' · realized' : ' total');
-      const perCarV = mSel == null ? (carMonths ? fy / carMonths : null) : (act[mSel] > 0 ? fy / act[mSel] : null);
+      const periodLbl = perName(mSel) + (mIdx != null && mIdx === RF.curM ? ' · realized' : '');
+      const carM = act.reduce((t, v, m) => t + (inScope(m) ? (v || 0) : 0), 0);   // exposição do período
+      const perCarV = carM > 0 ? fy / carM : null;
       document.getElementById('costsHero').innerHTML = '<div class="costs-cards">' +
         card(periodLbl, money(fy), (cogsFY ? (fy / cogsFY * 100).toFixed(1) : '0') + '% of COGS' + (scoped ? ' · realized' : ''), true) +
         (revFY != null ? card('Share of revenue', revFY ? (fy / revFY * 100).toFixed(1) + '%' : '—', 'gross revenue FY ' + money(revFY)) : '') +
         card('Per active car · month', perCarV != null ? money(perCarV) : '—',
-          mSel == null ? Math.round(carMonths).toLocaleString('pt-BR') + ' car-months in the ' + (scoped ? 'realized window' : 'year')
-                       : Math.round(act[mSel] || 0) + ' active cars in ' + monthLbl(mSel)) +
+          ccNum(carM) + (mIdx != null ? ' active cars' : ' car-months') + ' · ' + perName(mSel)) +
         (perOk ? card('Per car · full contract', money(perTot / (finPar('__fin_fx__') || 5.5)), 'theoric M0–M13 profile') : '') +
         (evts && evFY ? card(evts.label + ' (FY)', String(evFY), perEvent != null ? money(perEvent) + ' per event — realized only' : 'no realized cost yet') : '') +
         '</div>';
@@ -4933,13 +4950,13 @@
       const pcAvg = pcVals.length ? pcVals.reduce((a, b) => a + b, 0) / pcVals.length : 0;
       mk('ccPerCar', { data: { labels: MONL, datasets: [
           { type: 'bar', label: cs + ' per car', data: perCar.map((v) => (v == null ? null : Math.round(v))),
-            backgroundColor: perCar.map((v, m) => (mSel != null ? (m === mSel ? C : costsTint(C, .28)) : (v != null && v > pcAvg * 1.02 ? C : costsTint(C, .35)))), borderRadius: 3, maxBarThickness: 30 },
+            backgroundColor: perCar.map((v, m) => (mSel != null ? (inScope(m) ? C : costsTint(C, .28)) : (v != null && v > pcAvg * 1.02 ? C : costsTint(C, .35)))), borderRadius: 3, maxBarThickness: 30 },
           { type: 'line', label: 'year average', data: MONL.map(() => Math.round(pcAvg)), borderColor: C, borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0 },
         ] },
         options: { responsive: true, maintainAspectRatio: false, plugins: Object.assign({ legend: { labels: CC_LEG }, tooltip: { padding: 10, displayColors: false, callbacks: { label: (c) => ccNum(c.parsed.y) } } }, noDL),
           scales: CC_GRID } });
       mk('ccMain', { data: { labels: MONL, datasets: [
-          { type: 'bar', label: costsSel, data: arr.map((v) => Math.round(v * K)), backgroundColor: arr.map((_, m) => (mSel != null ? (m === mSel ? C : costsTint(C, .28)) : C)), yAxisID: 'y', borderRadius: 3, maxBarThickness: 30 },
+          { type: 'bar', label: costsSel, data: arr.map((v) => Math.round(v * K)), backgroundColor: arr.map((_, m) => (mSel != null ? (inScope(m) ? C : costsTint(C, .28)) : C)), yAxisID: 'y', borderRadius: 3, maxBarThickness: 30 },
           { type: 'line', label: 'Active cars', data: act.map((v) => Math.round(v)), borderColor: '#EB6834', backgroundColor: 'transparent', yAxisID: 'y2', tension: .3, pointRadius: 2, borderWidth: 2 },
         ].concat(evts ? [{ type: 'line', label: evts.label, data: evts.z, borderColor: '#0891B2', backgroundColor: 'transparent', yAxisID: 'y2', borderDash: [4, 3], pointRadius: 3, tension: 0, borderWidth: 1.5 }] : []) },
         options: { responsive: true, maintainAspectRatio: false, plugins: Object.assign({ legend: { labels: CC_LEG } }, noDL), interaction: { mode: 'index', intersect: false },

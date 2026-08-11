@@ -4449,6 +4449,16 @@
     const ccNum = (v) => Math.round(v).toLocaleString('pt-BR');
     const ccK = (v) => (Math.abs(v) >= 1000 ? Math.round(v / 1000).toLocaleString('pt-BR') + 'k' : ccNum(v));
     const costsTint = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`; };
+    // hachura diagonal para marcar PROJEÇÃO nas barras — o Chart.js não tem padrão listrado nativo
+    // e barra não aceita borderDash, então o preenchimento vira um CanvasPattern.
+    function costsStripe(hex) {
+      const c = document.createElement('canvas'); c.width = 8; c.height = 8;
+      const x = c.getContext('2d');
+      x.fillStyle = costsTint(hex, .18); x.fillRect(0, 0, 8, 8);
+      x.strokeStyle = costsTint(hex, .8); x.lineWidth = 2.2;
+      [[-2, 10, 10, -2], [2, 14, 14, 2], [-6, 6, 6, -6]].forEach(([a, b, d, e]) => { x.beginPath(); x.moveTo(a, b); x.lineTo(d, e); x.stroke(); });
+      return x.createPattern(c, 'repeat');
+    }
     // textos longos saem da página e viram caixas de ajuda (botões "?")
     const COSTS_HELP = {
       pareto: { t: 'Pareto — where the COGS money goes', d: 'Every vehicle cost line sorted biggest first (each in its own colour), with the cumulative share on the right axis. Where the curve crosses the dashed 80% guide tells you how few lines concentrate almost all the cost — those are the ones worth negotiating; everything after the crossing is operational noise. CLICK any bar to open that line below, month by month and split by fleet.' },
@@ -4685,11 +4695,17 @@
       const drillL = (costsDrillSel && COSTS_LIST.includes(costsDrillSel)) ? costsDrillSel : (rows[0] ? rows[0].L : COSTS_LIST[0]);
       const rfF = costsFleet != null ? RF.fleets.filter((f) => f.id === costsFleet) : RF.fleets;
       const DC = COSTS_COLOR[drillL];
-      document.getElementById('ccDrillT').innerHTML = `<span class="costs-pk-dot" style="background:${DC}"></span>${escH(COSTS_LABEL(drillL))} — monthly by fleet · realized`;
+      // PROJEÇÃO nos meses à frente: só faz sentido no ano inteiro + Forecast e sem frota isolada.
+      // Ela vem do PLANO (coortes), que não tem conceito de frota — por isso entra como uma série
+      // única hachurada em vez de fingir uma divisão por frota que os dados não têm.
+      const showProj = H.mSel == null && costsView === 'fc' && costsFleet == null && RF.curM >= 0 && RF.curM < FIN_MONTHS - 1;
+      const projArr = showProj ? H.lineOfL(drillL).map((v, m) => (m > RF.curM ? Math.round(v * K) : null)) : null;
+      const projTot = showProj ? H.lineOfL(drillL).reduce((s, v, m) => s + (m > RF.curM ? (v || 0) : 0), 0) : 0;
+      document.getElementById('ccDrillT').innerHTML = `<span class="costs-pk-dot" style="background:${DC}"></span>${escH(COSTS_LABEL(drillL))} — monthly by fleet${showProj ? ' · realized + forecast' : ' · realized'}`;
       const MONL = Array.from({ length: FIN_MONTHS }, (_, m) => monthLbl(m));
       mk('ccDrill', { type: 'bar', data: { labels: MONL, datasets: rfF.map((f) => (
           { label: 'Fleet ' + f.id, fleetId: f.id, data: (f.arr[drillL] || []).map((v, m) => (RF.curM >= 0 && m <= RF.curM ? Math.round(v * K) : null)), backgroundColor: FLEET_COLOR(f.id), stack: 's', maxBarThickness: 40, borderRadius: 2 }
-        )) },
+        )).concat(showProj ? [{ label: 'Projected', proj: true, data: projArr, backgroundColor: costsStripe(DC), borderColor: costsTint(DC, .55), borderWidth: 1, stack: 's', maxBarThickness: 40, borderRadius: 2 }] : []) },
         // total de cada mês acima da pilha (o datalabels não soma stacks sozinho)
         plugins: [{ id: 'stackTot', afterDatasetsDraw(ch) {
           const { ctx } = ch; const tots = {}; let top = {};
@@ -4707,7 +4723,8 @@
           plugins: { legend: { position: 'bottom', align: 'start', labels: Object.assign({}, CC_LEG, { padding: 14 }) },
             // VALOR dentro da fatia (abreviado), e só quando a fatia tem altura para não apertar
             datalabels: { display: (c) => { const el = c.chart.getDatasetMeta(c.datasetIndex).data[c.dataIndex]; return c.dataset.data[c.dataIndex] > 0 && el && Math.abs(el.base - el.y) > 20; },
-              color: '#fff', font: { size: 9.5, weight: 800 }, formatter: ccK },
+              // na barra hachurada o branco some — ali o rótulo vai na cor da linha
+              color: (c) => (c.dataset.proj ? DC : '#fff'), font: { size: 9.5, weight: 800 }, formatter: ccK },
             tooltip: { padding: 10, titleFont: { size: 12 }, bodyFont: { size: 11.5 },
               callbacks: { label: (c) => c.dataset.label + ': ' + ccNum(c.parsed.y),
                 footer: (items) => 'total: ' + ccNum(items.reduce((a, i2) => a + i2.parsed.y, 0)) } } },
@@ -4751,7 +4768,11 @@
           `<button type="button" class="costs-help cc-help-in" data-h="avg" title="How this is calculated">?</button>` +
           `<b>${avg == null ? '—' : money(avg)}</b>` +
           `<span>avg per car · month${AV.proj ? ' <em class="cc-tag">projected</em>' : ''}</span></div>` +
-        `<div class="cc-big" style="--cl:${DC}"><b>${money(dTot)}</b><span>cash · ${escH(perName(H.mSel))}</span></div>`;
+        `<div class="cc-big" style="--cl:${DC}"><b>${money(dTot)}</b>` +
+          (showProj ? `<em class="cc-proj">+ ${money(projTot)}</em>` : '') +
+          `<span>cash · ${escH(perName(H.mSel))}</span>` +
+          (showProj ? `<i><b class="cc-proj-lg">${money(dTot + projTot)}</b> full year · realized through ${monthLbl(RF.curM)} + forecast ahead</i>` : '') +
+        `</div>`;
       document.querySelectorAll('#ccDrillInds .costs-help').forEach((b) => { b.onclick = () => costsHelpOpen('avg'); });
     }
     function renderCosts() {

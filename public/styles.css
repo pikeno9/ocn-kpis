@@ -489,6 +489,9 @@ html { scrollbar-gutter: stable; }
 /* "?" no canto do big number — a explicação saiu do cartão para o número respirar */
 .cc-big { position: relative; }
 .cc-help-in { position: absolute; top: 9px; right: 9px; width: 19px; height: 19px; font-size: 10px; }
+/* realizado + PROJETADO no mesmo cartão: a projeção sai em cinza-azulado, nunca na cor do realizado */
+.cc-proj { display: inline-block; margin-left: 8px; font-style: normal; font-size: 17px; font-weight: 800; color: #64748B; letter-spacing: -.01em; }
+.cc-big .cc-proj-lg { font-size: 11px; font-weight: 800; color: var(--text); }
 /* marca a média que vem do PROJETADO, não do realizado */
 .cc-tag { font-style: normal; font-size: 8px; font-weight: 800; letter-spacing: .04em; padding: 2px 6px; border-radius: 999px; background: color-mix(in srgb, var(--cl, var(--accent)) 16%, transparent); color: var(--cl, var(--accent)); vertical-align: middle; }
 /* Insurance: break-even por acionamento · entrada de custo médio · economia */

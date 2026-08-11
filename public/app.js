@@ -4582,6 +4582,22 @@
           });
           add('Traffic fines (out)', m, (FRf.net || 0) * new Date(finYear, m + 1, 0).getDate() * c);
         }
+        // ---- RECEITA da frota por mês (base do "share of revenue") ----
+        // Mesma régua do custo: realizado das placas até hoje, projeção só destas frotas depois.
+        // Sem isso o share compararia custo de frota real com receita do plano de coortes.
+        const R = new Array(FIN_MONTHS).fill(0);
+        const addR = (m, vRS) => { if (m != null && m >= 0 && m < FIN_MONTHS) R[m] += vRS / fx; };
+        plates.forEach((pl) => {
+          ((((U.pagamentos || {}).placas) || {})[pl] || []).forEach((s) => { addR(moOf(s.v), s.r != null ? s.r : (s.e != null ? s.e : 0)); });
+          ((((U.multas || {}).placas) || {})[pl] || []).forEach((x) => { if (x.pago) addR(moOf(x.d), x.v); });
+        });
+        const semanal = par('__sub_semanal__'), MOND = MONDAYS_OF(finYear);
+        for (let m = curM + 1; m < FIN_MONTHS; m++) {
+          if (m0 == null || m < m0 || m > m0 + 11) continue;
+          const c = carsAt(m);
+          if (semanal > 0) addR(m, semanal * MOND[m] * c);
+          addR(m, (FRf.gross || 0) * (FRf.prem || 1.1) * new Date(finYear, m + 1, 0).getDate() * c);
+        }
         // ---- carros da frota por mês, PRO-RATA no mês de entrada ----
         // Uma frota que chega dia 19 não expõe o mês inteiro; contar o mês cheio inflava o
         // denominador do custo por carro·mês.
@@ -4627,7 +4643,7 @@
           }
           if (gps0 > 0 && m0 != null) A.GPS[m0] += (gps0 * cars) / fx;   // instalação é do M0 mesmo
         }
-        out.fleets.push({ id: f.id, arr: L, accr: A, cars: carsArr });
+        out.fleets.push({ id: f.id, arr: L, accr: A, cars: carsArr, rev: R });
       });
       _costsRF = out; _costsRFyear = finYear;
       return out;
@@ -4744,10 +4760,12 @@
       const projArr = showProj ? planLine.map((v, m) => (m > RF.curM ? Math.round(v * K) : null)) : null;
       const projTot = showProj ? planLine.reduce((s, v, m) => s + (m > RF.curM ? (v || 0) : 0), 0) : 0;
       document.getElementById('ccDrillT').innerHTML = `<span class="costs-pk-dot" style="background:${DC}"></span>${escH(COSTS_LABEL(drillL))} — monthly by fleet${showProj ? ' · realized + forecast' : ' · realized'}`;
-      const MONL = Array.from({ length: FIN_MONTHS }, (_, m) => monthLbl(m));
+      const nM = (H.mSel === 'ytd' && RF.curM >= 0) ? RF.curM + 1 : FIN_MONTHS;   // YTD encerra hoje
+      const cutM = (a) => a.slice(0, nM);
+      const MONL = Array.from({ length: nM }, (_, m) => monthLbl(m));
       mk('ccDrill', { type: 'bar', data: { labels: MONL, datasets: rfF.map((f) => (
-          { label: 'Fleet ' + f.id, fleetId: f.id, data: (f.arr[drillL] || []).map((v, m) => (RF.curM >= 0 && m <= RF.curM ? Math.round(v * K) : null)), backgroundColor: FLEET_COLOR(f.id), stack: 's', maxBarThickness: 40, borderRadius: 2 }
-        )).concat(showProj ? [{ label: 'Projected', proj: true, data: projArr, backgroundColor: costsStripe(DC), borderColor: costsTint(DC, .55), borderWidth: 1, stack: 's', maxBarThickness: 40, borderRadius: 2 }] : []) },
+          { label: 'Fleet ' + f.id, fleetId: f.id, data: cutM((f.arr[drillL] || []).map((v, m) => (RF.curM >= 0 && m <= RF.curM ? Math.round(v * K) : null))), backgroundColor: FLEET_COLOR(f.id), stack: 's', maxBarThickness: 40, borderRadius: 2 }
+        )).concat(showProj ? [{ label: 'Projected', proj: true, data: cutM(projArr), backgroundColor: costsStripe(DC), borderColor: costsTint(DC, .55), borderWidth: 1, stack: 's', maxBarThickness: 40, borderRadius: 2 }] : []) },
         // total de cada mês acima da pilha (o datalabels não soma stacks sozinho)
         plugins: [{ id: 'stackTot', afterDatasetsDraw(ch) {
           const { ctx } = ch; const tots = {}; let top = {};
@@ -4826,14 +4844,14 @@
       COSTS_LIST.forEach((L) => { const a = H.lineOfL(L); for (let m = 0; m < FIN_MONTHS; m++) shareTotM[m] += a[m] || 0; });
       const anoTot = shareTotM.reduce((a, b) => a + b, 0);
       // a 13ª coluna é o ano inteiro — o share consolidado, que é outra pergunta que o mensal não responde
-      const shareLabels = MONL.concat([String(finYear)]);
-      const totCol = shareTotM.concat([anoTot]);
+      const shareLabels = Array.from({ length: nM }, (_, m) => monthLbl(m)).concat([String(finYear)]);
+      const totCol = cutM(shareTotM).concat([anoTot]);
       const pctOf = (L) => { const a = H.lineOfL(L); const yr = a.reduce((s, v) => s + (v || 0), 0);
-        return a.map((v, m) => (shareTotM[m] > 0 ? (v / shareTotM[m]) * 100 : null)).concat([anoTot > 0 ? (yr / anoTot) * 100 : null]); };
-      const othersPct = new Array(FIN_MONTHS + 1).fill(0);
-      COSTS_LIST.filter((L) => !shareTop.includes(L)).forEach((L) => { const p = pctOf(L); for (let m = 0; m <= FIN_MONTHS; m++) othersPct[m] += p[m] || 0; });
-      const futuro = (m) => m < FIN_MONTHS && RF.curM >= 0 && m > RF.curM;   // projeção mais clara
-      const isAno = (m) => m === FIN_MONTHS;
+        return cutM(a.map((v, m) => (shareTotM[m] > 0 ? (v / shareTotM[m]) * 100 : null))).concat([anoTot > 0 ? (yr / anoTot) * 100 : null]); };
+      const othersPct = new Array(nM + 1).fill(0);
+      COSTS_LIST.filter((L) => !shareTop.includes(L)).forEach((L) => { const p = pctOf(L); for (let m = 0; m <= nM; m++) othersPct[m] += p[m] || 0; });
+      const futuro = (m) => m < nM && RF.curM >= 0 && m > RF.curM;   // projeção mais clara
+      const isAno = (m) => m === nM;
       const r1 = (v) => (v == null ? null : Math.round(v * 10) / 10);
       mk('ccShare', { type: 'bar', data: { labels: shareLabels, datasets: shareTop.map((L) => (
           { label: COSTS_LABEL(L), data: pctOf(L).map(r1),
@@ -4870,7 +4888,7 @@
               callbacks: { title: (items) => shareLabels[items[0].dataIndex] + ' — ' + cs + ' ' + ccNum(totCol[items[0].dataIndex] * K),
                 label: (c) => c.dataset.label + ': ' + (c.parsed.y == null ? '—' : c.parsed.y.toFixed(1) + '%'),
                 afterTitle: (items) => (isAno(items[0].dataIndex) ? 'full year' : (futuro(items[0].dataIndex) ? 'projected' : '')) } } },
-          scales: { x: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { font: { size: 10.5 }, color: (c) => (c.index === FIN_MONTHS ? '#111827' : '#6B7280') } },
+          scales: { x: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { font: { size: 10.5 }, color: (c) => (c.index === nM ? '#111827' : '#6B7280') } },
             y: { stacked: true, min: 0, max: 100, grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280', callback: (v) => v + '%' } } } } });
     }
     function renderCosts() {
@@ -4910,7 +4928,9 @@
       };
       const fy = sumOf(costsSel);
       const cogsFY = COSTS_LIST.reduce((a2, L2) => a2 + sumOf(L2), 0);
-      const revFY = null;   // receita ainda é do plano — não mistura com o custo por frota real
+      // receita das MESMAS frotas (realizado + projeção delas), para o share ficar na mesma régua
+      const rfRev = (() => { const a = new Array(FIN_MONTHS).fill(0); rfFleets.forEach((f) => { for (let m = 0; m < FIN_MONTHS; m++) a[m] += (f.rev || [])[m] || 0; }); return a; })();
+      const revFY = sumIn(rfRev);
       // ---- elasticidade frota: inclinação de ln(custo) ~ ln(carros ativos) nos meses com os dois.
       // 1,0 = 10% mais carros → 10% mais custo (proporcional). ~0 = custo fixo, não segue a frota.
       const pts = [];
@@ -5101,7 +5121,7 @@
       const AVL = costsAvgPerCarMonth(costsSel, RF, rfFleets);
       document.getElementById('costsHero').innerHTML = '<div class="costs-cards">' +
         card(periodLbl, money(fy), (cogsFY ? (fy / cogsFY * 100).toFixed(1) : '0') + '% of COGS', true) +
-        (revFY != null ? card('Share of revenue', revFY ? (fy / revFY * 100).toFixed(1) + '%' : '—', 'gross revenue FY ' + money(revFY)) : '') +
+        card('Share of revenue', revFY ? (fy / revFY * 100).toFixed(1) + '%' : '—', 'revenue ' + perName(mSel) + ' ' + money(revFY)) +
         card('Per car · month' + (AVL.param ? ' (contracted)' : (AVL.proj ? ' (projected)' : ' (since inception)')), AVL.v != null ? money(AVL.v) : '—',
           AVL.param ? 'contracted rate, weighted by cars across ' + AVL.nFleets + ' fleets'
             : (AVL.proj ? 'from the per-car profile — realized sample still short' : ccNum(AVL.cm) + ' car-months since each fleet started')) +
@@ -5110,26 +5130,28 @@
         '</div>';
       // ---- gráficos (todos vestem a cor da linha selecionada) ----
       const mk = (id, cfg) => { if (costsCharts[id]) { costsCharts[id].destroy(); delete costsCharts[id]; } const c = document.getElementById(id); if (!c) return; costsCharts[id] = new Chart(c.getContext('2d'), cfg); };
-      const MONL = Array.from({ length: FIN_MONTHS }, (_, m) => monthLbl(m));
+      const nMes = isYtd && RF.curM >= 0 ? RF.curM + 1 : FIN_MONTHS;   // YTD encerra no mês vigente
+      const MONL = Array.from({ length: nMes }, (_, m) => monthLbl(m));
+      const cut12 = (a) => a.slice(0, nMes);
       const noDL = { datalabels: { display: false } };
       document.getElementById('ccMainT').innerHTML = `<span class="costs-pk-dot" style="background:${C}"></span>${escH(COSTS_LABEL(costsSel))} — per car · monthly`;
       // POR CARRO × média do ano: o absoluto parecia igual para toda linha (barra subindo com a
       // frota); dividido pelos carros, o mês fora do normal salta — acima da média acende em cor
       // cheia, e a média do ano entra tracejada como régua.
-      const perCar = arr.map((v, m) => (act[m] > 1 ? (v * K) / act[m] : null));
+      const perCar = cut12(arr.map((v, m) => (act[m] > 1 ? (v * K) / act[m] : null)));
       const pcVals = perCar.filter((v) => v != null);
       const pcAvg = pcVals.length ? pcVals.reduce((a, b) => a + b, 0) / pcVals.length : 0;
       mk('ccPerCar', { data: { labels: MONL, datasets: [
           { type: 'bar', label: cs + ' per car', data: perCar.map((v) => (v == null ? null : Math.round(v))),
             backgroundColor: perCar.map((v, m) => (mSel != null ? (inScope(m) ? C : costsTint(C, .28)) : (v != null && v > pcAvg * 1.02 ? C : costsTint(C, .35)))), borderRadius: 3, maxBarThickness: 30 },
-          { type: 'line', label: 'year average', data: MONL.map(() => Math.round(pcAvg)), borderColor: C, borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0 },
+          { type: 'line', label: 'average', data: MONL.map(() => Math.round(pcAvg)), borderColor: C, borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0 },
         ] },
         options: { responsive: true, maintainAspectRatio: false, plugins: Object.assign({ legend: { labels: CC_LEG }, tooltip: { padding: 10, displayColors: false, callbacks: { label: (c) => ccNum(c.parsed.y) } } }, noDL),
           scales: CC_GRID } });
       mk('ccMain', { data: { labels: MONL, datasets: [
-          { type: 'bar', label: costsSel, data: arr.map((v) => Math.round(v * K)), backgroundColor: arr.map((_, m) => (mSel != null ? (inScope(m) ? C : costsTint(C, .28)) : C)), yAxisID: 'y', borderRadius: 3, maxBarThickness: 30 },
-          { type: 'line', label: 'Active cars', data: act.map((v) => Math.round(v)), borderColor: '#EB6834', backgroundColor: 'transparent', yAxisID: 'y2', tension: .3, pointRadius: 2, borderWidth: 2 },
-        ].concat(evts ? [{ type: 'line', label: evts.label, data: evts.z, borderColor: '#0891B2', backgroundColor: 'transparent', yAxisID: 'y2', borderDash: [4, 3], pointRadius: 3, tension: 0, borderWidth: 1.5 }] : []) },
+          { type: 'bar', label: costsSel, data: cut12(arr.map((v) => Math.round(v * K))), backgroundColor: cut12(arr.map((_, m) => (mSel != null ? (inScope(m) ? C : costsTint(C, .28)) : C))), yAxisID: 'y', borderRadius: 3, maxBarThickness: 30 },
+          { type: 'line', label: 'Active cars', data: cut12(act.map((v) => Math.round(v))), borderColor: '#EB6834', backgroundColor: 'transparent', yAxisID: 'y2', tension: .3, pointRadius: 2, borderWidth: 2 },
+        ].concat(evts ? [{ type: 'line', label: evts.label, data: cut12(evts.z), borderColor: '#0891B2', backgroundColor: 'transparent', yAxisID: 'y2', borderDash: [4, 3], pointRadius: 3, tension: 0, borderWidth: 1.5 }] : []) },
         options: { responsive: true, maintainAspectRatio: false, plugins: Object.assign({ legend: { labels: CC_LEG } }, noDL), interaction: { mode: 'index', intersect: false },
           scales: { y: { grid: { display: false }, border: { display: false }, beginAtZero: true, ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } }, y2: { position: 'right', beginAtZero: true, grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280' } }, x: { grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280' } } } } });
       // elasticidade — enfática, na caixa do por-carro (é o gráfico que conta essa história)
@@ -5141,15 +5163,23 @@
       const rankRows = COSTS_LIST.map((L) => ({ L, v: sumOf(L) })).filter((r) => r.v > 0).sort((a, b) => b.v - a.v);
       mk('ccRank', { type: 'bar', data: { labels: rankRows.map((r) => COSTS_LABEL(r.L)), datasets: [{ data: rankRows.map((r) => Math.round(r.v * K)), backgroundColor: rankRows.map((r) => r.L === costsSel ? COSTS_COLOR[r.L] : costsTint(COSTS_COLOR[r.L], .35)), borderRadius: 4, maxBarThickness: 24 }] },
         options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'end', color: '#4B5563', font: { size: 10.5, weight: 700 }, formatter: ccK } },
+          onClick: (e, els) => { if (els && els.length) { costsSel = rankRows[els[0].index].L; costsWhatifPct = 0; renderCosts(); } },
+          onHover: (e, els) => { e.native.target.style.cursor = els && els.length ? 'pointer' : 'default'; },
+          plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'end', color: '#4B5563', font: { size: 10.5, weight: 700 }, formatter: ccK },
+            tooltip: { padding: 10, displayColors: false, callbacks: { label: (c) => ccNum(c.parsed.x), afterBody: () => 'click to open this line' } } },
           scales: { x: { grid: { display: false }, border: { display: false }, beginAtZero: true, ticks: { font: CC_FONT, color: '#6B7280', callback: ccK }, grace: '16%' }, y: { grid: { display: false }, border: { display: false }, ticks: { font: { size: 10.5 }, color: '#374151' } } } } });
       // perfil por idade + os DOIS indicadores enfáticos na mesma caixa
       const ageBox = document.getElementById('ccAgeBox');
       if (ageBox) ageBox.style.display = perOk ? '' : 'none';
       const inds = document.getElementById('ccAgeInds');
       // o índice em si virou detalhe: o que importa na leitura é o VEREDITO, não o 2,37×
-      if (inds) inds.innerHTML = fli == null ? '' :
-        `<div class="cc-big" style="--cl:${C}"><b class="cc-verdict">${fli >= 1.4 ? 'Front-loaded' : fli >= 0.8 ? 'Evenly spread' : 'Back-loaded'}</b><span>Cost timing</span><i>${fli >= 1.4 ? 'concentrated at delivery — hits the cash early' : fli >= 0.8 ? 'spread evenly over the contract' : 'lands at the end of the contract'}</i></div>` +
+      const timing = fli == null ? null : (fli >= 1.4
+        ? { t: 'Front-loaded', c: '#DC2626', d: 'concentrated at delivery — drains cash while the fleet ramps' }
+        : (fli >= 0.8
+          ? { t: 'Evenly spread', c: '#6B7280', d: 'spread evenly over the contract — neutral for cash' }
+          : { t: 'Back-loaded', c: '#059669', d: 'lands at the end of the contract — the cash stays with us longer' }));
+      if (inds) inds.innerHTML = timing == null ? '' :
+        `<div class="cc-big" style="--cl:${timing.c}"><b class="cc-verdict">${timing.t}</b><span>Cost timing</span><i>${timing.d}</i></div>` +
         `<div class="cc-big" style="--cl:${C}"><b>M${com.toFixed(1)}</b><span>Average month of spend</span><i>center of mass, M0–M13</i></div>`;
       if (perOk) mk('ccAge', { type: 'bar', data: { labels: Array.from({ length: UET_PERIODS }, (_, p) => 'M' + p), datasets: [{ data: per.map((v) => Math.round(v)), backgroundColor: per.map((_, p) => p < 4 ? C : costsTint(C, .35)), borderRadius: 3 }] },
         options: { responsive: true, maintainAspectRatio: false, plugins: Object.assign({ legend: { display: false }, tooltip: { padding: 10, displayColors: false, callbacks: { label: (c) => ccNum(c.parsed.y) } } }, noDL), scales: CC_GRID } });

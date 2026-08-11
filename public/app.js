@@ -4663,7 +4663,27 @@
       });
       return { per, ok, tot: per.reduce((a, b) => a + b, 0) };
     }
+    // Linhas cujo custo mensal por carro é um PARÂMETRO conhecido: a média sai direto dele,
+    // ponderada pelos carros. Derivá-la de acumulado ÷ carro-meses dava um número abaixo do
+    // aluguel de qualquer frota — basta uma frota sem a caixinha preenchida para ela entrar com
+    // carros no denominador e zero no numerador e puxar a média para baixo.
+    const AVG_PARAM = { 'Subrental fee': ['__subrental_mensal__'], GPS: ['__gps_mensal__'] };
     function costsAvgPerCarMonth(line, RF, fleets) {
+      const keys = AVG_PARAM[line];
+      if (keys) {
+        let s = 0, n = 0; const vals = [];
+        fleets.forEach((f) => {
+          const FP2 = realFleetParams[f.id] || {};
+          const v = keys.reduce((a, k) => a + (FP2[k + '@@0'] != null ? Number(FP2[k + '@@0']) : 0), 0);
+          if (!(v > 0)) return;                       // frota sem a caixinha fica FORA da média
+          const meta = ((OCN.ue || {}).fleets || []).find((x) => x.id === f.id);
+          const c = meta ? (meta.cars || (meta.placas || []).length || 0) : 0;
+          if (!c) return;
+          s += v * c; n += c; vals.push(f.id);
+        });
+        const fx = finPar('__fin_fx__') || 5.5;
+        return { v: n > 0 ? (s / n) / fx : null, proj: false, cash: false, param: true, nFleets: vals.length, cars: n, cm: null, tot: null };
+      }
       if (AVG_REALIZED[line]) {
         const cash = !!AVG_CASH[line];
         let c = 0, cm = 0;
@@ -4780,17 +4800,20 @@
         const f2 = ((OCN.ue || {}).fleets || []).find((x) => x.id === f.id);
         return 'fleet ' + f.id + ' = ' + (f2 ? (f2.cars || (f2.placas || []).length) : '?') + ' cars × months since ' + (f2 && f2.inicio ? f2.inicio.slice(0, 7) : '?');
       }).join(' · ');
-      costsAvgHelp = { t: COSTS_LABEL(drillL) + ' — avg per car · month', d: AV.proj
+      costsAvgHelp = { t: COSTS_LABEL(drillL) + ' — avg per car · month', d: AV.param
+        ? 'This line has a CONTRACTED monthly rate per car, so the average is that rate itself, weighted by each fleet\'s number of cars (' + AV.nFleets + ' fleets, ' + ccNum(AV.cars) + ' cars). Deriving it from accumulated cost ÷ car-months instead would drag it below the rent of every single fleet: billing starts the month after delivery, and any fleet whose box is not filled would contribute cars to the denominator and nothing to the numerator. Fleets without the rate set are left out of the average entirely.' + baseTxt
+        : (AV.proj
         ? 'This line is event-driven and the realized sample is still too short to average: a four-month-old fleet has not reached its first 10.000 km revision, and a month with no claim does not mean the cost is zero. So the figure comes from the PROJECTED per-car profile over the contract (M0–M13 of the reference fleets, weighted by the cohort mix) divided by the 12 contract months.'
         : (AV.cash
           ? 'Everything actually DISBURSED on this line since inception, across all fleets shown (' + money(AV.tot) + '), divided by the car-months each fleet has accumulated since its own start: ' + frotasTxt + ' — ' + ccNum(dCarM) + ' car-months in total. It is cash, not the premium spread over the coverage, so it answers "how much has insurance weighed per car that actually ran so far".' + baseTxt
-          : 'Everything this line has cost since inception (' + money(AV.tot) + '), divided by the car-months each fleet has accumulated since its own start: ' + frotasTxt + ' — ' + ccNum(dCarM) + ' car-months in total. The cost is accrued to the months the cars were held, because the sub-rental is billed the month after delivery and raw cash would understate it.' + baseTxt) };
+          : 'Everything this line has cost since inception (' + money(AV.tot) + '), divided by the car-months each fleet has accumulated since its own start: ' + frotasTxt + ' — ' + ccNum(dCarM) + ' car-months in total. The cost is accrued to the months the cars were held, because the sub-rental is billed the month after delivery and raw cash would understate it.' + baseTxt)) };
+      const avgTag = AV.param ? 'contracted' : (AV.proj ? 'projected' : 'since inception');
       document.getElementById('ccDrillInds').innerHTML =
         `<div class="cc-big cc-huge" style="--cl:${DC}">` +
           `<button type="button" class="costs-help cc-help-in" data-h="avg" title="How this is calculated">?</button>` +
           `<b>${avg == null ? '—' : money(avg)}</b>` +
-          // o rótulo diz que este número NÃO segue o calendário — é acumulado, de propósito
-          `<span>avg per car · month${AV.proj ? ' <em class="cc-tag">projected</em>' : ' <em class="cc-tag">since inception</em>'}</span></div>` +
+          // o rótulo diz de onde vem o número — e que ele NÃO segue o calendário, de propósito
+          `<span>avg per car · month <em class="cc-tag">${avgTag}</em></span></div>` +
         `<div class="cc-big" style="--cl:${DC}"><b>${money(dTot)}</b>` +
           (showProj ? `<em class="cc-proj">+ ${money(projTot)}</em>` : '') +
           `<span>cash · ${escH(perName(H.mSel))}</span>` +
@@ -5079,8 +5102,9 @@
       document.getElementById('costsHero').innerHTML = '<div class="costs-cards">' +
         card(periodLbl, money(fy), (cogsFY ? (fy / cogsFY * 100).toFixed(1) : '0') + '% of COGS', true) +
         (revFY != null ? card('Share of revenue', revFY ? (fy / revFY * 100).toFixed(1) + '%' : '—', 'gross revenue FY ' + money(revFY)) : '') +
-        card('Per car · month' + (AVL.proj ? ' (projected)' : ' (since inception)'), AVL.v != null ? money(AVL.v) : '—',
-          AVL.proj ? 'from the per-car profile — realized sample still short' : ccNum(AVL.cm) + ' car-months since each fleet started') +
+        card('Per car · month' + (AVL.param ? ' (contracted)' : (AVL.proj ? ' (projected)' : ' (since inception)')), AVL.v != null ? money(AVL.v) : '—',
+          AVL.param ? 'contracted rate, weighted by cars across ' + AVL.nFleets + ' fleets'
+            : (AVL.proj ? 'from the per-car profile — realized sample still short' : ccNum(AVL.cm) + ' car-months since each fleet started')) +
         (perOk ? card('Per car · full contract', money(perTot / (finPar('__fin_fx__') || 5.5)), 'theoric M0–M13 profile') : '') +
         (evts && evFY ? card(evts.label + ' (FY)', String(evFY), perEvent != null ? money(perEvent) + ' per event — realized only' : 'no realized cost yet') : '') +
         '</div>';
@@ -5113,7 +5137,8 @@
       if (elEl) elEl.innerHTML = elast == null ? '' :
         `<b style="color:${C}">${elast.toFixed(2)}</b><span>fleet-link · ${elast >= 0.75 ? 'follows the fleet' : elast >= 0.35 ? 'partly fleet-driven' : 'mostly fixed'}</span>`;
       // ranking: cada linha na PRÓPRIA cor — a selecionada cheia, as outras esmaecidas
-      const rankRows = COSTS_LIST.map((L) => ({ L, v: S(lineOfL(L)) })).filter((r) => r.v > 0).sort((a, b) => b.v - a.v);
+      // segue o período do calendário como todo o resto (usava o ano inteiro, fixo)
+      const rankRows = COSTS_LIST.map((L) => ({ L, v: sumOf(L) })).filter((r) => r.v > 0).sort((a, b) => b.v - a.v);
       mk('ccRank', { type: 'bar', data: { labels: rankRows.map((r) => COSTS_LABEL(r.L)), datasets: [{ data: rankRows.map((r) => Math.round(r.v * K)), backgroundColor: rankRows.map((r) => r.L === costsSel ? COSTS_COLOR[r.L] : costsTint(COSTS_COLOR[r.L], .35)), borderRadius: 4, maxBarThickness: 24 }] },
         options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false,
           plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'end', color: '#4B5563', font: { size: 10.5, weight: 700 }, formatter: ccK } },
@@ -5122,8 +5147,9 @@
       const ageBox = document.getElementById('ccAgeBox');
       if (ageBox) ageBox.style.display = perOk ? '' : 'none';
       const inds = document.getElementById('ccAgeInds');
+      // o índice em si virou detalhe: o que importa na leitura é o VEREDITO, não o 2,37×
       if (inds) inds.innerHTML = fli == null ? '' :
-        `<div class="cc-big" style="--cl:${C}"><b>${fli.toFixed(2)}×</b><span>Front-load index</span><i>${fli >= 1.4 ? 'concentrated at delivery — hits the cash early' : fli >= 0.8 ? 'evenly spread over the contract' : 'back-loaded — lands at the end'}</i></div>` +
+        `<div class="cc-big" style="--cl:${C}"><b class="cc-verdict">${fli >= 1.4 ? 'Front-loaded' : fli >= 0.8 ? 'Evenly spread' : 'Back-loaded'}</b><span>Cost timing</span><i>${fli >= 1.4 ? 'concentrated at delivery — hits the cash early' : fli >= 0.8 ? 'spread evenly over the contract' : 'lands at the end of the contract'}</i></div>` +
         `<div class="cc-big" style="--cl:${C}"><b>M${com.toFixed(1)}</b><span>Average month of spend</span><i>center of mass, M0–M13</i></div>`;
       if (perOk) mk('ccAge', { type: 'bar', data: { labels: Array.from({ length: UET_PERIODS }, (_, p) => 'M' + p), datasets: [{ data: per.map((v) => Math.round(v)), backgroundColor: per.map((_, p) => p < 4 ? C : costsTint(C, .35)), borderRadius: 3 }] },
         options: { responsive: true, maintainAspectRatio: false, plugins: Object.assign({ legend: { display: false }, tooltip: { padding: 10, displayColors: false, callbacks: { label: (c) => ccNum(c.parsed.y) } } }, noDL), scales: CC_GRID } });

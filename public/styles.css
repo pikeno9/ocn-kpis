@@ -487,6 +487,8 @@ html { scrollbar-gutter: stable; }
 .cc-hint { font-size: 10px; color: var(--text-2); font-weight: 600; }
 /* big number do drill (média por carro·mês) — o destaque da seção */
 .cc-big.cc-huge b { font-size: 32px; }
+/* veredito de tempo do custo (front/back-loaded) — texto, não número */
+.cc-big b.cc-verdict { font-size: 17px; line-height: 1.15; letter-spacing: -.01em; }
 /* "?" no canto do big number — a explicação saiu do cartão para o número respirar */
 .cc-big { position: relative; }
 .cc-help-in { position: absolute; top: 9px; right: 9px; width: 19px; height: 19px; font-size: 10px; }

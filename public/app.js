@@ -4602,6 +4602,40 @@
     }
     // "Main": Pareto do COGS inteiro (clicável) + drill mensal por frota da barra escolhida
     const perName = (m) => (m == null ? 'full year' : (m === 'ytd' ? 'year to date' : monthLbl(m)));
+    // ---- CUSTO MÉDIO POR CARRO·MÊS ----
+    // Sempre acumulado do INÍCIO ATÉ HOJE (não do período escolhido no calendário): a pergunta
+    // "quanto um carro custa por mês" não muda porque estou olhando agosto.
+    //   numerador  = tudo o que a linha custou desde o início (competência: o subrental é cobrado
+    //                no mês seguinte, então o caixa sozinho subestimaria)
+    //   denominador= soma dos meses que CADA carro passou conosco (frota entra em datas diferentes)
+    // Nas linhas de EVENTO a amostra realizada é curta demais para virar média — uma frota de 4
+    // meses ainda não fez a 1ª revisão dos 10.000 km, e um mês sem sinistro não significa que
+    // recuperação custe zero. Para essas, a média vem do perfil PROJETADO por idade do carro
+    // (M0..M13, das frotas de referência), dividido pelos 12 meses de contrato.
+    const AVG_REALIZED = { 'Subrental fee': 1, 'Insurance': 1, 'GPS': 1, 'Car Preparation': 1, 'Sticker': 1 };
+    function costsAgeProfile(line) {
+      const per = new Array(UET_PERIODS).fill(0); let ok = false;
+      const qty = {};
+      finCohorts.forEach((c) => { qty[c.model] = (qty[c.model] || 0) + c.qty; });
+      const tq = Math.max(1, Object.values(qty).reduce((a, b) => a + b, 0));
+      Object.entries(qty).forEach(([mod, q]) => {
+        const pr = refProfiles && refProfiles[mod] && refProfiles[mod][line];
+        if (!pr) return;
+        for (let p = 0; p < UET_PERIODS; p++) per[p] += Math.abs(pr[p] || 0) * (q / tq);
+        ok = true;
+      });
+      return { per, ok, tot: per.reduce((a, b) => a + b, 0) };
+    }
+    function costsAvgPerCarMonth(line, RF, fleets) {
+      if (AVG_REALIZED[line]) {
+        let c = 0, cm = 0;
+        fleets.forEach((f) => { for (let m = 0; m <= RF.curM; m++) { c += ((f.accr || f.arr)[line] || [])[m] || 0; cm += f.cars[m] || 0; } });
+        return { v: cm > 0 ? c / cm : null, proj: false, cm, tot: c };
+      }
+      const A = costsAgeProfile(line);
+      const fx = finPar('__fin_fx__') || 5.5;
+      return { v: A.ok ? (A.tot / fx) / 12 : null, proj: true, cm: null, tot: null };
+    }
     function renderCostsMain(P, H) {
       const { S, K, cs, money, lineOfL, sumOf, mSel } = H;
       const mk = (id, cfg) => { if (costsCharts[id]) { costsCharts[id].destroy(); delete costsCharts[id]; } const c = document.getElementById(id); if (!c) return; costsCharts[id] = new Chart(c.getContext('2d'), cfg); };
@@ -4669,13 +4703,12 @@
                 footer: (items) => 'total: ' + ccNum(items.reduce((a, i2) => a + i2.parsed.y, 0)) } } },
           scales: { x: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280' } },
             y: { stacked: true, grid: { display: false }, border: { display: false }, beginAtZero: true, ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } } } } });
-      // big numbers: média por carro·mês (todas as frotas do filtro) + total realizado até hoje
-      // média por carro·mês em COMPETÊNCIA: o caixa das linhas de agenda chega desalinhado da
-      // posse (subrental cobra no mês seguinte), o que puxava a média para baixo
-      let dTot = 0, dAcc = 0, dCarM = 0;
-      rfF.forEach((f) => { for (let m = 0; m <= RF.curM; m++) { if (!H.inScope(m)) continue; dTot += (f.arr[drillL] || [])[m] || 0; dAcc += ((f.accr || f.arr)[drillL] || [])[m] || 0; dCarM += f.cars[m] || 0; } });
-      const avg = dCarM > 0 ? dAcc / dCarM : null;
-      const difCaixa = Math.abs(dAcc - dTot) > Math.max(1, dTot * 0.01);
+      // caixa do PERÍODO escolhido (esse sim segue o calendário)
+      let dTot = 0;
+      rfF.forEach((f) => { for (let m = 0; m <= RF.curM; m++) { if (!H.inScope(m)) continue; dTot += (f.arr[drillL] || [])[m] || 0; } });
+      // média por carro·mês: SEMPRE do início até hoje (ou projetada, nas linhas de evento)
+      const AV = costsAvgPerCarMonth(drillL, RF, rfF);
+      const avg = AV.v, dCarM = AV.cm;
       // De onde sai a média das linhas de AGENDA — sem isso o número vira adivinhação: o seguro,
       // por exemplo, é pago em poucas parcelas grandes mas rateado nos 12 meses de cobertura, e a
       // parcela (o que se lembra de pagar) é sempre bem maior que o custo mensal apropriado.
@@ -4693,11 +4726,15 @@
         if (drillL === 'GPS') { const mo = wavg('__gps_mensal__'), i0 = wavg('__gps_m0__'); return mo > 0 ? money(mo / fxr) + '/month + ' + money(i0 / fxr) + ' install spread over the contract' : ''; }
         return '';
       })();
+      const avgSub = AV.proj
+        ? 'projected — the realized sample is still too short for this line'
+        : `${rfF.length} fleet${rfF.length > 1 ? 's' : ''} · ${ccNum(dCarM)} car-months since each fleet started`;
       document.getElementById('ccDrillInds').innerHTML =
-        `<div class="cc-big cc-huge" style="--cl:${DC}"><b>${avg == null ? '—' : money(avg)}</b><span>avg per car · month</span>` +
-          `<i>${rfF.length} fleet${rfF.length > 1 ? 's' : ''} · ${ccNum(dCarM)} car-months held${baseTxt ? '<br><b class="cc-basis">' + escH(baseTxt) + '</b>' : (difCaixa ? ' · cost accrued to the months the cars were held' : '')}</i></div>` +
-        `<div class="cc-big" style="--cl:${DC}"><b>${money(dTot)}</b><span>cash to date</span>` +
-          `<i>through ${RF.curM >= 0 ? monthLbl(RF.curM) : '—'}${difCaixa ? ' · ' + money(dAcc) + ' accrued' : ''} · click another Pareto bar to switch</i></div>`;
+        `<div class="cc-big cc-huge" style="--cl:${DC}"><b>${avg == null ? '—' : money(avg)}</b>` +
+          `<span>avg per car · month${AV.proj ? ' <em class="cc-tag">projected</em>' : ''}</span>` +
+          `<i>${escH(avgSub)}${baseTxt ? '<br><b class="cc-basis">' + escH(baseTxt) + '</b>' : ''}</i></div>` +
+        `<div class="cc-big" style="--cl:${DC}"><b>${money(dTot)}</b><span>cash · ${escH(perName(H.mSel))}</span>` +
+          `<i>click another Pareto bar to switch</i></div>`;
     }
     function renderCosts() {
       const sec = document.getElementById('sub-fincosts');
@@ -4927,13 +4964,14 @@
         }
       }
       const periodLbl = perName(mSel) + (mIdx != null && mIdx === RF.curM ? ' · realized' : '');
-      const carM = act.reduce((t, v, m) => t + (inScope(m) ? (v || 0) : 0), 0);   // exposição do período
-      const perCarV = carM > 0 ? fy / carM : null;
+      // mesma regra do drill: a média por carro·mês é do início até hoje (ou projetada), nunca do
+      // recorte do calendário — a pergunta "quanto custa um carro por mês" não muda com o filtro
+      const AVL = costsAvgPerCarMonth(costsSel, RF, rfFleets);
       document.getElementById('costsHero').innerHTML = '<div class="costs-cards">' +
         card(periodLbl, money(fy), (cogsFY ? (fy / cogsFY * 100).toFixed(1) : '0') + '% of COGS' + (scoped ? ' · realized' : ''), true) +
         (revFY != null ? card('Share of revenue', revFY ? (fy / revFY * 100).toFixed(1) + '%' : '—', 'gross revenue FY ' + money(revFY)) : '') +
-        card('Per active car · month', perCarV != null ? money(perCarV) : '—',
-          ccNum(carM) + (mIdx != null ? ' active cars' : ' car-months') + ' · ' + perName(mSel)) +
+        card('Per car · month' + (AVL.proj ? ' (projected)' : ''), AVL.v != null ? money(AVL.v) : '—',
+          AVL.proj ? 'from the per-car profile — realized sample still short' : ccNum(AVL.cm) + ' car-months since each fleet started') +
         (perOk ? card('Per car · full contract', money(perTot / (finPar('__fin_fx__') || 5.5)), 'theoric M0–M13 profile') : '') +
         (evts && evFY ? card(evts.label + ' (FY)', String(evFY), perEvent != null ? money(perEvent) + ' per event — realized only' : 'no realized cost yet') : '') +
         '</div>';

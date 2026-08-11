@@ -4703,44 +4703,13 @@
       // única hachurada em vez de fingir uma divisão por frota que os dados não têm.
       const showProj = H.mSel == null && costsView === 'fc' && costsFleet == null && RF.curM >= 0 && RF.curM < FIN_MONTHS - 1;
       const planLine = H.lineOfL(drillL);
+      const projArr = showProj ? planLine.map((v, m) => (m > RF.curM ? Math.round(v * K) : null)) : null;
       const projTot = showProj ? planLine.reduce((s, v, m) => s + (m > RF.curM ? (v || 0) : 0), 0) : 0;
-      // Projeção REPARTIDA por frota: o plano projeta por carro, então cada frota real leva a
-      // fatia proporcional aos carros DELA na frota ativa do plano naquele mês (dentro da janela
-      // de 12 meses do contrato dela). O que o plano tem além das frotas reais — as entregas que
-      // ainda vão acontecer — fica no balde "Future fleets", porque esses carros não são de
-      // nenhuma frota existente.
-      const projByFleet = {}; const projFuture = new Array(FIN_MONTHS).fill(null);
-      if (showProj) {
-        const U2 = OCN.ue || {}, losses2 = U2.losses || {};
-        const meta = (U2.fleets || []).filter((f) => f.inicio).map((f) => {
-          const m0 = (String(f.inicio).slice(0, 4) === String(finYear)) ? parseInt(String(f.inicio).slice(5, 7), 10) - 1 : null;
-          const cars = Math.max(1, f.cars || (f.placas || []).length || 1);
-          const lost = (mEnd) => (f.placas || []).reduce((n2, pl) => n2 + ((losses2[pl] && new Date(losses2[pl] + 'T12:00:00') <= mEnd) ? 1 : 0), 0);
-          return { id: f.id, m0, cars, lost };
-        });
-        for (let m = RF.curM + 1; m < FIN_MONTHS; m++) {
-          const plan = (P.active || [])[m] || 0, tot2 = planLine[m] || 0;
-          let used = 0;
-          meta.forEach((f) => {
-            const inWin = f.m0 != null && m >= f.m0 && m <= f.m0 + 11;
-            const c = inWin ? Math.max(0, f.cars - f.lost(new Date(finYear, m + 1, 0, 12))) : 0;
-            const share = plan > 0 ? Math.min(1, c / plan) : 0;
-            used += share;
-            if (!projByFleet[f.id]) projByFleet[f.id] = new Array(FIN_MONTHS).fill(null);
-            projByFleet[f.id][m] = Math.round(tot2 * share * K);
-          });
-          projFuture[m] = Math.round(tot2 * Math.max(0, 1 - used) * K);
-        }
-      }
       document.getElementById('ccDrillT').innerHTML = `<span class="costs-pk-dot" style="background:${DC}"></span>${escH(COSTS_LABEL(drillL))} — monthly by fleet${showProj ? ' · realized + forecast' : ' · realized'}`;
       const MONL = Array.from({ length: FIN_MONTHS }, (_, m) => monthLbl(m));
       mk('ccDrill', { type: 'bar', data: { labels: MONL, datasets: rfF.map((f) => (
           { label: 'Fleet ' + f.id, fleetId: f.id, data: (f.arr[drillL] || []).map((v, m) => (RF.curM >= 0 && m <= RF.curM ? Math.round(v * K) : null)), backgroundColor: FLEET_COLOR(f.id), stack: 's', maxBarThickness: 40, borderRadius: 2 }
-        )).concat(showProj ? rfF.map((f) => (
-          // mesma cor da frota, mas HACHURADA — é a fatia projetada dela; fora da legenda para
-          // não duplicar as entradas (a cor já identifica a frota)
-          { label: 'Fleet ' + f.id + ' · projected', proj: true, legendHide: true, data: projByFleet[f.id] || new Array(FIN_MONTHS).fill(null), backgroundColor: costsStripe(FLEET_COLOR(f.id)), borderColor: costsTint(FLEET_COLOR(f.id), .5), borderWidth: 1, stack: 's', maxBarThickness: 40, borderRadius: 2 }
-        )).concat([{ label: 'Future fleets', proj: true, data: projFuture, backgroundColor: costsStripe('#6B7280'), borderColor: 'rgba(107,114,128,.5)', borderWidth: 1, stack: 's', maxBarThickness: 40, borderRadius: 2 }]) : []) },
+        )).concat(showProj ? [{ label: 'Projected', proj: true, data: projArr, backgroundColor: costsStripe(DC), borderColor: costsTint(DC, .55), borderWidth: 1, stack: 's', maxBarThickness: 40, borderRadius: 2 }] : []) },
         // total de cada mês acima da pilha (o datalabels não soma stacks sozinho)
         plugins: [{ id: 'stackTot', afterDatasetsDraw(ch) {
           const { ctx } = ch; const tots = {}; let top = {};
@@ -4809,27 +4778,57 @@
           (showProj ? `<i><b class="cc-proj-lg">${money(dTot + projTot)}</b> full year · realized through ${monthLbl(RF.curM)} + forecast ahead</i>` : '') +
         `</div>`;
       document.querySelectorAll('#ccDrillInds .costs-help').forEach((b) => { b.onclick = () => costsHelpOpen('avg'); });
-      // ---- share do COGS por mês: 100% empilhado, top-5 linhas + Others, projeção mais clara ----
+      // ---- share do COGS por mês (+ coluna do ANO): 100% empilhado, top-5 + Others ----
       const shareTop = rows.slice(0, 5).map((r) => r.L);
       const shareTotM = new Array(FIN_MONTHS).fill(0);
       COSTS_LIST.forEach((L) => { const a = H.lineOfL(L); for (let m = 0; m < FIN_MONTHS; m++) shareTotM[m] += a[m] || 0; });
-      const sharePct = (L) => H.lineOfL(L).map((v, m) => (shareTotM[m] > 0 ? (v / shareTotM[m]) * 100 : null));
-      const othersPct = new Array(FIN_MONTHS).fill(0);
-      COSTS_LIST.filter((L) => !shareTop.includes(L)).forEach((L) => { const p = sharePct(L); for (let m = 0; m < FIN_MONTHS; m++) othersPct[m] += p[m] || 0; });
-      const futuro = (m) => costsView === 'fc' && RF.curM >= 0 && m > RF.curM;   // projeção fica mais clara
-      mk('ccShare', { type: 'bar', data: { labels: MONL, datasets: shareTop.map((L) => (
-          { label: COSTS_LABEL(L), data: sharePct(L).map((v) => (v == null ? null : Math.round(v * 10) / 10)),
-            backgroundColor: sharePct(L).map((v, m) => (futuro(m) ? costsTint(COSTS_COLOR[L], .45) : COSTS_COLOR[L])), stack: 's', maxBarThickness: 34 }
-        )).concat([{ label: 'Others', data: othersPct.map((v, m) => (shareTotM[m] > 0 ? Math.round(v * 10) / 10 : null)),
-          backgroundColor: othersPct.map((_, m) => (futuro(m) ? 'rgba(156,163,175,.45)' : '#9CA3AF')), stack: 's', maxBarThickness: 34 }]) },
+      const anoTot = shareTotM.reduce((a, b) => a + b, 0);
+      // a 13ª coluna é o ano inteiro — o share consolidado, que é outra pergunta que o mensal não responde
+      const shareLabels = MONL.concat([String(finYear)]);
+      const totCol = shareTotM.concat([anoTot]);
+      const pctOf = (L) => { const a = H.lineOfL(L); const yr = a.reduce((s, v) => s + (v || 0), 0);
+        return a.map((v, m) => (shareTotM[m] > 0 ? (v / shareTotM[m]) * 100 : null)).concat([anoTot > 0 ? (yr / anoTot) * 100 : null]); };
+      const othersPct = new Array(FIN_MONTHS + 1).fill(0);
+      COSTS_LIST.filter((L) => !shareTop.includes(L)).forEach((L) => { const p = pctOf(L); for (let m = 0; m <= FIN_MONTHS; m++) othersPct[m] += p[m] || 0; });
+      const futuro = (m) => m < FIN_MONTHS && costsView === 'fc' && RF.curM >= 0 && m > RF.curM;  // projeção mais clara
+      const isAno = (m) => m === FIN_MONTHS;
+      const r1 = (v) => (v == null ? null : Math.round(v * 10) / 10);
+      mk('ccShare', { type: 'bar', data: { labels: shareLabels, datasets: shareTop.map((L) => (
+          { label: COSTS_LABEL(L), data: pctOf(L).map(r1),
+            backgroundColor: pctOf(L).map((v, m) => (futuro(m) ? costsTint(COSTS_COLOR[L], .45) : COSTS_COLOR[L])),
+            borderColor: pctOf(L).map((v, m) => (isAno(m) ? '#111827' : 'transparent')), borderWidth: pctOf(L).map((v, m) => (isAno(m) ? 1 : 0)),
+            stack: 's', maxBarThickness: 40 }
+        )).concat([{ label: 'Others', data: othersPct.map((v, m) => (totCol[m] > 0 ? r1(v) : null)),
+          backgroundColor: othersPct.map((_, m) => (futuro(m) ? 'rgba(156,163,175,.45)' : '#9CA3AF')),
+          borderColor: othersPct.map((_, m) => (isAno(m) ? '#111827' : 'transparent')), borderWidth: othersPct.map((_, m) => (isAno(m) ? 1 : 0)),
+          stack: 's', maxBarThickness: 40 }]) },
+        // COGS absoluto de cada coluna, em destaque acima da barra
+        plugins: [{ id: 'shareTot', afterDatasetsDraw(ch) {
+          const { ctx } = ch; const top = ch.chartArea.top;
+          ctx.save(); ctx.textAlign = 'center';
+          ch.getDatasetMeta(0).data.forEach((el, i) => {
+            if (!(totCol[i] > 0)) return;
+            const y = top - 7, txt = ccK(totCol[i] * K);
+            ctx.font = '800 ' + (isAno(i) ? 12 : 10.5) + 'px ' + getComputedStyle(document.body).fontFamily;
+            const w = ctx.measureText(txt).width + 10;
+            ctx.fillStyle = isAno(i) ? '#111827' : (futuro(i) ? '#EEF2F7' : '#F3F4F6');
+            ctx.beginPath(); ctx.roundRect(el.x - w / 2, y - 12, w, 16, 8); ctx.fill();
+            ctx.fillStyle = isAno(i) ? '#fff' : '#374151';
+            ctx.fillText(txt, el.x, y);
+          });
+          ctx.restore();
+        } }],
         options: { responsive: true, maintainAspectRatio: false,
+          layout: { padding: { top: 24 } },
           interaction: { mode: 'index', intersect: false },
           plugins: { legend: { position: 'bottom', align: 'start', labels: Object.assign({}, CC_LEG, { padding: 14 }) },
-            datalabels: { display: (c) => (c.dataset.data[c.dataIndex] || 0) >= 9, color: '#fff', font: { size: 9, weight: 800 }, formatter: (v) => Math.round(v) + '%' },
+            // com o gráfico mais alto cabe rótulo em fatia bem menor
+            datalabels: { display: (c) => (c.dataset.data[c.dataIndex] || 0) >= 3, color: '#fff', font: { size: 9.5, weight: 800 }, formatter: (v) => (v >= 10 ? Math.round(v) : v.toFixed(1)) + '%' },
             tooltip: { padding: 10, titleFont: { size: 12 }, bodyFont: { size: 11.5 },
-              callbacks: { label: (c) => c.dataset.label + ': ' + (c.parsed.y == null ? '—' : c.parsed.y.toFixed(1) + '%'),
-                afterTitle: (items) => (items.length && futuro(items[0].dataIndex) ? 'projected' : '') } } },
-          scales: { x: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280' } },
+              callbacks: { title: (items) => shareLabels[items[0].dataIndex] + ' — ' + cs + ' ' + ccNum(totCol[items[0].dataIndex] * K),
+                label: (c) => c.dataset.label + ': ' + (c.parsed.y == null ? '—' : c.parsed.y.toFixed(1) + '%'),
+                afterTitle: (items) => (isAno(items[0].dataIndex) ? 'full year' : (futuro(items[0].dataIndex) ? 'projected' : '')) } } },
+          scales: { x: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { font: { size: 10.5 }, color: (c) => (c.index === FIN_MONTHS ? '#111827' : '#6B7280') } },
             y: { stacked: true, min: 0, max: 100, grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280', callback: (v) => v + '%' } } } } });
     }
     function renderCosts() {
@@ -6274,10 +6273,13 @@
       // calção = nº de aluguéis × mensalidade do Subrental (ambos manuais, R$)
       const secDepMag = () => (par('__num_alugueis__') > 0 && par('__subrental_mensal__') > 0)
         ? par('__num_alugueis__') * par('__subrental_mensal__') : 0;
-      if (line === 'Security Deposit' && secDepMag() > 0) return { rs: period === 0 ? -secDepMag() : 0 };
-      if (line === 'Deposit Refund' && secDepMag() > 0) {
+      // Calção: SEMPRE resolvido aqui, mesmo quando a frota não tem nenhum. Antes, frota sem
+      // `__num_alugueis__` caía no fim da função e herdava o ORÇADO do modelo teórico — a frota 1
+      // não pagou calção nenhum e mesmo assim aparecia um no M0 do realizado.
+      if (line === 'Security Deposit') return { rs: (secDepMag() > 0 && period === 0) ? -secDepMag() : 0 };
+      if (line === 'Deposit Refund') {
         const rp = par('__refund_pct__') > 0 ? par('__refund_pct__') / 100 : refundPct; // caixinha da linha vence o global
-        return { rs: period === PMAX ? secDepMag() * (1 + rp) : 0 }; // devolução corrigida, no M13
+        return { rs: (secDepMag() > 0 && period === PMAX) ? secDepMag() * (1 + rp) : 0 }; // devolução corrigida, no M13
       }
       if (line === 'Vehicle Purchase' && par('__vehicle__') > 0) return { rs: period === PMAX ? -par('__vehicle__') : 0 };
       // a antiga linha "Initial Fee / Vehicle Sell" virou DUAS: a venda do carro (103% da compra,

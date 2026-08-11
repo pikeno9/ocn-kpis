@@ -451,6 +451,7 @@ html { scrollbar-gutter: stable; }
    do Chart.js e, num monitor a 150%, saía tudo borrado (o bitmap não batia com o CSS). */
 .cc-cv { position: relative; width: 100%; }
 .cc-cv > canvas { display: block; }
+.cc-cv.cv-xl { height: 520px; }
 .cc-cv.cv-tall { height: 330px; }
 .cc-cv.cv-big { height: 250px; }
 .cc-cv.cv-mid { height: 270px; }

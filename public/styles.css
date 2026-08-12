@@ -431,13 +431,15 @@ html { scrollbar-gutter: stable; }
 .costs-pk-txt i { display: block; font-style: normal; font-size: 10px; color: var(--text-2); line-height: 1.35; margin-top: 1px; }
 /* cartões do topo — friso na cor da linha; o primeiro (FY) em destaque */
 .costs-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); gap: 10px; margin-bottom: 16px; }
-.costs-card { border: 1px solid var(--border); border-left: 4px solid var(--cl, var(--accent)); border-radius: 12px; padding: 11px 13px; background: var(--surface); }
-.costs-card > span { display: block; font-size: 9.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-2); margin-bottom: 4px; font-weight: 700; }
-.costs-card b { font-size: 15.5px; }
-.costs-card.cc-strong b { font-size: 19px; color: var(--cl, var(--accent)); }
-.costs-card .sub { font-size: 10px; color: var(--text-2); font-weight: 500; display: block; margin-top: 3px; text-transform: none; letter-spacing: 0; line-height: 1.35; }
+/* cartões-herói centrados, com o NÚMERO como protagonista — antes sobrava branco e o valor sumia */
+.costs-card { border: 1px solid var(--border); border-left: 4px solid var(--cl, var(--accent)); border-radius: 12px; padding: 13px 14px; background: var(--surface); display: flex; flex-direction: column; justify-content: center; text-align: center; min-height: 92px; }
+.costs-card > span { display: block; font-size: 9.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-2); margin-bottom: 5px; font-weight: 700; }
+.costs-card b { font-size: 23px; line-height: 1.05; letter-spacing: -.01em; }
+.costs-card.cc-strong b { font-size: 28px; color: var(--cl, var(--accent)); }
+.costs-card .sub { font-size: 10px; color: var(--text-2); font-weight: 500; display: block; margin-top: 5px; text-transform: none; letter-spacing: 0; line-height: 1.35; }
 /* grades: os dois GRANDES (ranking + vida do carro) e os dois pequenos */
-.costs-grid-big { display: grid; grid-template-columns: 1fr 1.2fr; gap: 14px; margin-bottom: 14px; }
+/* mesmas colunas nos dois grids — com 1fr/1.2fr em cima e 1fr/1fr embaixo as bordas não alinhavam */
+.costs-grid-big { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
 .costs-grid-small { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .costs-chart { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; background: var(--surface); }
 .cc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
@@ -460,14 +462,33 @@ html { scrollbar-gutter: stable; }
 .costs-tgl { display: flex; border: 1px solid var(--border-2); border-radius: 10px; overflow: hidden; }
 .costs-tgl button { font: inherit; font-size: 11.5px; font-weight: 700; padding: 8px 13px; border: 0; background: var(--surface); color: var(--text-2); cursor: pointer; }
 .costs-tgl button.on { background: var(--accent); color: #fff; }
-.costs-mini { font: inherit; font-size: 11.5px; font-weight: 600; padding: 8px 10px; border: 1px solid var(--border-2); border-radius: 10px; background: var(--surface); color: var(--text); cursor: pointer; max-width: 190px; }
-.costs-mini:hover { border-color: var(--accent); }
+.costs-mini {
+  font: inherit; font-size: 12.5px; font-weight: 600; padding: 9px 34px 9px 13px;
+  border: 1.5px solid var(--border-2); border-radius: 999px; background: var(--surface); color: var(--text);
+  cursor: pointer; max-width: 210px; appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center; background-size: 14px;
+  transition: border-color .12s, box-shadow .12s;
+}
+.costs-mini:hover, .costs-mini:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent); }
 /* seletor de período: botão de calendário + o escolhido em itálico, e a grade 4x3 de meses */
 .costs-cal { position: relative; display: flex; align-items: center; gap: 8px; }
-.costs-cal-btn { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 1px solid var(--border-2); border-radius: 10px; background: var(--surface); color: var(--text-2); cursor: pointer; }
+/* botão da agenda + rótulo do período viraram um conjunto: botão em pílula com gradiente suave
+   e o período escolhido num chip ao lado (o itálico solto parecia texto perdido) */
+.costs-cal-btn {
+  display: flex; align-items: center; justify-content: center; width: 38px; height: 38px;
+  border: 1.5px solid var(--border-2); border-radius: 999px;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 8%, var(--surface)), var(--surface) 70%);
+  color: var(--accent); cursor: pointer; transition: border-color .12s, box-shadow .12s, transform .12s;
+}
 .costs-cal-btn svg { width: 19px; height: 19px; }
-.costs-cal-btn:hover, .costs-cal-btn.open { border-color: var(--accent); color: var(--accent); }
-.costs-cal-lbl { font-size: 12.5px; font-style: italic; font-weight: 600; color: var(--text); }
+.costs-cal-btn:hover, .costs-cal-btn.open { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent); transform: translateY(-1px); }
+.costs-cal-lbl {
+  font-size: 12px; font-weight: 700; color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: 999px; padding: 6px 13px; text-transform: lowercase; letter-spacing: .01em;
+}
 .costs-cal-pop { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; width: 292px; padding: 10px; background: var(--surface); border: 1px solid var(--border-2); border-radius: 13px; box-shadow: 0 10px 32px rgba(20,10,60,.16); }
 .cal-tops { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 9px; }
 .cal-year, .cal-ytd { font: inherit; font-size: 11.5px; font-weight: 800; padding: 9px 8px; border: 0; border-radius: 10px; cursor: pointer; color: #fff; line-height: 1.2; }
@@ -545,6 +566,16 @@ html { scrollbar-gutter: stable; }
 .cc-agecv { flex: 1; min-width: 0; }
 /* elasticidade: chip enfático no cabeçalho do custo por carro */
 /* (o chip de elasticidade saiu — a caixa da esquerda virou o gráfico próprio de cada linha) */
+/* botões-filtro dentro da caixa do gráfico (modelo do carro, valor × nº de multas) */
+.ccl-ctl { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.ccl-btn {
+  font: inherit; font-size: 10.5px; font-weight: 700; padding: 4px 11px; cursor: pointer;
+  border: 1.5px solid var(--border-2); border-radius: 999px; background: var(--surface); color: var(--text-2);
+  display: inline-flex; align-items: center; gap: 5px; transition: border-color .12s, background .12s, color .12s;
+}
+.ccl-btn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--accent)); }
+.ccl-btn:hover { border-color: var(--c, var(--accent)); color: var(--text); }
+.ccl-btn.on { border-color: var(--c, var(--accent)); background: color-mix(in srgb, var(--c, var(--accent)) 10%, var(--surface)); color: var(--text); }
 /* what-if: painel na cor da linha — % gigante + slider + blocos de resultado com delta em chip */
 .costs-whatif { border: 1px solid color-mix(in srgb, var(--cl, var(--accent)) 35%, var(--border)); background: linear-gradient(135deg, color-mix(in srgb, var(--cl, var(--accent)) 7%, var(--surface)), var(--surface) 55%); border-radius: 14px; padding: 16px 18px; margin-top: 16px; }
 .cw-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
@@ -1038,6 +1069,13 @@ html { scrollbar-gutter: stable; }
 .sub-tab-dash.active {
   background: linear-gradient(135deg, #0F172A, #020617); border-color: transparent; color: #fff;
   box-shadow: 0 0 0 3px #22d3ee42, 0 4px 16px #0206174d, inset 0 1px 0 #ffffff26;
+}
+/* Costs e Unit: mesma pílula do Dashboard, mas em ROXO escuro */
+.sub-tab-purple { background: linear-gradient(135deg, #5B21B6, #2E1065); box-shadow: 0 3px 12px #2e10653d, inset 0 1px 0 #ffffff26; }
+.sub-tab-purple:hover { box-shadow: 0 6px 18px #2e10654d, inset 0 1px 0 #ffffff2e; }
+.sub-tab-purple.active {
+  background: linear-gradient(135deg, #3B0764, #1E0538);
+  box-shadow: 0 0 0 3px #a78bfa4d, 0 4px 16px #1e05384d, inset 0 1px 0 #ffffff26;
 }
 
 /* ===================== P&L: painel de indicadores ===================== */

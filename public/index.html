@@ -492,8 +492,8 @@
         <button class="sub-tab" data-sub="fincac">CAC &amp; Marketing</button>
         <span class="sub-sep"></span>
         <button class="sub-tab sub-tab-dash" data-sub="findash"><span>Dashboard</span></button>
-        <button class="sub-tab" data-sub="fincosts"><span>Costs</span></button>
-        <button class="sub-tab" data-sub="finunit"><span>Unit</span></button>
+        <button class="sub-tab sub-tab-dash sub-tab-purple" data-sub="fincosts"><span>Costs</span></button>
+        <button class="sub-tab sub-tab-dash sub-tab-purple" data-sub="finunit"><span>Unit</span></button>
       </div>
 
       <!-- ---------- P&L (consolidado) ---------- -->
@@ -599,7 +599,7 @@
         <!-- MAIN: visão geral do COGS — Pareto clicável + drill mensal por frota da barra escolhida -->
         <div id="costsMain" hidden>
           <div class="costs-chart">
-            <div class="cc-head"><h4>Pareto — where the COGS money goes</h4><span class="cc-hint">click a bar to open it below</span><button type="button" class="costs-help" data-h="pareto">?</button></div>
+            <div class="cc-head"><h4>COGS Pareto</h4><span class="cc-hint">click a bar to open it below</span><button type="button" class="costs-help" data-h="pareto">?</button></div>
             <div class="cc-cv cv-tall"><canvas id="ccPareto"></canvas></div>
           </div>
           <div class="costs-chart" style="margin-top:14px" id="ccDrillBox">
@@ -638,11 +638,11 @@
                linhas sem gráfico próprio escondem a caixa e o mensal ocupa a largura toda -->
           <div class="costs-grid-small" id="ccSmallGrid">
             <div class="costs-chart" id="ccLeftBox">
-              <div class="cc-head"><h4 id="ccMainT"></h4><button type="button" class="costs-help" data-h="percar">?</button></div>
+              <div class="cc-head"><h4 id="ccMainT"></h4><div class="ccl-ctl" id="cclCtl"></div><button type="button" class="costs-help" data-h="percar">?</button></div>
               <div class="cc-cv cv-tall"><canvas id="ccPerCar"></canvas></div>
             </div>
             <div class="costs-chart">
-              <div class="cc-head"><h4>Absolute monthly — vs fleet</h4><button type="button" class="costs-help" data-h="monthly">?</button></div>
+              <div class="cc-head"><h4>Monthly cost</h4><button type="button" class="costs-help" data-h="monthly">?</button></div>
               <div class="cc-cv cv-tall"><canvas id="ccMain"></canvas></div>
             </div>
           </div>
@@ -665,7 +665,7 @@
         <div id="unitCtl"></div>
         <div id="unitHero"></div>
         <div class="costs-chart">
-          <div class="cc-head"><h4>Return per car — vs its budget</h4><span class="cc-hint" id="unitRetHint"></span><button type="button" class="costs-help" data-h="u_ret">?</button></div>
+          <div class="cc-head"><h4>Return per car</h4><span class="cc-hint" id="unitRetHint"></span><button type="button" class="costs-help" data-h="u_ret">?</button></div>
           <div class="cc-cv cv-tall"><canvas id="unitRet"></canvas></div>
         </div>
         <div class="costs-chart" style="margin-top:14px">

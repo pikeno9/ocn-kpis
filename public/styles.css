@@ -544,12 +544,7 @@ html { scrollbar-gutter: stable; }
 .cc-big i .cc-basis, .cc-big .cc-basis { display: inline-block; margin-top: 4px; font-size: 10px; font-weight: 700; line-height: 1.35; color: var(--text-2); }
 .cc-agecv { flex: 1; min-width: 0; }
 /* elasticidade: chip enfático no cabeçalho do custo por carro */
-/* "% que acompanha a frota": número + barrinha de preenchimento + veredito (ex-elasticidade) */
-.cc-elast { display: flex; align-items: center; gap: 7px; cursor: help; }
-.cc-elast b { font-size: 17px; letter-spacing: -.01em; }
-.cc-elast .flk-bar { width: 72px; height: 7px; border-radius: 4px; background: #E5E7EB; overflow: hidden; flex: none; }
-.cc-elast .flk-bar i { display: block; height: 100%; border-radius: 4px; }
-.cc-elast span:not(.flk-bar) { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-2); }
+/* (o chip de elasticidade saiu — a caixa da esquerda virou o gráfico próprio de cada linha) */
 /* what-if: painel na cor da linha — % gigante + slider + blocos de resultado com delta em chip */
 .costs-whatif { border: 1px solid color-mix(in srgb, var(--cl, var(--accent)) 35%, var(--border)); background: linear-gradient(135deg, color-mix(in srgb, var(--cl, var(--accent)) 7%, var(--surface)), var(--surface) 55%); border-radius: 14px; padding: 16px 18px; margin-top: 16px; }
 .cw-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }

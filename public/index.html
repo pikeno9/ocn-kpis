@@ -634,9 +634,11 @@
           </div>
           <!-- os dois pequenos: por carro × média do ano (detector de mês fora do normal) e o
                absoluto mensal contra a frota, como contexto -->
-          <div class="costs-grid-small">
-            <div class="costs-chart">
-              <div class="cc-head"><h4 id="ccMainT"></h4><span class="cc-elast" id="ccElast"></span><button type="button" class="costs-help" data-h="percar">?</button></div>
+          <!-- esquerda: um gráfico PRÓPRIO de cada linha (frotas, parcelas, dispersões);
+               linhas sem gráfico próprio escondem a caixa e o mensal ocupa a largura toda -->
+          <div class="costs-grid-small" id="ccSmallGrid">
+            <div class="costs-chart" id="ccLeftBox">
+              <div class="cc-head"><h4 id="ccMainT"></h4><button type="button" class="costs-help" data-h="percar">?</button></div>
               <div class="cc-cv cv-sm"><canvas id="ccPerCar"></canvas></div>
             </div>
             <div class="costs-chart">

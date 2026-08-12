@@ -4478,6 +4478,7 @@
     let costsFinesCount = false;  // dispersão de multas por cliente: false = valor total, true = nº de multas
     let costsLeftBig = false;     // gráfico da esquerda expandido (largura toda + mais alto)
     let costsOutliers = false;    // dispersões: destacar os pontos fora da curva (com rótulo)
+    let costsCorrVar = 'fcount';  // correlação de recuperações: 'fcount' multas (nº) · 'fval' multas (valor) · 'km' km/semana
     let costsMonthInit = false;   // a aba abre no MÊS VIGENTE; depois disso a escolha é do usuário
     // paleta das frotas: matizes bem separados no círculo cromático, para pilhas vizinhas nunca
     // se confundirem (roxo · verde · âmbar · azul · rosa · teal · vermelho · lima)
@@ -5083,6 +5084,31 @@
     // cores por MODELO de carro (aluguel por frota) — Argo em amarelo (pedido); o Tera herdou o
     // azul que era do Argo para as três continuarem distintas
     const MODEL_COLOR = { Polo: '#7C3AED', Argo: '#FACC15', Tera: '#0EA5E9' };
+    // ---- base de RECUPERAÇÕES: vínculos encerrados por recuperação × casos do jud ----
+    // A import_jud também traz DEVOLUÇÕES e perda total (col F, "Tipo do evento") — aqui só o que
+    // é recuperação de verdade. Cada evento junta a data/duração do vínculo (import_clientes) com
+    // os custos de guincho e de recuperação do caso judicial da placa.
+    function recoveryData() {
+      const U = OCN.ue || {};
+      const fx = finPar('__fin_fx__') || 5.5;
+      const caseOf = {}; const looseCases = [];   // casos jud de recuperação, por placa
+      Object.entries(((U.judBase || {}).placas) || {}).forEach(([pl, a]) => a.forEach((c) => {
+        if (!/recupera/i.test(c.tipo || '')) return;
+        const o = caseOf[pl] = caseOf[pl] || { guincho: 0, recup: 0, d: null };
+        o.guincho += c.guincho || 0; o.recup += c.recup || 0;
+        if (c.d && (!o.d || c.d < o.d)) o.d = c.d;
+        looseCases.push({ pl, d: c.d, guincho: c.guincho || 0, recup: c.recup || 0 });
+      }));
+      const evs = [];
+      (U.vinculos || []).forEach((v) => {
+        if (!v.fim || !/recupera/i.test(v.motivo || '')) return;
+        const c = caseOf[v.placa] || { guincho: 0, recup: 0 };
+        evs.push({ placa: v.placa, nome: v.nome, ini: v.ini, fim: v.fim,
+          durM: Math.max(0, (new Date(v.fim + 'T12:00:00') - new Date(v.ini + 'T12:00:00')) / 86400000 / 30.44),
+          guincho: c.guincho / fx, recup: c.recup / fx, tot: (c.guincho + c.recup) / fx });
+      });
+      return { evs, cases: looseCases, fx };
+    }
     function renderCostsLeft(C, H) {
       const { mk, K, cs, noDL } = H;
       const box = document.getElementById('ccLeftBox'), grid = document.getElementById('ccSmallGrid');
@@ -5110,7 +5136,7 @@
         color: '#B91C1C', font: { size: 9, weight: 700 }, formatter: (v, c2) => { const p = ptOf(c2); return p ? lblOf(p) : ''; }, clamp: true });
       // botão de EXPANDIR: só nos gráficos que ganham detalhe com espaço (frotas, parcelas, dispersões)
       const expBtn = document.getElementById('cclExpand');
-      const canExpand = ['Subrental fee', 'Insurance', 'Maintenance', 'Traffic fines (out)'].includes(costsSel);
+      const canExpand = ['Subrental fee', 'Insurance', 'Maintenance', 'Traffic fines (out)', 'Recovery cost'].includes(costsSel);
       if (expBtn) {
         expBtn.hidden = !canExpand;
         expBtn.classList.toggle('on', costsLeftBig && canExpand);
@@ -5254,15 +5280,22 @@
               const yy = ys.getPixelForValue(km);
               ctx.beginPath(); ctx.moveTo(a.left, yy); ctx.lineTo(a.right, yy); ctx.stroke();
             }
-            // valor da média escrito junto da ponta da linha tracejada
+            ctx.restore();
+          },
+          // o valor da média é desenhado DEPOIS dos pontos — antes as bolinhas cobriam o número
+          afterDatasetsDraw(ch) {
+            const { ctx, chartArea: a } = ch, ys = ch.scales.y;
+            const fam = getComputedStyle(document.body).fontFamily;
+            ctx.save();
             const yEnd = ys.getPixelForValue(Math.min(kmWk * (xMax * 30.44 / 7), ys.max));
-            ctx.font = '800 10.5px ' + fam; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+            ctx.font = '800 10.5px ' + fam; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
             const txt = ccNum(kmWk) + ' km/week';
-            const tw = ctx.measureText(txt).width + 10;
-            ctx.fillStyle = 'rgba(255,255,255,.85)';
-            ctx.beginPath(); ctx.roundRect(a.right - tw - 4, Math.max(a.top + 2, yEnd - 20), tw, 16, 5); ctx.fill();
+            const tw = ctx.measureText(txt).width + 12, yC = Math.max(a.top + 12, yEnd - 14);
+            ctx.fillStyle = 'rgba(255,255,255,.94)';
+            ctx.strokeStyle = 'rgba(75,85,99,.35)'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.roundRect(a.right - tw - 4, yC - 9, tw, 18, 9); ctx.fill(); ctx.stroke();
             ctx.fillStyle = '#374151';
-            ctx.fillText(txt, a.right - 9, Math.max(a.top + 18, yEnd - 5));
+            ctx.fillText(txt, a.right - 10, yC + 0.5);
             ctx.restore();
           } }],
           options: { responsive: true, maintainAspectRatio: false,
@@ -5320,30 +5353,76 @@
                 ticks: { font: CC_FONT, color: '#6B7280', callback: costsFinesCount ? undefined : ccK, precision: 0 } } } } });
         return;
       }
-      if (costsSel === 'Recovery cost' || costsSel === 'Repair cost') {
-        const isRec = costsSel === 'Recovery cost';
+      if (costsSel === 'Recovery cost') {
+        // ---- CORRELAÇÃO: o que anda junto com as recuperações ----
+        // Um ponto por CONTRATO (vínculo): a variável escolhida no eixo X e, no Y, o desfecho —
+        // 1 = recuperado, 0 = não. A linha de tendência é a regressão linear do desfecho sobre a
+        // variável: quanto mais inclinada, mais aquela variável "anda junto" com a recuperação.
+        const vinc2 = (((OCN.ue || {}).vinculos) || []);
+        if (!vinc2.length) { show(false); return; }
+        show(true); title('What drives repossessions');
+        const MB2 = (((OCN.ue || {}).multasBase) || {}).placas || {};
+        const UT2 = {}; ((((OCN.utilization) || {}).plates) || []).forEach((r) => { UT2[r.plate] = r.kmWeek; });
+        if (ctl) {
+          const VARS = [['fcount', 'Fines (count)'], ['fval', 'Fines (value)'], ['km', 'km/week']];
+          ctl.innerHTML = VARS.map(([k, lb]) => `<button type="button" class="ccl-btn${costsCorrVar === k ? ' on' : ''}" data-m="${k}" style="--c:${C}">${lb}</button>`).join('');
+          ctl.querySelectorAll('.ccl-btn').forEach((b) => b.addEventListener('click', () => { costsCorrVar = b.dataset.m; renderCosts(); }));
+        }
+        const ptsC = [];
+        vinc2.forEach((v) => {
+          const end = v.fim || hojeIso;
+          let xv = null;
+          if (costsCorrVar === 'km') { xv = UT2[v.placa] != null ? UT2[v.placa] : null; }
+          else {
+            let tot = 0, n = 0;
+            (MB2[v.placa] || []).forEach((x) => { const d = x.inf || x.email || x.venc; if (d && d >= v.ini && d <= end) { tot += x.v || 0; n++; } });
+            xv = costsCorrVar === 'fval' ? Math.round((tot / fx) * K) : n;
+          }
+          if (xv == null) return;
+          const rec = !!(v.fim && /recupera/i.test(v.motivo || ''));
+          ptsC.push({ x: xv, yReal: rec ? 1 : 0, y: (rec ? 1 : 0) + (Math.random() - .5) * .12, rec, nome: v.nome, placa: v.placa, fim: v.fim });
+        });
+        if (!ptsC.length) { show(false); return; }
+        // regressão linear do desfecho (0/1) sobre a variável + correlação de Pearson
+        const n2 = ptsC.length;
+        const mx2 = ptsC.reduce((s, p) => s + p.x, 0) / n2, my2 = ptsC.reduce((s, p) => s + p.yReal, 0) / n2;
+        let sxx = 0, sxy = 0, syy = 0;
+        ptsC.forEach((p) => { const dx = p.x - mx2, dy = p.yReal - my2; sxx += dx * dx; sxy += dx * dy; syy += dy * dy; });
+        const slope = sxx > 1e-9 ? sxy / sxx : 0, icpt = my2 - slope * mx2;
+        const rP = (sxx > 1e-9 && syy > 1e-9) ? sxy / Math.sqrt(sxx * syy) : 0;
+        const xMax2 = Math.max(1, ...ptsC.map((p) => p.x));
+        const varLbl = costsCorrVar === 'km' ? 'km/week of the plate' : (costsCorrVar === 'fval' ? 'fines value in the contract' : 'fines in the contract');
+        costsLeftHelp = { t: 'What drives repossessions', d: 'Repossessions happen when drivers stop paying — this chart asks what walks together with that. One dot per CONTRACT: the chosen variable on the horizontal (' + varLbl + ') and the outcome on the vertical — top row = repossessed, bottom row = not (dots are slightly scattered so they do not pile up). The TREND LINE is the linear regression of the outcome on the variable: the steeper it climbs, the stronger the association, and r is the correlation (−1 to 1; near 0 = no relation). Correlation is not causation — but a steep line says where to look first. km/week uses the plate\'s current pace from the fleet site, so it is a proxy for ended contracts.' };
+        mk('ccPerCar', { type: 'scatter', data: { datasets: [
+            { label: 'repossessed', data: ptsC.filter((p) => p.rec), backgroundColor: '#DC2626', pointRadius: 4, pointHoverRadius: 6, pointBorderColor: '#fff', pointBorderWidth: 1 },
+            { label: 'active / other end', data: ptsC.filter((p) => !p.rec), backgroundColor: 'rgba(156,163,175,.55)', pointRadius: 3.5, pointHoverRadius: 5, pointBorderColor: '#fff', pointBorderWidth: 1 },
+            { type: 'line', label: `trend · r = ${rP.toFixed(2).replace('.', ',')}`, data: [{ x: 0, y: icpt }, { x: xMax2, y: icpt + slope * xMax2 }],
+              borderColor: C, borderDash: [6, 4], borderWidth: 2, pointRadius: 0, datalabels: { display: false } },
+          ] },
+          options: { responsive: true, maintainAspectRatio: false,
+            plugins: Object.assign({ legend: { labels: CC_LEG },
+              tooltip: { displayColors: false, callbacks: {
+                title: (items) => { const p = items[0].raw; return p ? (p.nome || '?').split(' ').slice(0, 2).join(' ') + ' · ' + p.placa : ''; },
+                label: (c2) => { const p = c2.raw; if (!p) return c2.dataset.label; const vl = costsCorrVar === 'fval' ? cs + ' ' + ccNum(p.x) : ccNum(p.x) + (costsCorrVar === 'km' ? ' km/wk' : ' fines'); return vl + ' · ' + (p.rec ? 'repossessed' + (p.fim ? ' on ' + p.fim : '') : 'still active or ended otherwise'); } } } }, noDL),
+            scales: { x: { min: 0, grid: { display: false }, border: { display: false },
+                title: { display: true, text: varLbl, color: '#9CA3AF', font: { size: 10 } },
+                ticks: { font: CC_FONT, color: '#6B7280', callback: costsCorrVar === 'fval' ? ccK : undefined, precision: 0 } },
+              y: { min: -.2, max: 1.2, grid: { display: false }, border: { display: false },
+                ticks: { font: CC_FONT, color: '#6B7280', stepSize: 1, callback: (v) => (v === 1 ? 'repossessed' : (v === 0 ? 'kept' : '')) } } } } });
+        return;
+      }
+      if (costsSel === 'Repair cost') {
         const JB = (((OCN.ue || {}).judBase) || {}).placas || {};
         const pts = [];
-        if (isRec) {
-          // TODAS as recuperações (mesmo custo zero): vínculos encerrados por recuperação,
-          // com o custo do jud da placa (guincho + recuperação) quando houver
-          const recSum = {}; Object.entries(JB).forEach(([pl, a]) => a.forEach((c2) => { recSum[pl] = (recSum[pl] || 0) + (c2.recovery || 0); }));
-          (((OCN.ue || {}).vinculos) || []).forEach((v) => {
-            if (!v.fim || !/recupera/i.test(v.motivo || '')) return;
-            pts.push({ x: monthFrac(v.fim), y: Math.round(((recSum[v.placa] || 0) / fx) * K), placa: v.placa, nome: v.nome, d: v.fim });
-          });
-        } else {
-          Object.entries(JB).forEach(([pl, a]) => a.forEach((c2) => {
-            if (!(c2.repair > 0)) return;
-            const d = c2.d || hojeIso;
-            pts.push({ x: monthFrac(d), y: Math.round(((c2.repair || 0) / fx) * K), placa: pl, d });
-          }));
-        }
+        Object.entries(JB).forEach(([pl, a]) => a.forEach((c2) => {
+          if (!(c2.repair > 0)) return;
+          const d = c2.d || hojeIso;
+          pts.push({ x: monthFrac(d), y: Math.round(((c2.repair || 0) / fx) * K), placa: pl, d });
+        }));
+        const isRec = false;
         if (!pts.length) { show(false); return; }
-        show(true); title(isRec ? 'Cost per repossession' : 'Cost per repair');
-        costsLeftHelp = isRec
-          ? { t: 'Cost per repossession', d: 'One dot per repossession (contract ended by recovery in the clients base), on the date it happened — INCLUDING the ones that cost nothing so far, at zero. The vertical is what that recovery cost us (towing + recovery from the judicial base). The dashed line is the average cost per repossession across all of them — the "expected cost" of the next one.' }
-          : { t: 'Cost per repair', d: 'One dot per repair case from the judicial base (repair + cleaning + others), on the date of the event. The dashed line is the average cost per case — the "expected cost" of the next one.' };
+        show(true); title('Cost per repair');
+        costsLeftHelp = { t: 'Cost per repair', d: 'One dot per repair case from the judicial base (repair + cleaning + others), on the date of the event. The dashed line is the average cost per case — the "expected cost" of the next one.' };
         const avg = pts.reduce((s, p) => s + p.y, 0) / pts.length;
         // outlier = caso 2 desvios acima da média de custo
         const sdC = Math.sqrt(pts.reduce((s, p) => s + (p.y - avg) * (p.y - avg), 0) / Math.max(1, pts.length)) || 1;
@@ -5668,6 +5747,25 @@
       const evCostScope = evts ? realScope(arr) : null;
       const perCaseScope = (evScope > 0 && evCostScope > 0) ? evCostScope / evScope : null;
       const perCaseLbl = costsSel === 'Recovery cost' ? 'Per recovered car' : 'Per repair case';
+      // ---- hero do RECOVERY: painel próprio (total, média por recuperação, vida média, taxa) ----
+      if (costsSel === 'Recovery cost') {
+        const RD = recoveryData();
+        const hojeIso2 = (OCN.ue && OCN.ue.hoje) || new Date().toISOString().slice(0, 10);
+        const scIso = (iso) => { const d = iso || hojeIso2; return String(d).slice(0, 4) === String(finYear) && inScope(parseInt(String(d).slice(5, 7), 10) - 1); };
+        const evsIn = RD.evs.filter((e) => scIso(e.fim));
+        const costIn = RD.cases.filter((c2) => scIso(c2.d)).reduce((s, c2) => s + c2.guincho + c2.recup, 0) / RD.fx;
+        const nRec = evsIn.length;
+        const avgDur = RD.evs.length ? RD.evs.reduce((s, e) => s + e.durM, 0) / RD.evs.length : null;
+        const started = (((OCN.ue || {}).vinculos) || []).length;
+        const rate = started ? (RD.evs.length / started) * 100 : null;
+        document.getElementById('costsHero').innerHTML = '<div class="costs-cards">' +
+          card('Total recovery cost · ' + perName(mSel), money(costIn), 'towing + recovery costs of repossessed cars', true) +
+          card('Avg per repossession', nRec ? money(costIn / nRec) : '—', nRec + ' repossession' + (nRec === 1 ? '' : 's') + ' in ' + perName(mSel)) +
+          card('Avg contract life until repossession', avgDur != null ? avgDur.toFixed(1).replace('.', ',') + ' months' : '—', 'how long a defaulting contract lasts — the paper says 12 months') +
+          card('Repossession rate', rate != null ? rate.toFixed(1).replace('.', ',') + '%' : '—', RD.evs.length + ' of ' + started + ' contracts started ended in repossession') +
+          '</div>';
+        document.querySelectorAll('#costsHero .cc-card-help').forEach((b) => { b.onclick = () => { const h = cardHelps[+b.dataset.ch]; if (h) costsInfoOpen(h.t, h.d); }; });
+      } else
       document.getElementById('costsHero').innerHTML = '<div class="costs-cards">' +
         card(periodLbl, money(fy), (cogsFY ? (fy / cogsFY * 100).toFixed(1) : '0') + '% of COGS', true) +
         card('Share of revenue', revFY ? (fy / revFY * 100).toFixed(1) + '%' : '—', 'revenue ' + perName(mSel) + ' ' + money(revFY)) +
@@ -5691,12 +5789,37 @@
       const noDL = { datalabels: { display: false } };
       // ---- caixa da ESQUERDA: um gráfico PRÓPRIO de cada linha (substituiu o per-car/elasticidade) ----
       renderCostsLeft(C, { mk, K, cs, noDL, money });
+      if (costsSel === 'Recovery cost') {
+        // ---- composição das RECUPERAÇÕES por mês: com guincho + recuperação · só guincho · sem custo ----
+        document.getElementById('ccMonT').textContent = 'Repossessions per month';
+        const RD3 = recoveryData();
+        const zBoth = new Array(FIN_MONTHS).fill(0), zTow = new Array(FIN_MONTHS).fill(0), zNone = new Array(FIN_MONTHS).fill(0);
+        RD3.evs.forEach((e) => {
+          if (String(e.fim).slice(0, 4) !== String(finYear)) return;
+          const m = parseInt(String(e.fim).slice(5, 7), 10) - 1;
+          if (m < 0 || m >= FIN_MONTHS) return;
+          if (e.recup > 0) zBoth[m]++; else if (e.guincho > 0) zTow[m]++; else zNone[m]++;
+        });
+        const cntDL = { display: (c2) => c2.dataset.data[c2.dataIndex] > 0, color: '#fff', font: { size: 9, weight: 400 }, formatter: (v) => v, clamp: true };
+        mk('ccMain', { type: 'bar', data: { labels: MONL, datasets: [
+            { label: 'towing + recovery costs', data: cut12(zBoth), backgroundColor: C, stack: 's', maxBarThickness: 34, borderRadius: 2, datalabels: cntDL },
+            { label: 'towing only', data: cut12(zTow), backgroundColor: costsTint(C, .55), stack: 's', maxBarThickness: 34, borderRadius: 2, datalabels: cntDL },
+            { label: 'no cost so far', data: cut12(zNone), backgroundColor: '#D1D5DB', stack: 's', maxBarThickness: 34, borderRadius: 2, datalabels: Object.assign({}, cntDL, { color: '#374151' }) },
+          ] },
+          options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { labels: CC_LEG },
+              tooltip: { callbacks: { label: (c2) => c2.dataset.label + ': ' + c2.parsed.y + (c2.parsed.y === 1 ? ' car' : ' cars') } } },
+            scales: { x: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280' } },
+              y: { stacked: true, grid: { display: false }, border: { display: false }, beginAtZero: true, ticks: { font: CC_FONT, color: '#6B7280', precision: 0 } } } } });
+      } else {
+      document.getElementById('ccMonT').textContent = 'Monthly cost';
       mk('ccMain', { data: { labels: MONL, datasets: [
           { type: 'bar', label: costsSel, data: cut12(arr.map((v) => Math.round(v * K))), backgroundColor: cut12(arr.map((_, m) => (mSel != null ? (inScope(m) ? C : costsTint(C, .28)) : C))), yAxisID: 'y', borderRadius: 3, maxBarThickness: 30 },
           { type: 'line', label: 'Active cars', data: cut12(act.map((v) => Math.round(v))), borderColor: '#EB6834', backgroundColor: 'transparent', yAxisID: 'y2', tension: .3, pointRadius: 2, borderWidth: 2 },
         ].concat(evts ? [{ type: 'line', label: evts.label, data: cut12(evts.z), borderColor: '#0891B2', backgroundColor: 'transparent', yAxisID: 'y2', borderDash: [4, 3], pointRadius: 3, tension: 0, borderWidth: 1.5 }] : []) },
         options: { responsive: true, maintainAspectRatio: false, plugins: Object.assign({ legend: { labels: CC_LEG } }, noDL), interaction: { mode: 'index', intersect: false },
           scales: { y: { grid: { display: false }, border: { display: false }, beginAtZero: true, ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } }, y2: { position: 'right', beginAtZero: true, grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280' } }, x: { grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280' } } } } });
+      }
       // ranking: cada linha na PRÓPRIA cor — a selecionada cheia, as outras esmaecidas
       // segue o período do calendário como todo o resto (usava o ano inteiro, fixo)
       const rankRows = COSTS_LIST.map((L) => ({ L, v: sumOf(L) })).filter((r) => r.v > 0).sort((a, b) => b.v - a.v);
@@ -5713,9 +5836,34 @@
       // vira "qual frota gera esse custo", por carro·mês, comparável entre frotas.
       const ageBox = document.getElementById('ccAgeBox');
       const inds = document.getElementById('ccAgeInds');
-      const BYFLEET = { 'Traffic fines (out)': 1, 'Recovery cost': 1, 'Repair cost': 1 };
+      const BYFLEET = { 'Traffic fines (out)': 1, 'Repair cost': 1 };
       costsAgeHelp2 = null;
-      if (BYFLEET[costsSel]) {
+      if (costsSel === 'Recovery cost') {
+        // ---- composição dos CUSTOS de recuperação: guincho × recuperação, por mês ----
+        if (ageBox) ageBox.style.display = '';
+        if (inds) { inds.innerHTML = ''; inds.style.display = 'none'; }
+        document.getElementById('ccAgeT').textContent = 'Recovery cost composition';
+        costsAgeHelp2 = { t: 'Recovery cost composition', d: 'The realized recovery spend of each month, split into its two components: TOWING (getting the car physically back) and RECOVERY (the legal/operational cost of taking it). Only true repossessions enter here — the judicial base also carries returns and total losses, which are filtered out by the event type column.' };
+        const RD2 = recoveryData();
+        const hojeIso3 = (OCN.ue && OCN.ue.hoje) || new Date().toISOString().slice(0, 10);
+        const gM = new Array(FIN_MONTHS).fill(0), rM = new Array(FIN_MONTHS).fill(0);
+        RD2.cases.forEach((c2) => {
+          const iso = c2.d || hojeIso3;
+          if (String(iso).slice(0, 4) !== String(finYear)) return;
+          const m = parseInt(String(iso).slice(5, 7), 10) - 1;
+          if (m >= 0 && m < FIN_MONTHS) { gM[m] += c2.guincho / RD2.fx; rM[m] += c2.recup / RD2.fx; }
+        });
+        mk('ccAge', { type: 'bar', data: { labels: MONL, datasets: [
+            { label: 'Towing', data: cut12(gM.map((v) => Math.round(v * K))), backgroundColor: costsTint(C, .5), stack: 's', maxBarThickness: 40, borderRadius: 2 },
+            { label: 'Recovery', data: cut12(rM.map((v) => Math.round(v * K))), backgroundColor: C, stack: 's', maxBarThickness: 40, borderRadius: 2 },
+          ] },
+          options: { responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { labels: CC_LEG },
+              datalabels: { display: (c2) => { const el = c2.chart.getDatasetMeta(c2.datasetIndex).data[c2.dataIndex]; return c2.dataset.data[c2.dataIndex] > 0 && el && Math.abs(el.base - el.y) > 11; }, color: '#fff', font: { size: 9, weight: 400 }, formatter: ccK, clamp: true },
+              tooltip: { displayColors: true, callbacks: { label: (c2) => c2.dataset.label + ': ' + cs + ' ' + ccNum(c2.parsed.y) } } },
+            scales: { x: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280' } },
+              y: { stacked: true, grid: { display: false }, border: { display: false }, beginAtZero: true, ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } } } } });
+      } else if (BYFLEET[costsSel]) {
         if (ageBox) ageBox.style.display = '';
         document.getElementById('ccAgeT').textContent = 'Cost by fleet';
         costsAgeHelp2 = { t: 'Which fleet generates it', d: 'The realized cost of this line in each fleet, divided by the fleet\'s accumulated car-months — so a big fleet does not look expensive just for being big. Bars are comparable: a taller bar means each car of that fleet generates more of this cost per month. Hover for the fleet\'s total and case count.' };

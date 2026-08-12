@@ -507,8 +507,27 @@ html { scrollbar-gutter: stable; }
 .ins-inp input:focus { outline: none; border-color: var(--cl, var(--accent)); }
 .ins-inp span { font-size: 11px; font-weight: 700; color: var(--text-2); }
 .ins-mid input[type=range] { width: 100%; cursor: pointer; }
+/* uma linha de slider POR CATEGORIA de sinistro (Collision / Window / Total loss) */
+.ins-cat { display: flex; flex-direction: column; gap: 3px; }
+.ins-cat + .ins-cat { margin-top: 4px; }
+.ins-cat-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ins-cat-lbl { font-size: 11px; font-weight: 700; color: var(--text); }
+.ins-cat-lbl em { font-style: normal; font-weight: 800; font-size: 10px; color: var(--text-2); background: var(--surface-2); border-radius: 4px; padding: 1px 5px; margin-left: 4px; }
+.ins-cat .ins-inp input { font-size: 13.5px; width: 92px; padding: 3px 8px; border-radius: 7px; }
+.ins-cat input[type=range] { width: 100%; cursor: pointer; height: 14px; }
 .ins-types { font-size: 10px; color: var(--text-2); line-height: 1.4; }
 /* rodapé: competência × caixa lado a lado, para a diferença ficar explícita */
+/* ---- Recovery/Repair: casos por mês + detalhe por placa ---- */
+.ccc-panel { border: 1px solid color-mix(in srgb, var(--cl, var(--accent)) 30%, var(--border)); border-radius: 14px; padding: 14px 16px; margin-bottom: 16px; background: var(--surface); }
+.ccc-months { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 12px; }
+.ccc-mo { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-2); background: var(--surface-2); border-radius: 999px; padding: 3px 10px; }
+.ccc-mo b { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--cl, var(--accent)); }
+.ccc-tblwrap { max-height: 340px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; }
+.ccc-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+.ccc-tbl th { position: sticky; top: 0; background: var(--surface-2); text-align: left; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--text-2); padding: 7px 12px; }
+.ccc-tbl th:last-child, .ccc-tbl td:last-child { text-align: right; }
+.ccc-tbl td { padding: 6px 12px; border-top: 1px solid var(--border); color: var(--text); }
+.ccc-tbl td em { font-style: italic; color: var(--text-3); }
 .ins-basis { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border-2); font-size: 11px; color: var(--text-2); }
 .ins-basis b { color: var(--text); font-size: 12px; }
 .ins-basis span { opacity: .7; }
@@ -525,9 +544,12 @@ html { scrollbar-gutter: stable; }
 .cc-big i .cc-basis, .cc-big .cc-basis { display: inline-block; margin-top: 4px; font-size: 10px; font-weight: 700; line-height: 1.35; color: var(--text-2); }
 .cc-agecv { flex: 1; min-width: 0; }
 /* elasticidade: chip enfático no cabeçalho do custo por carro */
-.cc-elast { display: flex; align-items: baseline; gap: 6px; }
-.cc-elast b { font-size: 19px; letter-spacing: -.01em; }
-.cc-elast span { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-2); }
+/* "% que acompanha a frota": número + barrinha de preenchimento + veredito (ex-elasticidade) */
+.cc-elast { display: flex; align-items: center; gap: 7px; cursor: help; }
+.cc-elast b { font-size: 17px; letter-spacing: -.01em; }
+.cc-elast .flk-bar { width: 72px; height: 7px; border-radius: 4px; background: #E5E7EB; overflow: hidden; flex: none; }
+.cc-elast .flk-bar i { display: block; height: 100%; border-radius: 4px; }
+.cc-elast span:not(.flk-bar) { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-2); }
 /* what-if: painel na cor da linha — % gigante + slider + blocos de resultado com delta em chip */
 .costs-whatif { border: 1px solid color-mix(in srgb, var(--cl, var(--accent)) 35%, var(--border)); background: linear-gradient(135deg, color-mix(in srgb, var(--cl, var(--accent)) 7%, var(--surface)), var(--surface) 55%); border-radius: 14px; padding: 16px 18px; margin-top: 16px; }
 .cw-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
@@ -708,7 +730,8 @@ html { scrollbar-gutter: stable; }
 .main-tab + .main-tab::before { content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 1px; height: 14px; background: #ffffff33; }
 .main-tab:hover { color: #fff; }
 .main-tab.active { color: #fff; font-weight: 700; }
-.main-tab.active::after { content: ""; position: absolute; left: 13px; right: 13px; bottom: -8px; height: 2.5px; border-radius: 2px; background: #fff; }
+/* o sublinhado do item ativo saiu (pedido): só cor/peso marcam a aba, e o texto fica
+   centrado de verdade na barra — o traço a -8px puxava o conjunto visualmente pra cima */
 .tab-badge { font-size: 10px; background: var(--surface-2); color: var(--text-3); border-radius: 4px; padding: 1px 7px; }
 
 /* ---- content ---- */

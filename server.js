@@ -57,6 +57,8 @@ async function refresh(force) {
     catch (e) { console.error('[import_rev] falhou:', e.message); data.ue.revBase = null; }
     try { data.ue.multasBase = compute.parseMultasBase(sheets.multasCons); }
     catch (e) { console.error('[multas_consolidado] falhou:', e.message); data.ue.multasBase = null; }
+    try { data.ue.insurancePay = compute.parseInsurancePay(sheets.insurance); }
+    catch (e) { console.error('[insurance] falhou:', e.message); data.ue.insurancePay = null; }
     try { data.ue.judBase = compute.parseJudBase(sheets.jud); }
     catch (e) { console.error('[import_jud] falhou:', e.message); data.ue.judBase = null; }
     try { data.ue.reposicao = await reposicao.fetchReposicao(); }

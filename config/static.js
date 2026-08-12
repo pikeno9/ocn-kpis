@@ -22,6 +22,7 @@ const TABS = {
   multasCons: 'multas_consolidado',         // multas conhecidas: valor a pagar (U) + vencimento (W)
   jud: 'import_jud',                       // casos judiciais/recuperação: custos + cobrança de rescisão
   carrosEsperados: 'CarrosEsperados',
+  insurance: 'insurance',                  // parcelas reais do seguro por frota (valor + vencimento)
 };
 
 // gviz tipa a coluna e descarta células cujo conteúdo não bate com o tipo inferido

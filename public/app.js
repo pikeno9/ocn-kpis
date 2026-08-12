@@ -1131,9 +1131,12 @@
       return;
     }
     function funnelChart(canvasId, data, color, num, den) {
-      // média das semanas com valor (linha tracejada de referência)
-      const valid = data.filter((v) => v != null);
-      const avg = valid.length ? Math.round(valid.reduce((a, b) => a + b, 0) / valid.length) : null;
+      // média PONDERADA pelos contatos únicos de cada período (Σ numerador ÷ Σ denominador nas
+      // semanas com valor) — a média simples dava o mesmo peso a uma semana de 20 contatos e a
+      // uma de 300, distorcendo a linha de referência
+      let sn = 0, sd = 0;
+      data.forEach((v, i) => { if (v != null) { sn += num[i] || 0; sd += den[i] || 0; } });
+      const avg = sd > 0 ? Math.round((sn / sd) * 100) : null;
       new Chart(document.getElementById(canvasId), {
         type: 'line',
         data: { labels: F.labels, datasets: [
@@ -1159,7 +1162,7 @@
           responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24 } },
           plugins: {
             legend: { display: false }, datalabels: { clamp: true },
-            tooltip: { callbacks: { label: (c) => (c.datasetIndex === 1 ? `Average: ${avg}%` : `${c.parsed.y}% (${num[c.dataIndex]}/${den[c.dataIndex]})`) } },
+            tooltip: { callbacks: { label: (c) => (c.datasetIndex === 1 ? `Weighted average: ${avg}%` : `${c.parsed.y}% (${num[c.dataIndex]}/${den[c.dataIndex]})`) } },
           },
           scales: {
             // rótulos a 45º: com os 3 gráficos lado a lado não há largura pra datas na horizontal
@@ -2094,6 +2097,26 @@
   // e Vehicle Purchase NÃO entram no COGS (ficam em OPEX/capex).
   let finReady = false, finCohorts = [], finModels = [], finModelVals = {}, finCfg = {};
   let realFleetParams = {}, cfgReal = {}, refProfiles = null; // caixinhas reais por frota + perfis de referência
+  // Parcelas REAIS do seguro (aba "insurance") rateadas por frota. A frota 5 não tem apólice
+  // própria — o endosso dela vive dentro da frota 4 — então cada parcela é dividida na proporção
+  // de carros de cada frota coberta (33/39 para a 4, 6/39 para a 5). Frota sem linhas nem
+  // guarda-chuva devolve null e o chamador cai na caixinha (__ins_total__/__ins_parcelas__).
+  const INS_UMB = { 5: '4' };
+  function insRealShare(fid) {
+    const U2 = OCN.ue || {};
+    const PF = ((U2.insurancePay || {}).porFrota) || null;
+    if (!PF) return null;
+    const id = String(fid);
+    const host = PF[id] ? id : ((INS_UMB[id] && PF[INS_UMB[id]]) ? INS_UMB[id] : null);
+    if (!host) return null;
+    let carsTot = 0, own = 0;
+    (U2.fleets || []).forEach((x) => {
+      const xid = String(x.id);
+      if (xid === host || INS_UMB[xid] === host) { carsTot += x.cars || 0; if (xid === id) own = x.cars || 0; }
+    });
+    const share = carsTot > 0 ? own / carsTot : 1;
+    return { parcelas: PF[host], share, total: PF[host].reduce((a, p) => a + p.valor, 0) * share };
+  }
   // Headcount / SG&A / CAC agora têm um jogo de dados POR ANO (finXxxByYear). `finHc`/`finSga`/`finCac`
   // continuam sendo o objeto de sempre — todo o código que já lê `finHc.roles`, `finSga.rent` etc.
   // funciona sem mudar nada — mas passam a ser só um PONTEIRO para `finXxxByYear[finYear]`, trocado
@@ -2445,11 +2468,22 @@
             out.subr[d.getMonth()] += subr * frac * Math.max(0, cars - lostBefore(d)); out.any = true;
           }
         }
-        const insT = par('__ins_total__'), insN = par('__ins_parcelas__');
-        if (insT > 0 && insN >= 1) for (let n = 1; n <= insN; n++) {
-          const d = new Date(ini.getTime() + (n - 0.5) * UET_WPM * 7 * MS);
-          if (d > endCur || d.getFullYear() !== finYear) continue;
-          out.ins[d.getMonth()] += (insT / insN) * cars; out.any = true; // seguro paga pelos carros TOTAIS
+        const IRs = insRealShare(f.id);
+        if (IRs) {
+          // parcelas REAIS da aba "insurance": valor no mês do vencimento, rateado pela frota
+          IRs.parcelas.forEach((p2) => {
+            if (!p2.venc) return;
+            const d = new Date(p2.venc + 'T12:00:00');
+            if (d > endCur || d.getFullYear() !== finYear) return;
+            out.ins[d.getMonth()] += p2.valor * IRs.share; out.any = true;
+          });
+        } else {
+          const insT = par('__ins_total__'), insN = par('__ins_parcelas__');
+          if (insT > 0 && insN >= 1) for (let n = 1; n <= insN; n++) {
+            const d = new Date(ini.getTime() + (n - 0.5) * UET_WPM * 7 * MS);
+            if (d > endCur || d.getFullYear() !== finYear) continue;
+            out.ins[d.getMonth()] += (insT / insN) * cars; out.any = true; // seguro paga pelos carros TOTAIS
+          }
         }
         const gps0 = par('__gps_m0__'), gpsM = par('__gps_mensal__');
         if (gps0 > 0 && m0 != null && ini <= hojeD) { out.gps[m0] += gps0 * cars; out.any = true; }
@@ -4423,13 +4457,13 @@
     let costsSel = COSTS_MAIN, costsCharts = {}, costsWhatifPct = 0;
     // filtros da aba: visão (forecast × só realizado), mês isolado e frota isolada — e a barra
     // clicada no Pareto (drill). Frota isolada implica realizado: projeção é do PLANO, não da frota.
-    let costsMonth = null, costsFleet = null, costsDrillSel = null, costsInsAvg = null;
+    let costsMonth = null, costsFleet = null, costsDrillSel = null, costsInsAvgs = {}; // média por CATEGORIA de sinistro (slider de cada uma)
     let costsMonthInit = false;   // a aba abre no MÊS VIGENTE; depois disso a escolha é do usuário
     // paleta das frotas: matizes bem separados no círculo cromático, para pilhas vizinhas nunca
     // se confundirem (roxo · verde · âmbar · azul · rosa · teal · vermelho · lima)
     const FLEET_PALETTE = ['#6D28D9', '#059669', '#F59E0B', '#2563EB', '#DB2777', '#0891B2', '#DC2626', '#65A30D'];
     const FLEET_COLOR = (id) => { const n = parseInt(String(id).replace(/\D/g, ''), 10); return FLEET_PALETTE[isFinite(n) && n > 0 ? (n - 1) % FLEET_PALETTE.length : 0]; };
-    const COSTS_LIST = ['Subrental fee', 'Maintenance', 'Insurance', 'Recovery cost', 'Repair cost', 'Traffic fines (out)', 'Part Replacement', 'GPS', 'Car Preparation', 'Sticker'];
+    const COSTS_LIST = ['Subrental fee', 'Insurance', 'Maintenance', 'Traffic fines (out)', 'GPS', 'Recovery cost', 'Repair cost', 'Part Replacement', 'Car Preparation', 'Sticker'];
     // uma cor por linha de custo — a página inteira (picker, cartões, gráficos, what-if) veste a
     // cor da linha selecionada, e o ranking mostra cada linha na sua própria cor
     const COSTS_COLOR = {
@@ -4466,12 +4500,12 @@
       u_ret: { t: 'Return per car — vs its budget', d: 'One thin bar per plate: everything the car has brought in since delivery (subscriptions received, interest, fines charged to the client) minus everything it has cost (sub-rental, insurance accrued to date, GPS, preparation, sticker, maintenance, fines paid, recovery, repair, parts). Security deposit and its refund are OUT — they are cash parked, not result — and so are the car purchase/sale and termination fees. The dashed line is each car\'s BUDGET at its current age: what its fleet\'s contractual economics (weekly fee, rent, insurance, GPS) plus the pooled event rates (fines, maintenance, recovery, repair, parts by car age) say it should have accumulated by now. GREEN bars are at or above budget, RED are below. Cars of different fleets have different ages, so bars are not directly comparable to each other — always compare each bar to the dashed line at its position.' },
       u_delta: { t: 'Delta vs budget per car', d: 'The same data as the chart above, reduced to one number per car: realized return minus the budget for its age. Positive (green, up) = the car is ahead of plan; negative (red, down) = behind. This is the chart to scan for problem cars — the deepest red bars are the plates bleeding most against expectation, whatever their age.' },
       drill: { t: 'Monthly by fleet', d: 'The line you clicked on the Pareto, month by month, stacked by REAL fleet — each fleet in its own colour. This is realized data only (schedules and imported bases per plate); the projection lives in the plan and has no fleet concept. The big number is the average cost per active car per month across the fleets shown, computed over the realized window.' },
-      ins: { t: 'Is the insurance paying for itself?', d: 'ACCRUED, NOT PAID. The premium is disbursed in about four installments at the start of each fleet, but it covers the full 12 months of the contract. Comparing the cash of a period against the claims of that same period mismatches the two: a fleet that started in june carries almost all of its cash in 2026 while half of its coverage runs into 2027. So each fleet\'s premium is spread pro-rata, day by day, across its 365 days of coverage, and every month is charged only the risk it actually ran. The footer shows both numbers side by side. CLAIMS are the fleet-site occurrences flagged with a sinistro in the period — collisions, window damage and total loss; mechanical failures never trigger it. BREAK-EVEN PER CLAIM is the accrued premium divided by the number of claims: how much each occurrence would have to cost us out of pocket for "having insurance" and "not having it" to come out the same. The SAVING compares the two worlds: claims × the average cost you type (we have no workshop quote per occurrence, so it is your input) against the accrued premium. Green means insurance saved money, red means it cost more than the damage would have.' },
+      ins: { t: 'Is the insurance paying for itself?', d: 'ACCRUED, NOT PAID. The premium is disbursed in about four installments at the start of each fleet, but it covers the full 12 months of the contract. Comparing the cash of a period against the claims of that same period mismatches the two: a fleet that started in june carries almost all of its cash in 2026 while half of its coverage runs into 2027. So each fleet\'s premium is spread pro-rata, day by day, across its 365 days of coverage, and every month is charged only the risk it actually ran. The footer shows both numbers side by side. CLAIMS are the fleet-site occurrences flagged with a sinistro in the period — collisions, window damage and total loss; mechanical failures never trigger it. BREAK-EVEN PER CLAIM is the accrued premium divided by the number of claims: how much each occurrence would have to cost us out of pocket for "having insurance" and "not having it" to come out the same. The SAVING compares the two worlds: each claim CATEGORY has its own slider (a broken window and a written-off car cost nothing alike), so the out-of-pocket world is the sum of each category\'s claim count × the average cost you set for it — against the accrued premium. We have no workshop quote per occurrence, so the averages are your input. Green means insurance saved money, red means it cost more than the damage would have.' },
       filters: { t: 'View filters', d: 'Everything in this tab is built from the fleets that exist TODAY — realized up to the current month, then each fleet carried to the end of its own 12-month contract. No new fleet enters the projection, so the numbers answer what the current operation costs rather than what a bigger fleet would cost. The calendar picks the period: FULL YEAR is realized plus that projection, YEAR TO DATE stops at the current month, and a single month isolates it (the current month shows its realized value alone). The fleet selector narrows everything to one real fleet.' },
       rank: { t: 'Where it sits in COGS', d: 'Full-year total of every vehicle cost line, biggest first, each in its own colour — the selected one at full strength. It answers "how much does this line matter" before any deeper look.' },
-      age: { t: 'When it hits a car’s life', d: 'The per-car cost over the contract (theoric profile): M0 is the delivery month, M1–M12 the recurring months, M13 the closing month. FRONT-LOAD INDEX = the share of a car’s lifetime cost that falls in the first four months (M0–M3) divided by the 25% that a cost spread evenly across the 12 recurring months would put there. So 1.0 = evenly spread; 4.0 = everything at delivery (hurts the cash exactly while the fleet ramps); below 1.0 = back-loaded, lands at the end of the contract. AVERAGE MONTH OF SPEND is the profile’s center of mass — a cost spread evenly over M2–M13 averages M7.5.' },
+      age: { t: 'When it hits a car’s life', d: 'The per-car cost over the contract: M0 is the delivery month, M1–M12 the recurring months, M13 the closing month. For RECOVERY and REPAIR this is MEASURED, not theoric: every real case lands in the month of life the car actually had when it happened, and each month is divided by how many cars have already lived that month (so young ages, which every car has been through, are not unfairly favoured). The forecast of these two lines uses this same measured timing — a cost that hits at M2 on average is projected at M2, not smeared over the year. Ages no fleet has reached yet simply have no data. For the other lines it is the theoric profile. FRONT-LOAD INDEX = the share of a car’s lifetime cost that falls in the first four months (M0–M3) divided by the 25% that a cost spread evenly across the 12 recurring months would put there. So 1.0 = evenly spread; 4.0 = everything at delivery (hurts the cash exactly while the fleet ramps); below 1.0 = back-loaded, lands at the end of the contract. AVERAGE MONTH OF SPEND is the profile’s center of mass — a cost spread evenly over M2–M13 averages M7.5.' },
       monthly: { t: 'Absolute monthly — vs fleet', d: 'Bars = the line month by month in the display currency, orange line = active cars (right axis), and for Recovery/Repair a dotted line adds the underlying events. Context view: it mostly confirms the cost is riding the fleet ramp. Months up to today are consolidated actuals; ahead is the projection.' },
-      percar: { t: 'Per car — vs the year’s average', d: 'The monthly cost divided by the active fleet, against the dashed line of the YEAR’S AVERAGE per car. Months above the average light up in full colour — that is where we spent more than normal per car and it is worth asking why. FLEET-LINK (ELASTICITY) is the slope of ln(cost) vs ln(fleet) across the year: 1.0 = 10% more cars → 10% more cost (proportional); near 0 = a fixed cost that dilutes as the fleet grows.' },
+      percar: { t: 'Per car — vs the year’s average', d: 'The monthly cost divided by the active fleet, against the dashed line of the YEAR’S AVERAGE per car. Months above the average light up in full colour — that is where we spent more than normal per car and it is worth asking why. The MOVES-WITH-THE-FLEET bar says how much of this cost is variable: monthly cost is regressed on active cars over the realized months, and the bar shows the variable slice of the average cost. 100% = the line grows one-for-one with the cars; 0% = a fixed cost that dilutes as the fleet grows. Hover it to see how much each extra car adds per month.' },
       whatif: { t: 'What-if', d: 'Moves the selected line by a percentage and shows the first-order effect on the year: the line itself, its share of revenue, Gross Margin and Net cashflow. Taxes and credits are not recomputed — and in 2027 the sublease tax netting would also move with the Subrental line.' },
     };
     let costsAvgHelp = null;   // explicação do "avg per car · month" — muda conforme a linha
@@ -4544,8 +4578,12 @@
             add('Subrental fee', d.getMonth(), subr * frac * Math.max(0, cars - lostBefore(d)));
           }
         }
+        const IRc = insRealShare(f.id);
         const insT = par('__ins_total__'), insN = par('__ins_parcelas__');
-        if (insT > 0 && insN >= 1) for (let n = 1; n <= insN; n++) {
+        if (IRc) {
+          // parcelas REAIS da aba "insurance": caixa no mês do vencimento, rateado pela frota
+          IRc.parcelas.forEach((p2) => { if (p2.venc) add('Insurance', moOf(p2.venc), p2.valor * IRc.share); });
+        } else if (insT > 0 && insN >= 1) for (let n = 1; n <= insN; n++) {
           const d = new Date(ini.getTime() + (n - 0.5) * UET_WPM * 7 * MS);
           if (d.getFullYear() !== finYear) continue;
           add('Insurance', d.getMonth(), (insT / insN) * cars);
@@ -4577,8 +4615,15 @@
           const p = m - m0 + 1;                       // idade no UE: mês de entrega = M1
           if (p > 13) continue;
           const c = carsAt(m);
-          if (prof) ['Maintenance', 'Recovery cost', 'Repair cost', 'Part Replacement'].forEach((k) => {
+          if (prof) ['Maintenance', 'Part Replacement'].forEach((k) => {
             const pr = prof[k]; if (pr && pr[p]) add(k, m, Math.abs(pr[p]) * c);
+          });
+          // Recovery/Repair: projeção pelo perfil MEDIDO de incidência por idade (quando o custo
+          // realmente bate na vida do carro), não pelo espalhado uniforme do perfil de referência
+          [['Recovery cost', 'recovery'], ['Repair cost', 'repair']].forEach(([k, fld]) => {
+            const JP2 = judAgeProfile(fld);
+            if (JP2.ok) { if (JP2.per[p]) add(k, m, JP2.per[p] * c); }
+            else if (prof && prof[k] && prof[k][p]) add(k, m, Math.abs(prof[k][p]) * c);
           });
           add('Traffic fines (out)', m, (FRf.net || 0) * new Date(finYear, m + 1, 0).getDate() * c);
         }
@@ -4626,13 +4671,16 @@
             A['Subrental fee'][m] = (subr * carsAt(m) * held(m)) / fx;
           }
         }
-        if (insT > 0) {
+        if (IRc || insT > 0) {
           A.Insurance = new Array(FIN_MONTHS).fill(0);
+          // competência: o prêmio TOTAL da frota (real da aba, ou caixinha × carros) coberto
+          // pró-rata pelos 365 dias de vigência a partir do início da frota
+          const premTot = IRc ? IRc.total : insT * cars;
           const fimCob = new Date(ini.getTime() + 365 * MS);
           for (let m = 0; m < FIN_MONTHS; m++) {
             const a2 = new Date(finYear, m, 1, 12), b2 = new Date(finYear, m + 1, 1, 12);
             const ov = Math.max(0, Math.min(b2.getTime(), fimCob.getTime()) - Math.max(a2.getTime(), ini.getTime())) / MS;
-            if (ov > 0) A.Insurance[m] = (insT * cars) * (ov / 365) / fx;
+            if (ov > 0) A.Insurance[m] = premTot * (ov / 365) / fx;
           }
         }
         if (gpsM > 0) {
@@ -4666,6 +4714,39 @@
     // "quanto de seguro já saiu ÷ quanto tempo de carro tivemos" — e responde uma pergunta
     // diferente da apropriação: o peso do seguro no caixa por carro que rodou até aqui.
     const AVG_CASH = { Insurance: 1 };
+    // ---- perfil MEDIDO por idade: quando Recovery/Repair batem de verdade na vida do carro ----
+    // Cada caso do import_jud entra no mês de VIDA (idade desde o início da frota da placa) em que
+    // aconteceu, e o custo é normalizado pela EXPOSIÇÃO — quantos carros já viveram aquele mês de
+    // vida até hoje. O resultado é R$ por carro em cada mês de idade, MEDIDO: nada de espalhar o
+    // custo por igual nos 12 meses (o espalhado uniforme escondia que a recuperação bate cedo).
+    let _judAgeCache = null;
+    function judAgeProfile(field) {   // field: 'recovery' | 'repair'
+      if (_judAgeCache && _judAgeCache[field]) return _judAgeCache[field];
+      const U = OCN.ue || {}, MS = 86400000, MESd = UET_WPM * 7;
+      const hojeD = new Date(((U.hoje) || new Date().toISOString().slice(0, 10)) + 'T12:00:00');
+      const fleetOf = {}; (U.fleets || []).forEach((f) => (f.placas || []).forEach((pl) => { fleetOf[pl] = f; }));
+      const cost = new Array(UET_PERIODS).fill(0), cnt = new Array(UET_PERIODS).fill(0);
+      Object.entries(((U.judBase || {}).placas) || {}).forEach(([pl, arr]) => arr.forEach((c) => {
+        if (!(c[field] > 0)) return;
+        const f = fleetOf[pl]; if (!f || !f.inicio) return;
+        const d = c.d ? new Date(c.d + 'T12:00:00') : hojeD;
+        const p = Math.max(0, Math.min(UET_PERIODS - 1, Math.floor((d - new Date(f.inicio + 'T12:00:00')) / MS / MESd) + 1));
+        cost[p] += c[field]; cnt[p] += 1;
+      }));
+      const exp = new Array(UET_PERIODS).fill(0);   // exposição: carros que já completaram o mês de vida p
+      (U.fleets || []).forEach((f) => {
+        if (!f.inicio) return;
+        const age = (hojeD - new Date(f.inicio + 'T12:00:00')) / MS / MESd;
+        for (let p = 0; p < UET_PERIODS; p++) if (age >= p) exp[p] += f.cars || (f.placas || []).length || 0;
+      });
+      const per = cost.map((v, p) => (exp[p] > 0 ? v / exp[p] : 0));   // R$ por carro no mês de vida p
+      const totC = cost.reduce((a, b) => a + b, 0);
+      const out = { per, cnt, cost, exp, ok: totC > 0,
+        com: totC > 0 ? cost.reduce((s, v, p) => s + v * p, 0) / totC : null,   // idade média de incidência
+        maxAge: Math.max(0, Math.floor(Math.max(...(U.fleets || []).filter((f) => f.inicio).map((f) => (hojeD - new Date(f.inicio + 'T12:00:00')) / MS / MESd), 0))) };
+      _judAgeCache = _judAgeCache || {}; _judAgeCache[field] = out;
+      return out;
+    }
     function costsAgeProfile(line) {
       const per = new Array(UET_PERIODS).fill(0); let ok = false;
       const qty = {};
@@ -4806,6 +4887,10 @@
         const ids = rfF.map((f) => f.id);
         const wavg = (k) => { let s = 0, n = 0; ids.forEach((id) => { const f2 = ((OCN.ue || {}).fleets || []).find((x) => x.id === id); const c = f2 ? (f2.cars || (f2.placas || []).length || 0) : 0; s += par(id, k) * c; n += c; }); return n ? s / n : 0; };
         if (drillL === 'Insurance') {
+          // com a aba "insurance" ligada, o prêmio mostrado é o REAL das apólices das frotas exibidas
+          let tot = 0, has = false;
+          ids.forEach((id) => { const r = insRealShare(id); if (r) { tot += r.total; has = true; } });
+          if (has) return ' The real policies (sheet tab "insurance") add up to ' + money(tot / fxr) + ' for the fleets shown, paid in monthly installments on their actual due dates.';
           const t = wavg('__ins_total__'), np = Math.round(wavg('__ins_parcelas__'));
           return t > 0 ? ' The policy in the UE boxes is ' + money(t / fxr) + ' per car' + (np > 1 ? ' in ' + np + ' installments of ' + money(t / np / fxr) : '') + '.' : '';
         }
@@ -4931,15 +5016,26 @@
       // receita das MESMAS frotas (realizado + projeção delas), para o share ficar na mesma régua
       const rfRev = (() => { const a = new Array(FIN_MONTHS).fill(0); rfFleets.forEach((f) => { for (let m = 0; m < FIN_MONTHS; m++) a[m] += (f.rev || [])[m] || 0; }); return a; })();
       const revFY = sumIn(rfRev);
-      // ---- elasticidade frota: inclinação de ln(custo) ~ ln(carros ativos) nos meses com os dois.
-      // 1,0 = 10% mais carros → 10% mais custo (proporcional). ~0 = custo fixo, não segue a frota.
+      // ---- elasticidade frota, agora legível: regressão custo ~ carros nos meses REALIZADOS.
+      // Em vez do número de elasticidade (0,87× não diz nada pra ninguém), o indicador vira
+      // "% do custo que ACOMPANHA a frota": a parte variável (inclinação × frota média) sobre o
+      // custo médio. 100% = cresce junto com os carros; 0% = custo fixo que dilui com a frota.
+      // De quebra sai o "cada carro a mais custa ≈ X/mês" (a própria inclinação), que é a
+      // pergunta que o gestor realmente faz.
       const pts = [];
-      for (let m = 0; m < FIN_MONTHS; m++) if (act[m] > 1 && arr[m] > 0) pts.push([Math.log(act[m]), Math.log(arr[m])]);
-      let elast = null;
+      for (let m = 0; m < FIN_MONTHS; m++) {
+        if (RF.curM >= 0 && m > RF.curM) continue;              // só realizado: projeção é proporcional por construção
+        if (act[m] > 1 && arr[m] > 0) pts.push([act[m], arr[m]]);
+      }
+      let varShare = null, perExtraCar = null;
       if (pts.length >= 3) {
         const n = pts.length, mx = S(pts.map((p) => p[0])) / n, my = S(pts.map((p) => p[1])) / n;
         const vx = S(pts.map((p) => (p[0] - mx) * (p[0] - mx)));
-        if (vx > 1e-6) elast = S(pts.map((p) => (p[0] - mx) * (p[1] - my))) / vx;
+        if (vx > 1e-6 && my > 0) {
+          const slope = S(pts.map((p) => (p[0] - mx) * (p[1] - my))) / vx;
+          perExtraCar = slope;
+          varShare = Math.max(0, Math.min(1, (slope * mx) / my));
+        }
       }
       // ---- perfil por IDADE do carro (M0..M13): média dos modelos ponderada pelas coortes ----
       const per = new Array(UET_PERIODS).fill(0); let perOk = false;
@@ -4952,6 +5048,11 @@
         for (let p = 0; p < UET_PERIODS; p++) per[p] += Math.abs(pr[p] || 0) * (q / totQ);
         perOk = true;
       });
+      // Recovery/Repair: o perfil vira o MEDIDO — casos reais do jud por idade do carro,
+      // normalizados pela exposição. O teórico espalhava por igual e escondia QUANDO bate.
+      const JF = costsSel === 'Recovery cost' ? 'recovery' : (costsSel === 'Repair cost' ? 'repair' : null);
+      const JAG = JF ? judAgeProfile(JF) : null;
+      if (JAG && JAG.ok) { for (let p = 0; p < UET_PERIODS; p++) per[p] = JAG.per[p]; perOk = true; }
       const perTot = S(per);
       // Front-load Index: fatia do custo de vida do carro que cai nos 4 primeiros meses (M0–M3)
       // ÷ 25% — que é o que um custo espalhado POR IGUAL nos 12 meses recorrentes colocaria ali
@@ -5077,8 +5178,14 @@
           const cashArr = rfLine('Insurance');
           const cash = sumIn(cashArr);
           const be = nCl > 0 ? accrued / nCl : null;         // break-even por acionamento
-          if (costsInsAvg == null) costsInsAvg = be != null ? Math.round(be) : 0;
           const perLbl = perName(mSel);
+          // um slider POR CATEGORIA de sinistro (Collision / Window Damage / Total loss...):
+          // cada uma tem um custo típico próprio — vidro é barato, perda total é o carro inteiro —
+          // e um único "custo médio por acionamento" escondia isso. O padrão de cada categoria é o
+          // break-even geral, então a página abre exatamente no empate, como antes.
+          const tipos = Object.keys(byTipo);
+          tipos.forEach((t) => { if (costsInsAvgs[t] == null) costsInsAvgs[t] = be != null ? Math.round(be) : 0; });
+          const sliderMax = (t) => Math.max(5000, Math.round((be || 1000) * 4), Math.ceil((costsInsAvgs[t] || 0) / 500) * 500);
           insBox.innerHTML =
             `<div class="ins-panel" style="--cl:${C}">` +
               `<div class="cc-head"><h4>Is the insurance paying for itself?</h4><span class="cc-hint">premium accrued over the coverage, not as paid</span><button type="button" class="costs-help" data-h="ins">?</button></div>` +
@@ -5087,9 +5194,13 @@
                   `<i>${nCl} claim${nCl === 1 ? '' : 's'} in ${escH(perLbl)} · each would have to cost this much to match the premium</i></div>` +
                 `<div class="ins-mid">` +
                   `<label class="ins-lab">If each claim cost us, on average</label>` +
-                  `<div class="ins-inp"><input type="number" id="insAvg" min="0" step="100" value="${Math.round(costsInsAvg)}"><span>${escH(cs)}</span></div>` +
-                  `<input type="range" id="insAvgR" min="0" max="${Math.max(2000, Math.round((be || 1000) * 3))}" step="50" value="${Math.round(costsInsAvg)}" style="accent-color:${C}">` +
-                  `<div class="ins-types">${Object.keys(byTipo).map((t) => `${escH(t)}: ${byTipo[t]}`).join(' · ') || 'no claims in the period'}</div>` +
+                  (tipos.length ? tipos.map((t, i) =>
+                    `<div class="ins-cat">` +
+                      `<div class="ins-cat-top"><span class="ins-cat-lbl">${escH(t)} <em>×${byTipo[t]}</em></span>` +
+                        `<span class="ins-inp"><input type="number" data-t="${escH(t)}" class="insAvgN" min="0" step="100" value="${Math.round(costsInsAvgs[t])}"><span>${escH(cs)}</span></span></div>` +
+                      `<input type="range" class="insAvgR" data-t="${escH(t)}" min="0" max="${sliderMax(t)}" step="50" value="${Math.round(costsInsAvgs[t])}" style="accent-color:${C}">` +
+                    `</div>`).join('')
+                  : `<div class="ins-types">no claims in the period</div>`) +
                 `</div>` +
                 `<div class="cc-big cc-huge" id="insSave" style="--cl:${C}"></div>` +
               `</div>` +
@@ -5098,35 +5209,96 @@
                 `<span>${cash > 0 ? Math.round((accrued / cash) * 100) + '% of the cash is risk actually run in this window — the rest covers ' + (finYear + 1) : ''}</span></div>` +
             `</div>`;
           const paint = () => {
-            const would = nCl * costsInsAvg, save = would - accrued;
-            // empate: o valor padrão é o break-even arredondado, então uma diferença menor que
+            // "teríamos pago do bolso" = Σ (nº de sinistros da categoria × custo médio digitado nela)
+            const would = tipos.reduce((s, t) => s + byTipo[t] * (costsInsAvgs[t] || 0), 0);
+            const save = would - accrued;
+            // empate: o padrão é o break-even arredondado, então uma diferença menor que
             // 0,1% do prêmio é ruído de arredondamento — não "prejuízo de 1"
-            const even = Math.abs(save) < Math.max(1, accrued * 0.001);
+            const even = Math.abs(save) < Math.max(tipos.length, accrued * 0.001);
             const el2 = document.getElementById('insSave');
             el2.style.setProperty('--cl', even ? '#6B7280' : (save > 0 ? '#15803D' : '#B91C1C'));
             el2.innerHTML = `<b>${even ? money(0) : (save > 0 ? '+' : '−') + money(Math.abs(save))}</b>` +
               `<span>${even ? 'exactly break-even' : (save > 0 ? 'saved by having insurance' : 'lost by having insurance')}</span>` +
               `<i>${money(would)} we would have paid out of pocket vs ${money(accrued)} of accrued premium</i>`;
           };
-          const inp = document.getElementById('insAvg'), rng = document.getElementById('insAvgR');
-          inp.addEventListener('input', () => { costsInsAvg = Math.max(0, +inp.value || 0); rng.value = Math.min(+rng.max, costsInsAvg); paint(); });
-          rng.addEventListener('input', () => { costsInsAvg = +rng.value; inp.value = costsInsAvg; paint(); });
+          insBox.querySelectorAll('.insAvgN').forEach((inp) => inp.addEventListener('input', () => {
+            const t = inp.dataset.t; costsInsAvgs[t] = Math.max(0, +inp.value || 0);
+            const rng = insBox.querySelector(`.insAvgR[data-t="${CSS.escape(t)}"]`);
+            if (rng) rng.value = Math.min(+rng.max, costsInsAvgs[t]);
+            paint();
+          }));
+          insBox.querySelectorAll('.insAvgR').forEach((rng) => rng.addEventListener('input', () => {
+            const t = rng.dataset.t; costsInsAvgs[t] = +rng.value;
+            const inp = insBox.querySelector(`.insAvgN[data-t="${CSS.escape(t)}"]`);
+            if (inp) inp.value = costsInsAvgs[t];
+            paint();
+          }));
           insBox.querySelector('.costs-help').onclick = () => costsHelpOpen('ins');
           paint();
+        }
+      }
+      // ---- Recovery/Repair: casos por mês + custo agregado + detalhe POR PLACA ----
+      // A pergunta destas linhas não é "quanto por carro ativo" e sim "quais carros, quando e
+      // por quanto": contagem mensal em cima, e a tabela placa a placa embaixo.
+      const casesBox = document.getElementById('costsCases');
+      if (casesBox) {
+        if (!JF) { casesBox.innerHTML = ''; casesBox.style.display = 'none'; } else {
+          casesBox.style.display = '';
+          const fx2 = finPar('__fin_fx__') || 5.5;
+          const hojeIso = (OCN.ue && OCN.ue.hoje) || '';
+          const fleetOfPl = {}; (((OCN.ue || {}).fleets) || []).forEach((f) => (f.placas || []).forEach((pl) => { fleetOfPl[pl] = f; }));
+          const rowsC = [];
+          Object.entries((((OCN.ue || {}).judBase) || {}).placas || {}).forEach(([pl, a]) => a.forEach((c) => {
+            if (!(c[JF] > 0)) return;
+            const iso = c.d || hojeIso;
+            if (String(iso).slice(0, 4) !== String(finYear)) return;
+            const m = parseInt(String(iso).slice(5, 7), 10) - 1;
+            if (!inScope(m)) return;
+            const f = fleetOfPl[pl];
+            if (costsFleet != null && (!f || f.id !== costsFleet)) return;   // respeita o filtro de frota
+            const age = (f && f.inicio) ? ((new Date(iso + 'T12:00:00') - new Date(f.inicio + 'T12:00:00')) / 86400000 / (UET_WPM * 7)) : null;
+            rowsC.push({ pl, iso, m, v: c[JF] / fx2, fleet: f ? f.id : '—', age, noDate: !c.d });
+          }));
+          rowsC.sort((a, b) => (a.iso < b.iso ? 1 : (a.iso > b.iso ? -1 : 0)));
+          const totC2 = rowsC.reduce((s, r) => s + r.v, 0);
+          const byM = {}; rowsC.forEach((r) => { byM[r.m] = byM[r.m] || { n: 0, v: 0 }; byM[r.m].n += 1; byM[r.m].v += r.v; });
+          const monthsRow = Object.keys(byM).map(Number).sort((a, b) => a - b).map((m) =>
+            `<span class="ccc-mo"><b>${monthLbl(m)}</b>${byM[m].n} case${byM[m].n === 1 ? '' : 's'} · ${money(byM[m].v)}</span>`).join('');
+          casesBox.innerHTML =
+            `<div class="ccc-panel" style="--cl:${C}">` +
+              `<div class="cc-head"><h4>${costsSel === 'Recovery cost' ? 'Recovery cases — plate by plate' : 'Repair cases — plate by plate'}</h4>` +
+                `<span class="cc-hint">${rowsC.length} case${rowsC.length === 1 ? '' : 's'} with realized cost in ${escH(perName(mSel))} · ${money(totC2)} total${rowsC.length ? ' · ' + money(totC2 / rowsC.length) + ' per case' : ''}</span></div>` +
+              `<div class="ccc-months">${monthsRow || '<span class="ccc-mo">no cases in the period</span>'}</div>` +
+              (rowsC.length ? `<div class="ccc-tblwrap"><table class="ccc-tbl"><thead><tr><th>Plate</th><th>Fleet</th><th>Date</th><th>Car age</th><th>Cost</th></tr></thead><tbody>` +
+                rowsC.map((r) => `<tr><td><b>${escH(r.pl)}</b></td><td>Fleet ${escH(String(r.fleet))}</td><td>${r.noDate ? '<em>no date</em>' : escH(r.iso)}</td><td>${r.age == null ? '—' : 'M' + Math.max(0, r.age).toFixed(1)}</td><td><b>${money(r.v)}</b></td></tr>`).join('') +
+                `</tbody></table></div>` : '') +
+            `</div>`;
         }
       }
       const periodLbl = perName(mSel) + (mIdx != null && mIdx === RF.curM ? ' · realized' : '');
       // mesma regra do drill: a média por carro·mês é do início até hoje (ou projetada), nunca do
       // recorte do calendário — a pergunta "quanto custa um carro por mês" não muda com o filtro
       const AVL = costsAvgPerCarMonth(costsSel, RF, rfFleets);
+      // Recovery/Repair: a média que interessa é por CARRO RECUPERADO / por caso de reparo —
+      // realizado ÷ realizado dentro do período — e não por carro ativo da frota inteira
+      const realScope = (a) => a.reduce((s, v, m) => s + ((inScope(m) && (RF.curM < 0 || m <= RF.curM)) ? (v || 0) : 0), 0);
+      const evScope = evts ? Math.round(realScope(evts.z)) : null;
+      const evCostScope = evts ? realScope(arr) : null;
+      const perCaseScope = (evScope > 0 && evCostScope > 0) ? evCostScope / evScope : null;
+      const perCaseLbl = costsSel === 'Recovery cost' ? 'Per recovered car' : 'Per repair case';
       document.getElementById('costsHero').innerHTML = '<div class="costs-cards">' +
         card(periodLbl, money(fy), (cogsFY ? (fy / cogsFY * 100).toFixed(1) : '0') + '% of COGS', true) +
         card('Share of revenue', revFY ? (fy / revFY * 100).toFixed(1) + '%' : '—', 'revenue ' + perName(mSel) + ' ' + money(revFY)) +
-        card('Per car · month' + (AVL.param ? ' (contracted)' : (AVL.proj ? ' (projected)' : ' (since inception)')), AVL.v != null ? money(AVL.v) : '—',
-          AVL.param ? 'contracted rate, weighted by cars across ' + AVL.nFleets + ' fleets'
-            : (AVL.proj ? 'from the per-car profile — realized sample still short' : ccNum(AVL.cm) + ' car-months since each fleet started')) +
-        (perOk ? card('Per car · full contract', money(perTot / (finPar('__fin_fx__') || 5.5)), 'theoric M0–M13 profile') : '') +
-        (evts && evFY ? card(evts.label + ' (FY)', String(evFY), perEvent != null ? money(perEvent) + ' per event — realized only' : 'no realized cost yet') : '') +
+        (JF
+          ? card(perCaseLbl, perCaseScope != null ? money(perCaseScope) : '—',
+              evScope != null ? evScope + ' ' + evts.label + ' · realized cost ÷ realized cases in ' + perName(mSel) : 'no realized case yet')
+          : card('Per car · month' + (AVL.param ? ' (contracted)' : (AVL.proj ? ' (projected)' : ' (since inception)')), AVL.v != null ? money(AVL.v) : '—',
+              AVL.param ? 'contracted rate, weighted by cars across ' + AVL.nFleets + ' fleets'
+                : (AVL.proj ? 'from the per-car profile — realized sample still short' : ccNum(AVL.cm) + ' car-months since each fleet started'))) +
+        (perOk ? card('Per car · full contract', money(perTot / (finPar('__fin_fx__') || 5.5)), JF ? 'measured M0–M13 incidence' : 'theoric M0–M13 profile') : '') +
+        (JF && evScope != null
+          ? card(evts.label + ' · ' + perName(mSel), String(evScope), JAG && JAG.com != null ? 'hits on average at M' + JAG.com.toFixed(1) + ' of a car\'s life' : 'cases in the period')
+          : (evts && evFY ? card(evts.label + ' (FY)', String(evFY), perEvent != null ? money(perEvent) + ' per event — realized only' : 'no realized cost yet') : '')) +
         '</div>';
       // ---- gráficos (todos vestem a cor da linha selecionada) ----
       const mk = (id, cfg) => { if (costsCharts[id]) { costsCharts[id].destroy(); delete costsCharts[id]; } const c = document.getElementById(id); if (!c) return; costsCharts[id] = new Chart(c.getContext('2d'), cfg); };
@@ -5154,10 +5326,20 @@
         ].concat(evts ? [{ type: 'line', label: evts.label, data: cut12(evts.z), borderColor: '#0891B2', backgroundColor: 'transparent', yAxisID: 'y2', borderDash: [4, 3], pointRadius: 3, tension: 0, borderWidth: 1.5 }] : []) },
         options: { responsive: true, maintainAspectRatio: false, plugins: Object.assign({ legend: { labels: CC_LEG } }, noDL), interaction: { mode: 'index', intersect: false },
           scales: { y: { grid: { display: false }, border: { display: false }, beginAtZero: true, ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } }, y2: { position: 'right', beginAtZero: true, grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280' } }, x: { grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280' } } } } });
-      // elasticidade — enfática, na caixa do por-carro (é o gráfico que conta essa história)
+      // elasticidade — barrinha de "% que acompanha a frota" + custo do carro marginal
       const elEl = document.getElementById('ccElast');
-      if (elEl) elEl.innerHTML = elast == null ? '' :
-        `<b style="color:${C}">${elast.toFixed(2)}</b><span>fleet-link · ${elast >= 0.75 ? 'follows the fleet' : elast >= 0.35 ? 'partly fleet-driven' : 'mostly fixed'}</span>`;
+      if (elEl) {
+        if (varShare == null) { elEl.innerHTML = ''; elEl.removeAttribute('title'); } else {
+          const vp = Math.round(varShare * 100);
+          const verdict = vp >= 75 ? 'follows the fleet' : (vp >= 35 ? 'partly fleet-driven' : 'mostly fixed');
+          elEl.innerHTML =
+            `<b style="color:${C}">${vp}%</b>` +
+            `<span class="flk-bar"><i style="width:${vp}%;background:${C}"></i></span>` +
+            `<span>moves with the fleet · ${verdict}</span>`;
+          elEl.title = (perExtraCar > 0 ? 'Each extra car adds ≈ ' + money(perExtraCar) + ' per month to this line. ' : '') +
+            'Estimated from realized months: monthly cost regressed on active cars — the variable slice over the average cost.';
+        }
+      }
       // ranking: cada linha na PRÓPRIA cor — a selecionada cheia, as outras esmaecidas
       // segue o período do calendário como todo o resto (usava o ano inteiro, fixo)
       const rankRows = COSTS_LIST.map((L) => ({ L, v: sumOf(L) })).filter((r) => r.v > 0).sort((a, b) => b.v - a.v);
@@ -5182,7 +5364,9 @@
         `<div class="cc-big" style="--cl:${timing.c}"><b class="cc-verdict">${timing.t}</b><span>Cost timing</span><i>${timing.d}</i></div>` +
         `<div class="cc-big" style="--cl:${C}"><b>M${com.toFixed(1)}</b><span>Average month of spend</span><i>center of mass, M0–M13</i></div>`;
       if (perOk) mk('ccAge', { type: 'bar', data: { labels: Array.from({ length: UET_PERIODS }, (_, p) => 'M' + p), datasets: [{ data: per.map((v) => Math.round(v)), backgroundColor: per.map((_, p) => p < 4 ? C : costsTint(C, .35)), borderRadius: 3 }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: Object.assign({ legend: { display: false }, tooltip: { padding: 10, displayColors: false, callbacks: { label: (c) => ccNum(c.parsed.y) } } }, noDL), scales: CC_GRID } });
+        options: { responsive: true, maintainAspectRatio: false, plugins: Object.assign({ legend: { display: false }, tooltip: { padding: 10, displayColors: false, callbacks: { label: (c) => ccNum(c.parsed.y),
+          // nas linhas medidas, o tooltip mostra a base: quantos casos e quantos carros já viveram a idade
+          afterBody: (items) => { if (!(JAG && JAG.ok) || !items.length) return ''; const p = items[0].dataIndex; const n = JAG.cnt[p] || 0; return n ? n + ' case' + (n === 1 ? '' : 's') + ' · ' + Math.round(JAG.exp[p]) + ' cars lived this month of life' : (JAG.exp[p] > 0 ? 'no case at this age yet' : 'no fleet has reached this age'); } } } }, noDL), scales: CC_GRID } });
       // ---- what-if: % sobre a linha, efeito primário em COGS / margem / caixa ----
       // Painel na cor da linha: % gigante + slider + 4 blocos de resultado com o delta em chip
       // colorido (vermelho = pior para o caixa, verde = melhor). Atualiza em cima, sem re-render.
@@ -5284,7 +5468,11 @@
             sched += subr * (i === 1 ? proR : (i === 13 ? 1 - proR : 1));
           }
         }
-        sched += par('__ins_total__') * Math.min(365, Math.max(0, (hoje - ini) / MS)) / 365;   // seguro apropriado
+        // seguro apropriado por carro: prêmio REAL da apólice (aba "insurance") quando existir,
+        // senão a caixinha — pró-rata dos dias corridos sobre os 365 de cobertura
+        const IRu = insRealShare(f.id);
+        const premCar = IRu ? (IRu.total / Math.max(1, f.cars || (f.placas || []).length || 1)) : par('__ins_total__');
+        sched += premCar * Math.min(365, Math.max(0, (hoje - ini) / MS)) / 365;
         const gpsM = par('__gps_mensal__');
         if (gpsM > 0) for (let n2 = 1; n2 <= 12; n2++) { const d = new Date(ini.getTime() + (n2 - 0.5) * MESd * MS); if (d <= hoje) sched += gpsM; }
         (f.placas || []).forEach((pl) => {
@@ -5700,6 +5888,7 @@
     let curCars = 0;       // nº de carros da visão atual (frota ou total geral) — multiplicador do aggregate
     let ctxCars = 0;       // nº de carros do CONTEXTO de cálculo (frota corrente; no all-mode, a frota da vez)
     let ctxPlates = [];    // placas do CONTEXTO de cálculo — usado pelo InDrive (benefício por placa)
+    let ctxFleetId = null; // id da frota do CONTEXTO — usado pelas parcelas reais do seguro (aba insurance)
     let fleetCtx = null;   // all-mode: contexto por frota (params/entradas/derivados) p/ combinar célula a célula
     const viewMult = () => (plateView ? 1 : (viewAgg ? (curCars || 1) : 1)); // usado só pelo orçado (referência por modelo)
     let entered = {}; // "line@@period" -> {value, kind} — valores manuais em R$ (moeda principal)
@@ -6254,6 +6443,19 @@
     // valor NATIVO da linha num período: { rs } para valores em R$ (manuais/derivados) ou { usd } para
     // valores fixos em dólar. Sem câmbio aqui — a conversão para a moeda de exibição acontece no effSplit.
     // Recorrências mensais param no M12; o M13 só recebe os lançamentos pontuais pós-contrato.
+    // frota sem apólice própria na aba "insurance" -> frota que carrega o endosso dela
+    const INS_UMBRELLA = { 5: '4' };
+    // parcelas reais do seguro para a frota em CONTEXTO + nº de carros cobertos pela apólice
+    function insPayFleet(fidRaw) {
+      const PF = ((U.insurancePay || {}).porFrota) || null;
+      if (!PF) return null;
+      const fid = String(fidRaw != null ? fidRaw : (ctxFleetId || ''));
+      const host = PF[fid] ? fid : ((INS_UMBRELLA[fid] && PF[INS_UMBRELLA[fid]]) ? INS_UMBRELLA[fid] : null);
+      if (!host) return null;
+      let carsDiv = 0;
+      (U.fleets || []).forEach((f) => { if (String(f.id) === host || INS_UMBRELLA[String(f.id)] === host) carsDiv += f.cars || 0; });
+      return { parcelas: PF[host], carsDiv: carsDiv || 1, host };
+    }
     function effNative(line, period) {
       if (line === 'Subscription' && par('__sub_semanal__') > 0) {
         // só o PRINCIPAL (esperado); o juro de atraso vai na linha "Late-payment interest"
@@ -6330,10 +6532,31 @@
         // Vai até o M13: revisão feita perto do fim do contrato é paga (prazo médio) depois dele.
         return { rs: -(maintRealRS[period] || 0), rsProj: -(maintProjRS[period] || 0), perActive: true };
       }
-      if (line === 'Insurance' && par('__ins_total__') > 0 && par('__ins_parcelas__') >= 1) {
-        // parcela = total/N; se N > 12, as parcelas além do M12 ficam fora da tabela (trunca, não reamortiza)
-        const N = Math.round(par('__ins_parcelas__'));
-        return { rs: (period >= 1 && period <= Math.min(N, U.periods)) ? -(par('__ins_total__') / N) : 0 };
+      if (line === 'Insurance') {
+        // fonte NOVA: parcelas reais da aba "insurance" (valor + vencimento por frota). Cada
+        // parcela cai no mês do UE em que o vencimento acontece; venc <= hoje = realizado,
+        // futuro = projetado. Por carro = parcela ÷ carros cobertos pela apólice (a frota 5
+        // não tem linhas próprias — o endosso dela vive na frota 4, então as duas dividem
+        // as parcelas da 4 pelo total combinado de carros).
+        const ip = insPayFleet();
+        if (ip) {
+          if (!curIni || period === 0) return { rs: 0 };
+          const MSd = 86400000, MESd = UET_WPM * 7;
+          let real = 0, proj = 0;
+          ip.parcelas.forEach((pc) => {
+            if (!pc.venc) return;
+            const d = new Date(pc.venc + 'T12:00:00');
+            const pp = Math.max(1, Math.min(PMAX, Math.floor((d - curIni) / MSd / MESd) + 1));
+            if (pp !== period) return;
+            if (d <= hoje) real += pc.valor / ip.carsDiv; else proj += pc.valor / ip.carsDiv;
+          });
+          return { rs: -real, rsProj: -proj };
+        }
+        if (par('__ins_total__') > 0 && par('__ins_parcelas__') >= 1) {
+          // fallback (frota sem linhas na aba): caixinha total/N como antes
+          const N = Math.round(par('__ins_parcelas__'));
+          return { rs: (period >= 1 && period <= Math.min(N, U.periods)) ? -(par('__ins_total__') / N) : 0 };
+        }
       }
       // fixos (sem nenhuma conversão/exceção): R$50/US$10 e R$15/US$3, tratados direto em effSplit
       if (line === 'GPS' && (par('__gps_m0__') > 0 || par('__gps_mensal__') > 0)) {
@@ -6400,7 +6623,7 @@
     }
     // all-mode: contexto por frota — cada frota tem params/entradas/eixo de meses/perdas/pagamentos próprios
     function applyCtx(c) {
-      model = c.f.model; params = c.params; entered = c.entered; curIni = c.ini; ctxCars = c.f.cars || 0; ctxPlates = c.f.placas || []; partCfgCur = c.partCfg || partCfg;
+      model = c.f.model; params = c.params; entered = c.entered; curIni = c.ini; ctxCars = c.f.cars || 0; ctxPlates = c.f.placas || []; ctxFleetId = c.f.id; partCfgCur = c.partCfg || partCfg;
       elapsed = c.elapsed; realizedFull = c.realizedFull; lossMonthByPlate = c.lossMonthByPlate; activeFracArr = c.activeFracArr;
       subsRS = c.subsRS || []; subsJurosRS = c.subsJurosRS || []; subsReady = !!c.subsReady;
       maintRealRS = c.maintRealRS || []; maintProjRS = c.maintProjRS || []; maintReady = !!c.maintReady;
@@ -6937,7 +7160,7 @@
       // trocar de FROTA reseta a visão; toggles (clean view, moeda, InDrive, projeção) preservam —
       // antes, ligar o clean view estando numa placa jogava o usuário de volta para a frota inteira
       if (!keepView) { plateView = null; viewAgg = false; }
-      curCars = f.cars || 0; ctxCars = f.cars || 0; ctxPlates = f.placas || [];
+      curCars = f.cars || 0; ctxCars = f.cars || 0; ctxPlates = f.placas || []; ctxFleetId = f.id;
       const foto = allMode ? null : (OCN.modelos[f.model] || {}).foto;
       fleetsEl.querySelectorAll('.ue-fleet-btn').forEach((b) => b.classList.toggle('active', b.dataset.id === current));
       // carrega valores (entradas manuais + params) — all-mode busca de todas as frotas em paralelo

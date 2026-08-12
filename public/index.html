@@ -617,8 +617,6 @@
         <!-- visão POR LINHA -->
         <div id="costsLineView">
           <div id="costsHero"></div>
-          <!-- bloco exclusivo do Insurance: ponto de equilíbrio por acionamento + economia -->
-          <div id="costsIns"></div>
           <!-- os dois grandes: ranking dentro do COGS e o perfil na vida do carro (com os dois
                indicadores enfáticos dentro da própria caixa) -->
           <div class="costs-grid-big">
@@ -646,7 +644,12 @@
               <div class="cc-cv cv-sm"><canvas id="ccMain"></canvas></div>
             </div>
           </div>
+          <!-- bloco exclusivo de Recovery/Repair: casos por mês + custo agregado + detalhe por placa -->
+          <div id="costsCases"></div>
           <div class="costs-whatif" id="costsWhatif"></div>
+          <!-- bloco exclusivo do Insurance (fechamento da página): equilíbrio por acionamento
+               + economia, com um slider por categoria de sinistro -->
+          <div id="costsIns"></div>
         </div>
       </div>
 

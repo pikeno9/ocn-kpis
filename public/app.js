@@ -4477,6 +4477,7 @@
     let costsSubrModel = null;    // filtro por modelo do gráfico de aluguel por frota
     let costsFinesCount = false;  // dispersão de multas por cliente: false = valor total, true = nº de multas
     let costsLeftBig = false;     // gráfico da esquerda expandido (largura toda + mais alto)
+    let costsOutliers = false;    // dispersões: destacar os pontos fora da curva (com rótulo)
     let costsMonthInit = false;   // a aba abre no MÊS VIGENTE; depois disso a escolha é do usuário
     // paleta das frotas: matizes bem separados no círculo cromático, para pilhas vizinhas nunca
     // se confundirem (roxo · verde · âmbar · azul · rosa · teal · vermelho · lima)
@@ -4999,18 +5000,24 @@
           `<b>${avg == null ? '—' : money(avg)}</b>` +
           // o rótulo diz de onde vem o número — e que ele NÃO segue o calendário, de propósito
           `<span>avg per car · month <em class="cc-tag">${avgTag}</em></span></div>` +
-        `<div class="cc-big" style="--cl:${DC}"><b>${money(dTot)}</b>` +
+        // caixa do CAIXA enxuta: número + total do ano; a explicação inteira (realizado × forecast
+        // e, no seguro, as parcelas de 2027 e o total dos contratos) mora no "?" — menos texto na tela
+        `<div class="cc-big" style="--cl:${DC}">` +
+          `<button type="button" class="costs-help cc-help-in" data-cashh="1" title="How to read this">?</button>` +
+          `<b>${money(dTot)}</b>` +
           (showProj ? `<em class="cc-proj">+ ${money(projTot)}</em>` : '') +
           `<span>cash · ${escH(perName(H.mSel))}</span>` +
-          (showProj ? `<i><b class="cc-proj-lg">${money(dTot + projTot)}</b> full year · realized through ${monthLbl(RF.curM)} + forecast ahead</i>` : '') +
-          // parcelas do seguro que vencem no ANO SEGUINTE: fora do gráfico anual, mas não somem
-          // (sem <b> aqui: dentro do .cc-big o <b> herda a fonte gigante do número principal)
-          (drillL === 'Insurance' ? (() => {
-            const IP = insParcelasRS(rfF.map((f) => f.id)), fxr = finPar('__fin_fx__') || 5.5;
-            return IP.depois > 0 ? `<i>+ <span class="cc-basis">${money(IP.depois / fxr)}</span> falling due in ${finYear + 1} · full contracts: <span class="cc-basis">${money(IP.total / fxr)}</span></i>` : '';
-          })() : '') +
+          (showProj ? `<i><b class="cc-proj-lg">${money(dTot + projTot)}</b> full year</i>` : '') +
         `</div>`;
-      document.querySelectorAll('#ccDrillInds .costs-help').forEach((b) => { b.onclick = () => costsHelpOpen('avg'); });
+      const cashHelp = (() => {
+        const IP = drillL === 'Insurance' ? insParcelasRS(rfF.map((f) => f.id)) : null;
+        const fxr = finPar('__fin_fx__') || 5.5;
+        return { t: COSTS_LABEL(drillL) + ' — cash', d:
+          'The black number is the cash REALIZED in the selected period; the purple one is the forecast still ahead.' +
+          (showProj ? ' Together they close the full year at ' + money(dTot + projTot) + ' — realized through ' + monthLbl(RF.curM) + ' plus forecast for the months ahead.' : '') +
+          (IP && IP.depois > 0 ? ' Insurance also has ' + money(IP.depois / fxr) + ' of installments falling due in ' + (finYear + 1) + ', outside this year\'s chart — the full contracts add up to ' + money(IP.total / fxr) + '.' : '') };
+      })();
+      document.querySelectorAll('#ccDrillInds .costs-help').forEach((b) => { b.onclick = () => (b.dataset.cashh ? costsInfoOpen(cashHelp.t, cashHelp.d) : costsHelpOpen('avg')); });
       // ---- share do COGS por mês (+ coluna do ANO): 100% empilhado, top-5 + Others ----
       const shareTop = rows.slice(0, 5).map((r) => r.L);
       const shareTotM = new Array(FIN_MONTHS).fill(0);
@@ -5038,16 +5045,17 @@
         // COGS absoluto de cada coluna, em destaque acima da barra
         plugins: [{ id: 'shareTot', afterDatasetsDraw(ch) {
           const { ctx } = ch; const top = ch.chartArea.top;
-          ctx.save(); ctx.textAlign = 'center';
+          // baseline MIDDLE e caixa centrada no mesmo eixo do texto — o "3,1M" saía descentrado
+          ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
           ch.getDatasetMeta(0).data.forEach((el, i) => {
             if (!(totCol[i] > 0)) return;
-            const y = top - 7, txt = ccK(totCol[i] * K);
+            const yC = top - 13, txt = ccK(totCol[i] * K);
             ctx.font = '800 ' + (isAno(i) ? 12 : 10.5) + 'px ' + getComputedStyle(document.body).fontFamily;
-            const w = ctx.measureText(txt).width + 10;
+            const w = ctx.measureText(txt).width + 12, bh = isAno(i) ? 19 : 17;
             ctx.fillStyle = isAno(i) ? '#111827' : (futuro(i) ? '#EEF2F7' : '#F3F4F6');
-            ctx.beginPath(); ctx.roundRect(el.x - w / 2, y - 12, w, 16, 8); ctx.fill();
+            ctx.beginPath(); ctx.roundRect(el.x - w / 2, yC - bh / 2, w, bh, bh / 2); ctx.fill();
             ctx.fillStyle = isAno(i) ? '#fff' : '#374151';
-            ctx.fillText(txt, el.x, y);
+            ctx.fillText(txt, el.x, yC + 0.5);
           });
           ctx.restore();
         } }],
@@ -5081,6 +5089,25 @@
       const ctl = document.getElementById('cclCtl');
       if (ctl) ctl.innerHTML = '';
       const title = (t) => { document.getElementById('ccMainT').innerHTML = `<span class="costs-pk-dot" style="background:${C}"></span>${escH(t)}`; };
+      // botão "Outliers" das dispersões: liga o destaque (anel vermelho + rótulo fixo) dos pontos
+      // fora da curva — cada gráfico define o que é "fora" do seu jeito (2 desvios da referência)
+      const outlierBtn = () => {
+        if (!ctl) return;
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'ccl-btn' + (costsOutliers ? ' on' : ''); b.style.setProperty('--c', '#DC2626');
+        b.innerHTML = '<span class="dot"></span>Outliers';
+        b.addEventListener('click', () => { costsOutliers = !costsOutliers; renderCosts(); });
+        ctl.appendChild(b);
+      };
+      // estilos de ponto compartilhados: outlier ganha raio maior e anel vermelho.
+      // O ponto é buscado por dataset+índice (o contexto do datalabels NÃO tem `.raw`).
+      const ptOf = (c2) => (c2 && c2.dataset && c2.dataset.data ? c2.dataset.data[c2.dataIndex] : null);
+      const isOut = (c2) => { const p = ptOf(c2); return !!(costsOutliers && p && p.out); };
+      const ptR = (base) => (c2) => (isOut(c2) ? base + 2.5 : base);
+      const ptBorder = (c2) => (isOut(c2) ? '#DC2626' : '#fff');
+      const ptBorderW = (c2) => (isOut(c2) ? 2 : 1);
+      const outDL = (lblOf) => ({ display: isOut, align: 'top', offset: 3,
+        color: '#B91C1C', font: { size: 9, weight: 700 }, formatter: (v, c2) => { const p = ptOf(c2); return p ? lblOf(p) : ''; }, clamp: true });
       // botão de EXPANDIR: só nos gráficos que ganham detalhe com espaço (frotas, parcelas, dispersões)
       const expBtn = document.getElementById('cclExpand');
       const canExpand = ['Subrental fee', 'Insurance', 'Maintenance', 'Traffic fines (out)'].includes(costsSel);
@@ -5188,24 +5215,64 @@
         const BAND_COLORS = ['#38BDF8', '#0E7490', '#F59E0B', '#EF4444', '#7F1D1D'];
         const bandOf = (km) => Math.min(BAND_COLORS.length - 1, Math.floor(km / 10000));
         const bandLbl = (b) => (b === BAND_COLORS.length - 1 ? (b * 10) + 'k+' : (b * 10) + '–' + ((b + 1) * 10) + 'k');
+        // outlier = odômetro a mais de 2 desvios da linha média de km/semana (ritmo esperado p/ a idade)
+        const resid = pts.map((p) => p.y - kmWk * (p.x * 30.44 / 7));
+        const rSd = Math.sqrt(resid.reduce((s, r) => s + r * r, 0) / Math.max(1, pts.length)) || 1;
+        pts.forEach((p, i2) => { p.out = Math.abs(resid[i2]) > 2 * rSd; });
+        outlierBtn();
         const bands = BAND_COLORS.map((col, b) => ({ b, col, pts: pts.filter((p) => bandOf(p.y) === b) })).filter((x) => x.pts.length);
+        const yTop = Math.ceil(yMax / 10000) * 10000;
         mk('ccPerCar', { type: 'scatter', data: { datasets: bands.map((bd) => (
             { label: bandLbl(bd.b) + ' km', data: bd.pts, backgroundColor: bd.col,
-              pointRadius: 4, pointHoverRadius: 6, pointBorderColor: '#fff', pointBorderWidth: 1 }
+              pointRadius: ptR(4), pointHoverRadius: 6, pointBorderColor: ptBorder, pointBorderWidth: ptBorderW,
+              datalabels: outDL((p) => p.plate) }
           )).concat([
             { type: 'line', label: `avg ${ccNum(kmWk)} km/week`, data: [{ x: 0, y: 0 }, { x: xMax, y: kmWk * (xMax * 30.44 / 7) }],
-              borderColor: '#6B7280', borderDash: [6, 4], borderWidth: 1.5, pointRadius: 0 },
+              borderColor: '#4B5563', borderDash: [6, 4], borderWidth: 1.8, pointRadius: 0, datalabels: { display: false } },
           ]) },
+          // FAIXAS enfatizadas: fundo suave na cor da faixa, separador forte a cada 10.000 km,
+          // contagem de carros da faixa em número grande à esquerda e o km/semana médio escrito na linha
+          plugins: [{ id: 'kmBands', beforeDatasetsDraw(ch) {
+            const { ctx, chartArea: a } = ch, ys = ch.scales.y, xs = ch.scales.x;
+            const fam = getComputedStyle(document.body).fontFamily;
+            ctx.save();
+            for (let b = 0; b * 10000 < ys.max; b++) {
+              const col = BAND_COLORS[Math.min(BAND_COLORS.length - 1, b)];
+              const y1 = ys.getPixelForValue(Math.min((b + 1) * 10000, ys.max)), y2 = ys.getPixelForValue(b * 10000);
+              ctx.fillStyle = col + '12';                                    // fundo ~7% de alpha
+              ctx.fillRect(a.left, y1, a.right - a.left, y2 - y1);
+              const bd = bands.find((x) => x.b === Math.min(BAND_COLORS.length - 1, b));
+              const n = bd ? bd.pts.length : 0;
+              if (n && y2 - y1 > 24) {                                       // nº de carros da faixa
+                ctx.font = '800 ' + Math.min(30, Math.max(16, (y2 - y1) * .5)) + 'px ' + fam;
+                ctx.fillStyle = col + '59'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+                ctx.fillText(String(n), a.left + 8, (y1 + y2) / 2);
+              }
+            }
+            ctx.strokeStyle = 'rgba(55,65,81,.38)'; ctx.lineWidth = 1;       // separadores mais fortes
+            for (let km = 10000; km < ys.max; km += 10000) {
+              const yy = ys.getPixelForValue(km);
+              ctx.beginPath(); ctx.moveTo(a.left, yy); ctx.lineTo(a.right, yy); ctx.stroke();
+            }
+            // valor da média escrito junto da ponta da linha tracejada
+            const yEnd = ys.getPixelForValue(Math.min(kmWk * (xMax * 30.44 / 7), ys.max));
+            ctx.font = '800 10.5px ' + fam; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+            const txt = ccNum(kmWk) + ' km/week';
+            const tw = ctx.measureText(txt).width + 10;
+            ctx.fillStyle = 'rgba(255,255,255,.85)';
+            ctx.beginPath(); ctx.roundRect(a.right - tw - 4, Math.max(a.top + 2, yEnd - 20), tw, 16, 5); ctx.fill();
+            ctx.fillStyle = '#374151';
+            ctx.fillText(txt, a.right - 9, Math.max(a.top + 18, yEnd - 5));
+            ctx.restore();
+          } }],
           options: { responsive: true, maintainAspectRatio: false,
-            plugins: Object.assign({ legend: { labels: CC_LEG },
-              tooltip: { padding: 10, displayColors: false, callbacks: { label: (c2) => { const p = c2.raw;
-                return p.plate ? `${p.plate} · ${ccNum(p.y)} km · M${p.x.toFixed(1)} · ${ccNum(p.kmWeek)} km/wk` : c2.dataset.label; } } } }, noDL),
+            plugins: { legend: { labels: CC_LEG },
+              tooltip: { displayColors: false, callbacks: { label: (c2) => { const p = c2.raw;
+                return p && p.plate ? `${p.plate} · ${ccNum(p.y)} km · M${p.x.toFixed(1)} · ${ccNum(p.kmWeek)} km/wk` : c2.dataset.label; } } } },
             scales: { x: { min: 0, max: xMax, grid: { display: false }, border: { display: false },
                 title: { display: true, text: 'months since delivery', color: '#9CA3AF', font: { size: 10 } },
                 ticks: { font: CC_FONT, color: '#6B7280', stepSize: 1 } },
-              // as linhas horizontais de 10.000 em 10.000 km são os marcos de revisão
-              y: { min: 0, suggestedMax: Math.ceil(yMax / 10000) * 10000, border: { display: false },
-                grid: { display: true, color: 'rgba(120,120,140,.18)' },
+              y: { min: 0, max: yTop, border: { display: false }, grid: { display: false },
                 ticks: { font: CC_FONT, color: '#6B7280', stepSize: 10000, callback: ccK } } } } });
         return;
       }
@@ -5229,13 +5296,20 @@
           return { x: mo, y: costsFinesCount ? n : Math.round((tot / fx) * K), nome: v.nome, placa: v.placa, n, tot: Math.round((tot / fx) * K) };
         });
         const ativos = mkPts(vinc.filter((v) => !v.fim)), fim = mkPts(vinc.filter((v) => v.fim));
+        // outlier = cliente acumulando 2 desvios acima da média (só o lado alto interessa aqui)
+        const allP = ativos.concat(fim);
+        const meanY = allP.reduce((s, p) => s + p.y, 0) / Math.max(1, allP.length);
+        const sdY = Math.sqrt(allP.reduce((s, p) => s + (p.y - meanY) * (p.y - meanY), 0) / Math.max(1, allP.length)) || 1;
+        allP.forEach((p) => { p.out = p.y > meanY + 2 * sdY; });
+        outlierBtn();
         const tip = { displayColors: false, callbacks: {
           title: (items) => { const p = items[0].raw; return (p.nome || '?').split(' ').slice(0, 2).join(' ') + ' · ' + p.placa; },
           label: (c2) => { const p = c2.raw; return `${p.n} fine${p.n === 1 ? '' : 's'} · ${cs} ${ccNum(p.tot)} in total`; },
           footer: (items) => 'M' + items[0].raw.x.toFixed(1) + ' of contract' } };
+        const finesDL = outDL((p) => (p.nome || p.placa || '').split(' ')[0] + ' · ' + (costsFinesCount ? p.n : ccK(p.tot)));
         mk('ccPerCar', { type: 'scatter', data: { datasets: [
-            { label: 'active clients', data: ativos, backgroundColor: costsTint(C, .8), pointRadius: 3.5, pointHoverRadius: 5 },
-            { label: 'contract ended', data: fim, backgroundColor: '#9CA3AF', pointRadius: 3.5, pointHoverRadius: 5 },
+            { label: 'active clients', data: ativos, backgroundColor: costsTint(C, .8), pointRadius: ptR(3.5), pointHoverRadius: 5, pointBorderColor: ptBorder, pointBorderWidth: ptBorderW, datalabels: finesDL },
+            { label: 'contract ended', data: fim, backgroundColor: '#9CA3AF', pointRadius: ptR(3.5), pointHoverRadius: 5, pointBorderColor: ptBorder, pointBorderWidth: ptBorderW, datalabels: finesDL },
           ] },
           options: { responsive: true, maintainAspectRatio: false,
             plugins: Object.assign({ legend: { labels: CC_LEG }, tooltip: tip }, noDL),
@@ -5271,12 +5345,17 @@
           ? { t: 'Cost per repossession', d: 'One dot per repossession (contract ended by recovery in the clients base), on the date it happened — INCLUDING the ones that cost nothing so far, at zero. The vertical is what that recovery cost us (towing + recovery from the judicial base). The dashed line is the average cost per repossession across all of them — the "expected cost" of the next one.' }
           : { t: 'Cost per repair', d: 'One dot per repair case from the judicial base (repair + cleaning + others), on the date of the event. The dashed line is the average cost per case — the "expected cost" of the next one.' };
         const avg = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+        // outlier = caso 2 desvios acima da média de custo
+        const sdC = Math.sqrt(pts.reduce((s, p) => s + (p.y - avg) * (p.y - avg), 0) / Math.max(1, pts.length)) || 1;
+        pts.forEach((p) => { p.out = p.y > avg + 2 * sdC; });
+        outlierBtn();
         const tip = { displayColors: false, callbacks: {
           title: (items) => { const p = items[0].raw; return p.placa ? p.placa + (p.nome ? ' · ' + p.nome.split(' ').slice(0, 2).join(' ') : '') : items[0].dataset.label; },
           label: (c2) => { const p = c2.raw; return p.placa ? `${cs} ${ccNum(p.y)}${p.y === 0 ? ' — no cost so far' : ''}` : c2.dataset.label; },
           footer: (items) => (items[0].raw.d ? 'On ' + items[0].raw.d : '') } };
         mk('ccPerCar', { type: 'scatter', data: { datasets: [
-            { label: isRec ? 'repossessions' : 'repair cases', data: pts, backgroundColor: costsTint(C, .8), pointRadius: 4, pointHoverRadius: 6 },
+            { label: isRec ? 'repossessions' : 'repair cases', data: pts, backgroundColor: costsTint(C, .8), pointRadius: ptR(4), pointHoverRadius: 6, pointBorderColor: ptBorder, pointBorderWidth: ptBorderW,
+              datalabels: outDL((p) => p.placa + ' · ' + ccK(p.y)) },
             { type: 'line', label: `expected ${ccNum(avg)} per ${isRec ? 'repossession' : 'case'}`, data: [{ x: 0, y: avg }, { x: 12, y: avg }],
               borderColor: '#6B7280', borderDash: [6, 4], borderWidth: 1.5, pointRadius: 0 },
           ] },
@@ -5448,7 +5527,8 @@
         const longSub = sub && sub.length > 34;
         let helpBtn = '';
         if (longSub) { cardHelps.push({ t, d: sub }); helpBtn = `<button type="button" class="costs-help cc-card-help" data-ch="${cardHelps.length - 1}">?</button>`; }
-        return `<div class="costs-card${strong ? ' cc-strong' : ''}" style="--cl:${C}">${helpBtn}<span>${escH(t)}</span><b>${v}</b>${longSub ? '' : `<span class="sub">${escH(sub || '')}</span>`}</div>`;
+        // o sub SEMPRE existe (nem que vazio): sem ele o número descia e desalinhava dos vizinhos
+        return `<div class="costs-card${strong ? ' cc-strong' : ''}" style="--cl:${C}">${helpBtn}<span>${escH(t)}</span><b>${v}</b><span class="sub">${longSub ? '&nbsp;' : escH(sub || '')}</span></div>`;
       };
       const evFY = evts ? S(evts.z) : 0;
       const perEvent = (evts && evFY && evts.realUSD) ? evts.realUSD / evFY : null;
@@ -5656,8 +5736,9 @@
         }).filter((r) => r.tot > 0 || r.n > 0);
         // sem os chips de timing aqui: esconde a coluna deles pra barra ocupar a caixa inteira
         if (inds) { inds.innerHTML = ''; inds.style.display = 'none'; }
+        // tons de ROXO em vez do arco-íris das frotas — a comparação é de altura, não de identidade
         mk('ccAge', { type: 'bar', data: { labels: rowsBF.map((r) => 'Fleet ' + r.id),
-            datasets: [{ data: rowsBF.map((r) => Math.round(r.per * K)), backgroundColor: rowsBF.map((r) => FLEET_COLOR(r.id)), borderRadius: 4, maxBarThickness: 58 }] },
+            datasets: [{ data: rowsBF.map((r) => Math.round(r.per * K)), backgroundColor: rowsBF.map((r, i2) => costsTint('#5A00F8', Math.max(.25, .95 - i2 * .13))), borderRadius: 4, maxBarThickness: 58 }] },
           options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 20 } },
             plugins: { legend: { display: false },
               datalabels: { anchor: 'end', align: 'top', offset: 1, color: '#374151', font: { size: 10.5, weight: 700 }, formatter: ccNum },

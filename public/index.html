@@ -600,7 +600,7 @@
         <div id="costsMain" hidden>
           <div class="costs-chart">
             <div class="cc-head"><h4>COGS Pareto</h4><span class="cc-hint">click a bar to open it below</span><button type="button" class="costs-help" data-h="pareto">?</button></div>
-            <div class="cc-cv cv-tall"><canvas id="ccPareto"></canvas></div>
+            <div class="cc-cv cv-xl"><canvas id="ccPareto"></canvas></div>
           </div>
           <div class="costs-chart" style="margin-top:14px" id="ccDrillBox">
             <div class="cc-head"><h4 id="ccDrillT"></h4><button type="button" class="costs-help" data-h="drill">?</button></div>
@@ -638,7 +638,11 @@
                linhas sem gráfico próprio escondem a caixa e o mensal ocupa a largura toda -->
           <div class="costs-grid-small" id="ccSmallGrid">
             <div class="costs-chart" id="ccLeftBox">
-              <div class="cc-head"><h4 id="ccMainT"></h4><div class="ccl-ctl" id="cclCtl"></div><button type="button" class="costs-help" data-h="percar">?</button></div>
+              <div class="cc-head"><h4 id="ccMainT"></h4><div class="ccl-ctl" id="cclCtl"></div>
+                <button type="button" class="costs-help ccl-expand" id="cclExpand" title="Expand" hidden>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+                </button>
+                <button type="button" class="costs-help" data-h="percar">?</button></div>
               <div class="cc-cv cv-tall"><canvas id="ccPerCar"></canvas></div>
             </div>
             <div class="costs-chart">

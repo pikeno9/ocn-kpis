@@ -4476,6 +4476,7 @@
     let costsMonth = null, costsFleet = null, costsDrillSel = null, costsInsAvgs = {}; // média por CATEGORIA de sinistro (slider de cada uma)
     let costsSubrModel = null;    // filtro por modelo do gráfico de aluguel por frota
     let costsFinesCount = false;  // dispersão de multas por cliente: false = valor total, true = nº de multas
+    let costsLeftBig = false;     // gráfico da esquerda expandido (largura toda + mais alto)
     let costsMonthInit = false;   // a aba abre no MÊS VIGENTE; depois disso a escolha é do usuário
     // paleta das frotas: matizes bem separados no círculo cromático, para pilhas vizinhas nunca
     // se confundirem (roxo · verde · âmbar · azul · rosa · teal · vermelho · lima)
@@ -4492,14 +4493,19 @@
     };
     // rótulo de tela: o motor precisa da chave técnica ('Traffic fines (out)'), a tela não
     const COSTS_DISP = { 'Traffic fines (out)': 'Traffic fines', 'Car Preparation': 'Car preparation', 'Part Replacement': 'Part replacement' };
-    const COSTS_LABEL = (L) => (L === COSTS_MAIN ? 'Main — COGS overview' : (COSTS_DISP[L] || L));
+    const COSTS_LABEL = (L) => (L === COSTS_MAIN ? 'Overview' : (COSTS_DISP[L] || L));
     // padrões de gráfico: sem grade de fundo, fontes discretas, moeda fora dos números
     const CC_FONT = { size: 10.5 };
     const CC_GRID = { x: { grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280' } },
       y: { grid: { display: false }, border: { display: false }, beginAtZero: true, ticks: { font: CC_FONT, color: '#6B7280' } } };
     const CC_LEG = { boxWidth: 11, boxHeight: 11, font: { size: 10.5 }, color: '#4B5563', usePointStyle: true, pointStyle: 'circle' };
     const ccNum = (v) => Math.round(v).toLocaleString('pt-BR');
-    const ccK = (v) => (Math.abs(v) >= 1000 ? Math.round(v / 1000).toLocaleString('pt-BR') + 'k' : ccNum(v));
+    // abreviação: milhões viram "2.1M" (1.000k não existe mais), milhares viram "740k"
+    const ccK = (v) => {
+      const a = Math.abs(v);
+      if (a >= 1e6) { const m = v / 1e6; return (Math.abs(m) >= 10 ? Math.round(m).toLocaleString('pt-BR') : m.toFixed(1).replace('.', ',')) + 'M'; }
+      return a >= 1000 ? Math.round(v / 1000).toLocaleString('pt-BR') + 'k' : ccNum(v);
+    };
     const costsTint = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`; };
     // hachura diagonal para marcar PROJEÇÃO nas barras — o Chart.js não tem padrão listrado nativo
     // e barra não aceita borderDash, então o preenchimento vira um CanvasPattern.
@@ -4529,11 +4535,13 @@
     let costsAvgHelp = null;   // explicação do "avg per car · month" — muda conforme a linha
     let costsLeftHelp = null;  // explicação do gráfico próprio da linha (caixa da esquerda)
     let costsAgeHelp2 = null;  // explicação alternativa do 2º gráfico grande (visão por frota)
-    function costsHelpOpen(k) {
-      const h = (k === 'avg') ? costsAvgHelp
+    // modal genérico de explicação (mesmo visual do "?" dos gráficos)
+    function costsInfoOpen(t, d) { costsHelpOpen(null, { t, d }); }
+    function costsHelpOpen(k, hDirect) {
+      const h = hDirect || ((k === 'avg') ? costsAvgHelp
         : (k === 'percar' && costsLeftHelp) ? costsLeftHelp
         : (k === 'age' && costsAgeHelp2) ? costsAgeHelp2
-        : COSTS_HELP[k]; if (!h) return;
+        : COSTS_HELP[k]); if (!h) return;
       const ov = document.createElement('div');
       ov.className = 'ue-modal-overlay';
       ov.innerHTML = `<div class="ue-modal costs-helpbox"><div class="ue-modal-title">${escH(h.t)}</div>` +
@@ -4868,33 +4876,38 @@
       const tot = rows.reduce((a, r) => a + r.v, 0) || 1;
       let acc = 0;
       const cum = rows.map((r) => { acc += r.v; return Math.round((acc / tot) * 100); });
-      // Pareto CLICÁVEL: barras (cada linha na sua cor) + curva acumulada + guia dos 80%.
-      // Clique numa barra abre o drill por frota logo abaixo.
+      // Pareto CLICÁVEL — o gráfico principal da aba, agora em tamanho de destaque: barras mais
+      // largas na cor de cada linha (a ABERTA no drill ganha contorno escuro), % do COGS na
+      // segunda linha do eixo X, curva acumulada por cima e guia dos 80%.
+      const selL = (costsDrillSel && COSTS_LIST.includes(costsDrillSel)) ? costsDrillSel : (rows[0] ? rows[0].L : null);
       mk('ccPareto', { data: { labels: rows.map((r) => COSTS_LABEL(r.L)), datasets: [
           // order MAIOR desenha ANTES (atrás): as barras vão para trás e a curva fica por cima
-          { type: 'bar', label: 'Total', order: 3, data: rows.map((r) => Math.round(r.v * K)), backgroundColor: rows.map((r) => COSTS_COLOR[r.L]), yAxisID: 'y', borderRadius: 5, maxBarThickness: 54,
-            datalabels: { display: (c) => c.dataset.data[c.dataIndex] > 0, anchor: 'end', align: 'top', offset: 2, color: '#4B5563', font: { size: 10.5, weight: 700 }, formatter: ccK } },
-          { type: 'line', label: 'cumulative %', order: 1, data: cum, yAxisID: 'y2', borderColor: '#111827', borderWidth: 2.5, pointRadius: 4, pointBackgroundColor: '#fff', pointBorderColor: '#111827', pointBorderWidth: 2, tension: .25,
-            datalabels: { display: true, align: 'top', offset: 7, color: '#111827', font: { size: 10.5, weight: 800 },
-              backgroundColor: 'rgba(255,255,255,.88)', borderRadius: 4, padding: { top: 2, bottom: 1, left: 4, right: 4 }, formatter: (v) => v + '%' } },
+          { type: 'bar', label: 'Total', order: 3, data: rows.map((r) => Math.round(r.v * K)), backgroundColor: rows.map((r) => COSTS_COLOR[r.L]), yAxisID: 'y', borderRadius: 8, maxBarThickness: 66,
+            borderColor: rows.map((r) => (r.L === selL ? '#111827' : 'transparent')), borderWidth: rows.map((r) => (r.L === selL ? 2 : 0)),
+            datalabels: { display: (c) => c.dataset.data[c.dataIndex] > 0, anchor: 'end', align: 'top', offset: 3, color: '#374151', font: { size: 11.5, weight: 800 }, formatter: ccK } },
+          { type: 'line', label: 'cumulative %', order: 1, data: cum, yAxisID: 'y2', borderColor: '#111827', borderWidth: 2.5, pointRadius: 4.5, pointHoverRadius: 6, pointBackgroundColor: '#fff', pointBorderColor: '#111827', pointBorderWidth: 2, tension: .25,
+            datalabels: { display: true, align: 'top', offset: 8, color: '#111827', font: { size: 10.5, weight: 800 },
+              backgroundColor: 'rgba(255,255,255,.9)', borderRadius: 5, padding: { top: 2, bottom: 1, left: 5, right: 5 }, formatter: (v) => v + '%' } },
           { type: 'line', label: '80% guide', order: 2, data: rows.map(() => 80), yAxisID: 'y2', borderColor: '#B91C1C', borderDash: [5, 4], borderWidth: 1.2, pointRadius: 0, datalabels: { display: false } },
         ] },
         options: { responsive: true, maintainAspectRatio: false,
           // o rótulo da barra mais alta é desenhado ACIMA dela: sem folga no topo ele saía cortado
-          layout: { padding: { top: 26 } },
+          layout: { padding: { top: 30 } },
           interaction: { mode: 'index', intersect: false },
           onClick: (e, els) => { if (els && els.length) { costsDrillSel = rows[els[0].index].L; renderCosts(); } },
           onHover: (e, els) => { e.native.target.style.cursor = els && els.length ? 'pointer' : 'default'; },
-          plugins: { legend: { position: 'bottom', align: 'end', labels: CC_LEG },
-            tooltip: { padding: 10, titleFont: { size: 12 }, bodyFont: { size: 11.5 }, displayColors: false,
+          plugins: { legend: { position: 'bottom', align: 'end', labels: Object.assign({}, CC_LEG, { padding: 14 }) },
+            tooltip: { displayColors: false,
               filter: (item) => item.datasetIndex !== 2,          // a guia dos 80% não é informação de hover
               callbacks: { label: (c) => (c.datasetIndex === 0
                 ? cs + ' ' + ccNum(c.parsed.y) + ' · ' + (tot ? (rows[c.dataIndex].v / tot * 100).toFixed(1) : 0) + '% of COGS'
                 : 'Cumulative share: ' + c.parsed.y + '%'),
                 footer: (items) => (items && items.length ? 'Click to open by fleet' : '') } } },
-          scales: { y: { grid: { display: false }, border: { display: false }, beginAtZero: true, grace: '10%', ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } },
+          scales: { y: { grid: { color: 'rgba(120,120,140,.08)' }, border: { display: false }, beginAtZero: true, grace: '10%', ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } },
             y2: { position: 'right', min: 0, max: 112, grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280', callback: (v) => (v <= 100 ? v + '%' : '') } },
-            x: { grid: { display: false }, border: { display: false }, ticks: { font: { size: 10.5 }, color: '#374151' } } } } });
+            // 2ª linha do eixo: participação da linha no COGS — o Pareto inteiro numa olhada
+            x: { grid: { display: false }, border: { display: false }, ticks: { font: { size: 11, weight: 700 }, color: '#374151', maxRotation: 0, minRotation: 0,
+              callback: function (v, i) { return [this.getLabelForValue(v), (tot ? (rows[i].v / tot * 100).toFixed(1) : 0) + '%']; } } } } } });
       // ---- drill da barra clicada: mensal EMPILHADO POR FROTA (realizado) + custo médio/carro ----
       const RF = costsRealByFleet();
       const drillL = (costsDrillSel && COSTS_LIST.includes(costsDrillSel)) ? costsDrillSel : (rows[0] ? rows[0].L : COSTS_LIST[0]);
@@ -4929,10 +4942,10 @@
           layout: { padding: { top: 18 } },
           interaction: { mode: 'index', intersect: false },
           plugins: { legend: { position: 'bottom', align: 'start', labels: Object.assign({}, CC_LEG, { padding: 14, filter: (item, data) => !data.datasets[item.datasetIndex].legendHide }) },
-            // VALOR dentro da fatia (abreviado), e só quando a fatia tem altura para não apertar
-            datalabels: { display: (c) => { const el = c.chart.getDatasetMeta(c.datasetIndex).data[c.dataIndex]; return c.dataset.data[c.dataIndex] > 0 && el && Math.abs(el.base - el.y) > 20; },
+            // VALOR dentro da fatia (abreviado) — limiar baixo pra ficar visível sem depender do hover
+            datalabels: { display: (c) => { const el = c.chart.getDatasetMeta(c.datasetIndex).data[c.dataIndex]; return c.dataset.data[c.dataIndex] > 0 && el && Math.abs(el.base - el.y) > 11; },
               // na barra hachurada o branco some — ali o rótulo vai em cinza-escuro
-              color: (c) => (c.dataset.proj ? '#374151' : '#fff'), font: { size: 9.5, weight: 800 }, formatter: ccK },
+              color: (c) => (c.dataset.proj ? '#374151' : '#fff'), font: { size: 9, weight: 400 }, formatter: ccK, clamp: true },
             tooltip: { padding: 10, titleFont: { size: 12 }, bodyFont: { size: 11.5 },
               callbacks: { label: (c) => c.dataset.label + ': ' + ccNum(c.parsed.y),
                 footer: (items) => 'total: ' + ccNum(items.reduce((a, i2) => a + i2.parsed.y, 0)) } } },
@@ -5059,14 +5072,25 @@
     // respondia nenhuma. Subrental: quanto é o aluguel de cada frota. Insurance: como as parcelas
     // se empilham por frota. Maintenance: idade × km de cada placa. Multas: quanto cada CLIENTE
     // acumula. Recovery/Repair: cada caso com seu custo. As demais escondem a caixa.
-    // cores por MODELO de carro (aluguel por frota) — uma cor bonita e distinta por modelo
-    const MODEL_COLOR = { Polo: '#7C3AED', Argo: '#0EA5E9', Tera: '#F59E0B' };
+    // cores por MODELO de carro (aluguel por frota) — Argo em amarelo (pedido); o Tera herdou o
+    // azul que era do Argo para as três continuarem distintas
+    const MODEL_COLOR = { Polo: '#7C3AED', Argo: '#FACC15', Tera: '#0EA5E9' };
     function renderCostsLeft(C, H) {
       const { mk, K, cs, noDL } = H;
       const box = document.getElementById('ccLeftBox'), grid = document.getElementById('ccSmallGrid');
       const ctl = document.getElementById('cclCtl');
       if (ctl) ctl.innerHTML = '';
       const title = (t) => { document.getElementById('ccMainT').innerHTML = `<span class="costs-pk-dot" style="background:${C}"></span>${escH(t)}`; };
+      // botão de EXPANDIR: só nos gráficos que ganham detalhe com espaço (frotas, parcelas, dispersões)
+      const expBtn = document.getElementById('cclExpand');
+      const canExpand = ['Subrental fee', 'Insurance', 'Maintenance', 'Traffic fines (out)'].includes(costsSel);
+      if (expBtn) {
+        expBtn.hidden = !canExpand;
+        expBtn.classList.toggle('on', costsLeftBig && canExpand);
+        expBtn.title = costsLeftBig ? 'Collapse' : 'Expand';
+        expBtn.onclick = () => { costsLeftBig = !costsLeftBig; renderCosts(); };
+      }
+      box.classList.toggle('expanded', costsLeftBig && canExpand);
       const show = (on) => { box.style.display = on ? '' : 'none'; grid.style.gridTemplateColumns = on ? '' : '1fr'; };
       const fx = finPar('__fin_fx__') || 5.5;
       const fleetsMeta = ((OCN.ue || {}).fleets) || [];
@@ -5079,7 +5103,7 @@
       if (costsSel === 'Subrental fee') {
         const all = fleetsMeta.map((f) => ({ f, v: Number((realFleetParams[f.id] || {})['__subrental_mensal__@@0']) || 0 })).filter((r) => r.v > 0);
         if (!all.length) { show(false); return; }
-        show(true); title('Rent by fleet');
+        show(true); title('Subrental Price');
         // botões-filtro por MODELO (também funcionam de legenda das cores)
         const models = [...new Set(all.map((r) => r.f.model))];
         if (ctl) {
@@ -5089,7 +5113,7 @@
           ctl.querySelectorAll('.ccl-btn').forEach((b) => b.addEventListener('click', () => { costsSubrModel = b.dataset.m || null; renderCosts(); }));
         }
         const rows = costsSubrModel ? all.filter((r) => r.f.model === costsSubrModel) : all;
-        costsLeftHelp = { t: 'Rent by fleet', d: 'The monthly sub-rental rate each fleet pays per car, straight from the fleet\'s UE box. Bars wear the colour of the car model (the buttons above filter by model). No time axis on purpose: the rent is contractual and flat over the 12 months.' };
+        costsLeftHelp = { t: 'Subrental Price', d: 'The monthly sub-rental rate each fleet pays per car, straight from the fleet\'s UE box. Bars wear the colour of the car model (the buttons above filter by model). No time axis on purpose: the rent is contractual and flat over the 12 months.' };
         mk('ccPerCar', { type: 'bar', data: { labels: rows.map((r) => 'Fleet ' + r.f.id),
             datasets: [{ data: rows.map((r) => Math.round((r.v / fx) * K)), backgroundColor: rows.map((r) => MODEL_COLOR[r.f.model] || C), borderRadius: 6, maxBarThickness: 58 }] },
           options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 22 } },
@@ -5111,15 +5135,15 @@
           cols.push({ f, parcelas: r.parcelas, carsCov });
         });
         if (!cols.length) { show(false); return; }
-        show(true); title('Installments per car');
-        costsLeftHelp = { t: 'Installments per car', d: 'Each column is a fleet; each slice is one REAL installment of its policy (sheet tab "insurance") divided by the cars the policy covers — fleets 4 and 5 share one policy, so both show the endorsement split across their 39 combined cars. The number inside each slice is the installment number, and the number on top is the fleet\'s total insurance per car for the whole coverage. Hover a slice to see the due date.' };
+        show(true); title('Insurance by Fleet');
+        costsLeftHelp = { t: 'Insurance by Fleet', d: 'Each column is a fleet; each slice is one REAL installment of its policy (sheet tab "insurance") divided by the cars the policy covers — fleets 4 and 5 share one policy, so both show the endorsement split across their 39 combined cars. The number inside each slice is the installment number, and the number on top is the fleet\'s total insurance per car for the whole coverage. Hover a slice to see the due date.' };
         const maxP = Math.max(...cols.map((c2) => c2.parcelas.length));
         const dsets = Array.from({ length: maxP }, (_, i) => ({
           label: 'installment ' + (i + 1), stack: 's', maxBarThickness: 58, borderRadius: 2,
           backgroundColor: costsTint(C, .95 - (i / Math.max(1, maxP - 1)) * .72),
-          // nº da PARCELA dentro da fatia — deixa óbvio quantas parcelas cada frota tem
-          datalabels: { display: (c2) => { const el = c2.chart.getDatasetMeta(c2.datasetIndex).data[c2.dataIndex]; return c2.dataset.data[c2.dataIndex] > 0 && el && Math.abs(el.base - el.y) > 13; },
-            color: (c2) => (i < maxP / 2 ? '#fff' : '#1F2937'), font: { size: 9.5, weight: 800 }, formatter: () => i + 1 },
+          // nº da PARCELA dentro da fatia — SEMPRE visível, branco e em fonte fina
+          datalabels: { display: (c2) => c2.dataset.data[c2.dataIndex] > 0,
+            color: '#fff', font: { size: 9, weight: 400 }, formatter: () => i + 1, clamp: true },
           data: cols.map((c2) => (c2.parcelas[i] ? Math.round((c2.parcelas[i].valor / c2.carsCov / fx) * K) : null)),
         }));
         mk('ccPerCar', { type: 'bar', data: { labels: cols.map((c2) => 'Fleet ' + c2.f.id), datasets: dsets },
@@ -5417,7 +5441,15 @@
       if (lineEl) lineEl.hidden = isMain;
       if (isMain) { renderCostsMain(P, { S, K, cs, money, lineOfL, sumOf, mSel, inScope }); return; }
       // ---- cartões de peso (indicadores criados ficam DENTRO das caixas dos gráficos deles) ----
-      const card = (t, v, sub, strong) => `<div class="costs-card${strong ? ' cc-strong' : ''}" style="--cl:${C}"><span>${escH(t)}</span><b>${v}</b><span class="sub">${escH(sub || '')}</span></div>`;
+      // Descrição LONGA (quebraria em 2+ linhas e desalinharia os cartões) vira um "?" no canto
+      // que abre a explicação num modal — o cartão fica só com título + número.
+      const cardHelps = [];
+      const card = (t, v, sub, strong) => {
+        const longSub = sub && sub.length > 34;
+        let helpBtn = '';
+        if (longSub) { cardHelps.push({ t, d: sub }); helpBtn = `<button type="button" class="costs-help cc-card-help" data-ch="${cardHelps.length - 1}">?</button>`; }
+        return `<div class="costs-card${strong ? ' cc-strong' : ''}" style="--cl:${C}">${helpBtn}<span>${escH(t)}</span><b>${v}</b>${longSub ? '' : `<span class="sub">${escH(sub || '')}</span>`}</div>`;
+      };
       const evFY = evts ? S(evts.z) : 0;
       const perEvent = (evts && evFY && evts.realUSD) ? evts.realUSD / evFY : null;
       // ---- INSURANCE: vale a pena ter seguro? ----
@@ -5570,6 +5602,7 @@
           ? card(evts.label + ' · ' + perName(mSel), String(evScope), JAG && JAG.com != null ? 'hits on average at M' + JAG.com.toFixed(1) + ' of a car\'s life' : 'cases in the period')
           : (evts && evFY ? card(evts.label + ' (FY)', String(evFY), perEvent != null ? money(perEvent) + ' per event — realized only' : 'no realized cost yet') : '')) +
         '</div>';
+      document.querySelectorAll('#costsHero .cc-card-help').forEach((b) => { b.onclick = () => { const h = cardHelps[+b.dataset.ch]; if (h) costsInfoOpen(h.t, h.d); }; });
       // ---- gráficos (todos vestem a cor da linha selecionada) ----
       const mk = (id, cfg) => { if (costsCharts[id]) { costsCharts[id].destroy(); delete costsCharts[id]; } const c = document.getElementById(id); if (!c) return; costsCharts[id] = new Chart(c.getContext('2d'), cfg); };
       const nMes = isYtd && RF.curM >= 0 ? RF.curM + 1 : FIN_MONTHS;   // YTD encerra no mês vigente
@@ -5644,9 +5677,12 @@
           `<div class="cc-big" style="--cl:${timing.c}"><b class="cc-verdict">${timing.t}</b><span>Cost timing</span><i>${timing.d}</i></div>` +
           `<div class="cc-big" style="--cl:${C}"><b>M${com.toFixed(1)}</b><span>Average month of spend</span><i>center of mass, M0–M13</i></div>`;
         if (perOk) mk('ccAge', { type: 'bar', data: { labels: Array.from({ length: UET_PERIODS }, (_, p) => 'M' + p), datasets: [{ data: per.map((v) => Math.round(v)), backgroundColor: per.map((_, p) => p < 4 ? C : costsTint(C, .35)), borderRadius: 3 }] },
-          options: { responsive: true, maintainAspectRatio: false, plugins: Object.assign({ legend: { display: false }, tooltip: { padding: 10, displayColors: false, callbacks: { label: (c) => ccNum(c.parsed.y),
+          options: { responsive: true, maintainAspectRatio: false, plugins: Object.assign({ legend: { display: false }, tooltip: { displayColors: false, callbacks: { label: (c) => ccNum(c.parsed.y),
             // nas linhas medidas, o tooltip mostra a base: quantos casos e quantos carros já viveram a idade
-            afterBody: (items) => { if (!(JAG && JAG.ok) || !items.length) return ''; const p = items[0].dataIndex; const n = JAG.cnt[p] || 0; return n ? n + ' case' + (n === 1 ? '' : 's') + ' · ' + Math.round(JAG.exp[p]) + ' cars lived this month of life' : (JAG.exp[p] > 0 ? 'no case at this age yet' : 'no fleet has reached this age'); } } } }, noDL), scales: CC_GRID } });
+            afterBody: (items) => { if (!(JAG && JAG.ok) || !items.length) return ''; const p = items[0].dataIndex; const n = JAG.cnt[p] || 0; return n ? n + ' case' + (n === 1 ? '' : 's') + ' · ' + Math.round(JAG.exp[p]) + ' cars lived this month of life' : (JAG.exp[p] > 0 ? 'no case at this age yet' : 'no fleet has reached this age'); } } } }, noDL),
+            // TODOS os meses no eixo (M0..M13): sem autoSkip — a caixa dos chips ao lado afinou pra isso caber
+            scales: { x: { grid: { display: false }, border: { display: false }, ticks: { font: { size: 9 }, color: '#6B7280', autoSkip: false, maxRotation: 0, minRotation: 0 } },
+              y: { grid: { display: false }, border: { display: false }, beginAtZero: true, ticks: { font: CC_FONT, color: '#6B7280' } } } } });
       }
       // ---- what-if: % sobre a linha, efeito primário em COGS / margem / caixa ----
       // Painel na cor da linha: % gigante + slider + 4 blocos de resultado com o delta em chip

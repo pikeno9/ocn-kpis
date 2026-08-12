@@ -436,7 +436,10 @@ html { scrollbar-gutter: stable; }
 .costs-card > span { display: block; font-size: 9.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-2); margin-bottom: 5px; font-weight: 700; }
 .costs-card b { font-size: 23px; line-height: 1.05; letter-spacing: -.01em; }
 .costs-card.cc-strong b { font-size: 28px; color: var(--cl, var(--accent)); }
-.costs-card .sub { font-size: 10px; color: var(--text-2); font-weight: 500; display: block; margin-top: 5px; text-transform: none; letter-spacing: 0; line-height: 1.35; }
+.costs-card .sub { font-size: 10px; color: var(--text-2); font-weight: 500; display: block; margin-top: 5px; text-transform: none; letter-spacing: 0; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* "?" do cartão: descrição longa vira modal pra manter todos os cartões da mesma altura */
+.costs-card { position: relative; }
+.cc-card-help { position: absolute; top: 7px; right: 7px; width: 18px; height: 18px; font-size: 10px; line-height: 1; }
 /* grades: os dois GRANDES (ranking + vida do carro) e os dois pequenos */
 /* mesmas colunas nos dois grids — com 1fr/1.2fr em cima e 1fr/1fr embaixo as bordas não alinhavam */
 .costs-grid-big { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
@@ -555,7 +558,10 @@ html { scrollbar-gutter: stable; }
 @media (max-width: 980px) { .ins-grid { grid-template-columns: 1fr; } }
 /* vida do carro: os dois indicadores ENFÁTICOS ao lado do gráfico */
 .cc-agewrap { display: flex; gap: 14px; align-items: stretch; }
-.cc-inds { flex: none; width: 168px; display: flex; flex-direction: column; gap: 10px; justify-content: center; }
+/* mais estreita: o gráfico ao lado precisa de largura pra mostrar M0..M13 sem pular meses */
+.cc-inds { flex: none; width: 128px; display: flex; flex-direction: column; gap: 8px; justify-content: center; }
+.cc-inds .cc-big { padding: 9px 10px; }
+.cc-inds .cc-big b.cc-verdict { font-size: 14.5px; }
 .cc-big { border: 1px solid color-mix(in srgb, var(--cl, var(--accent)) 30%, var(--border)); background: color-mix(in srgb, var(--cl, var(--accent)) 6%, var(--surface)); border-radius: 12px; padding: 12px 13px; }
 .cc-big b { display: block; font-size: 26px; line-height: 1; color: var(--cl, var(--accent)); letter-spacing: -.01em; }
 .cc-big span { display: block; font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--text-2); margin-top: 5px; }
@@ -576,6 +582,14 @@ html { scrollbar-gutter: stable; }
 .ccl-btn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--accent)); }
 .ccl-btn:hover { border-color: var(--c, var(--accent)); color: var(--text); }
 .ccl-btn.on { border-color: var(--c, var(--accent)); background: color-mix(in srgb, var(--c, var(--accent)) 10%, var(--surface)); color: var(--text); }
+/* expandir: a caixa da esquerda toma a linha inteira do grid e cresce na vertical;
+   o gráfico mensal desce naturalmente para a linha de baixo */
+.ccl-expand { display: inline-flex; align-items: center; justify-content: center; }
+.ccl-expand svg { width: 12px; height: 12px; }
+.ccl-expand.on, .ccl-expand:hover { border-color: var(--accent); color: var(--accent); }
+#ccLeftBox.expanded { grid-column: 1 / -1; }
+#ccLeftBox.expanded .cc-cv { height: 560px; }
+#ccLeftBox.expanded ~ .costs-chart { grid-column: 1 / -1; }   /* o mensal desce em largura cheia */
 /* what-if: painel na cor da linha — % gigante + slider + blocos de resultado com delta em chip */
 .costs-whatif { border: 1px solid color-mix(in srgb, var(--cl, var(--accent)) 35%, var(--border)); background: linear-gradient(135deg, color-mix(in srgb, var(--cl, var(--accent)) 7%, var(--surface)), var(--surface) 55%); border-radius: 14px; padding: 16px 18px; margin-top: 16px; }
 .cw-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }

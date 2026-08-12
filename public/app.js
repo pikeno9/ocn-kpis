@@ -1,6 +1,9 @@
 /* ===================== OCN KPIs — app ===================== */
 (function () {
   Chart.register(ChartDataLabels);
+  // nitidez: em telas com escala 100% o Chart.js renderiza a 1×, e os gráficos saem serrilhados
+  // em monitores com escala do Windows — força pelo menos 2× em todos os canvases
+  Chart.defaults.devicePixelRatio = Math.max(2, window.devicePixelRatio || 1);
 
   // Busca dados ao vivo da API; em falha, usa o snapshot fallback (data.js)
   (async function boot() {
@@ -508,14 +511,14 @@
     const pctTag = (v) => (v == null ? '' : '(' + Math.round(v) + '%)'); // rótulo na barra: entre parênteses, sem decimais
     const absFmt = (ctx) => { const a = ctx.dataset._abs ? ctx.dataset._abs[ctx.dataIndex] : null; return a == null ? '' : a; };
     const baseActive = FS.active.slice(), baseInactive = FS.inactive.slice(), baseLoss = (FS.loss || FS.labels.map(() => 0)).slice();
-    const ovr = { active: {}, inactive: {} };
+    const ovr = { active: {}, inactive: {}, loss: {} };
     (OCN._fleetOvr || []).forEach((o) => { if (ovr[o.line] && o.value != null) ovr[o.line][o.period] = o.value; });
     const eff = { active: [], inactive: [], loss: [], total: [], activePct: [], inactivePct: [], lossPct: [] };
     function recalc() {
       for (let i = 0; i < FS.labels.length; i++) {
         const a = (ovr.active[i] != null) ? ovr.active[i] : baseActive[i];
         const n = (ovr.inactive[i] != null) ? ovr.inactive[i] : baseInactive[i];
-        const l = baseLoss[i] || 0; // perda total não é editável (só active/inactive)
+        const l = (ovr.loss[i] != null) ? ovr.loss[i] : (baseLoss[i] || 0); // perda total agora também é editável
         const t = (a || 0) + (n || 0) + l;
         eff.active[i] = a; eff.inactive[i] = n; eff.loss[i] = l; eff.total[i] = t || null;
         eff.activePct[i] = t ? (a / t) * 100 : null;
@@ -635,9 +638,10 @@
           `<tr><td>${lab}</td>` +
           `<td><input type="number" min="0" step="1" id="utilA${i}" value="${eff.active[i] != null ? eff.active[i] : ''}" style="${inpStyle}"></td>` +
           `<td><input type="number" min="0" step="1" id="utilI${i}" value="${eff.inactive[i] != null ? eff.inactive[i] : ''}" style="${inpStyle}"></td>` +
-          `<td style="color:var(--text-2)">${(ovr.active[i] != null || ovr.inactive[i] != null) ? 'manual' : ''}</td></tr>`).join('');
+          `<td><input type="number" min="0" step="1" id="utilL${i}" value="${eff.loss[i] != null ? eff.loss[i] : ''}" style="${inpStyle}"></td>` +
+          `<td style="color:var(--text-2)">${(ovr.active[i] != null || ovr.inactive[i] != null || ovr.loss[i] != null) ? 'manual' : ''}</td></tr>`).join('');
         editEl.innerHTML =
-          `<table class="rh-table" style="max-width:460px;margin-top:10px"><thead><tr><th>Month</th><th>Active</th><th>Inactive</th><th></th></tr></thead><tbody>${rows}</tbody></table>` +
+          `<table class="rh-table" style="max-width:560px;margin-top:10px"><thead><tr><th>Month</th><th>Active</th><th>Inactive</th><th>Total loss</th><th></th></tr></thead><tbody>${rows}</tbody></table>` +
           `<div style="margin-top:10px;display:flex;gap:8px;align-items:center">` +
           `<button class="backbtn" id="utilSave" style="display:inline-flex"><i class="ti ti-check"></i> Save</button>` +
           `<button class="backbtn" id="utilCancel" style="display:inline-flex">Cancel</button>` +
@@ -652,7 +656,7 @@
         const jobs = [];
         const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); });
         for (let i = 0; i <= vi && i < FS.labels.length; i++) {
-          [['active', 'utilA', baseActive], ['inactive', 'utilI', baseInactive]].forEach(([line, pre, baseArr]) => {
+          [['active', 'utilA', baseActive], ['inactive', 'utilI', baseInactive], ['loss', 'utilL', baseLoss]].forEach(([line, pre, baseArr]) => {
             const inp = document.getElementById(pre + i);
             if (!inp) return;
             const v = inp.value === '' ? null : Number(inp.value);
@@ -4649,6 +4653,17 @@
           if (semanal > 0) addR(m, semanal * MOND[m] * c);
           addR(m, (FRf.gross || 0) * (FRf.prem || 1.1) * new Date(finYear, m + 1, 0).getDate() * c);
         }
+        // mês VIGENTE: completa a receita com o que ainda vai entrar até o fim do mês (segundas
+        // que faltam + ritmo de multas dos dias restantes). Sem isso o share of revenue do mês
+        // atual explodia: custo comprometido do mês INTEIRO ÷ receita recebida até o dia de hoje.
+        if (curM >= 0 && m0 != null && curM >= m0 && curM <= m0 + 11 && hojeD.getFullYear() === finYear) {
+          const c = carsAt(curM);
+          const dim = new Date(finYear, curM + 1, 0).getDate();
+          let mondaysLeft = 0;
+          for (let d = hojeD.getDate() + 1; d <= dim; d++) if (new Date(finYear, curM, d).getDay() === 1) mondaysLeft++;
+          if (semanal > 0 && mondaysLeft > 0) addR(curM, semanal * mondaysLeft * c);
+          addR(curM, (FRf.gross || 0) * (FRf.prem || 1.1) * Math.max(0, dim - hojeD.getDate()) * c);
+        }
         // ---- carros da frota por mês, PRO-RATA no mês de entrada ----
         // Uma frota que chega dia 19 não expõe o mês inteiro; contar o mês cheio inflava o
         // denominador do custo por carro·mês.
@@ -4962,9 +4977,10 @@
           `<span>cash · ${escH(perName(H.mSel))}</span>` +
           (showProj ? `<i><b class="cc-proj-lg">${money(dTot + projTot)}</b> full year · realized through ${monthLbl(RF.curM)} + forecast ahead</i>` : '') +
           // parcelas do seguro que vencem no ANO SEGUINTE: fora do gráfico anual, mas não somem
+          // (sem <b> aqui: dentro do .cc-big o <b> herda a fonte gigante do número principal)
           (drillL === 'Insurance' ? (() => {
             const IP = insParcelasRS(rfF.map((f) => f.id)), fxr = finPar('__fin_fx__') || 5.5;
-            return IP.depois > 0 ? `<i>+ <b>${money(IP.depois / fxr)}</b> falling due in ${finYear + 1} · full contracts: <b>${money(IP.total / fxr)}</b></i>` : '';
+            return IP.depois > 0 ? `<i>+ <span class="cc-basis">${money(IP.depois / fxr)}</span> falling due in ${finYear + 1} · full contracts: <span class="cc-basis">${money(IP.total / fxr)}</span></i>` : '';
           })() : '') +
         `</div>`;
       document.querySelectorAll('#ccDrillInds .costs-help').forEach((b) => { b.onclick = () => costsHelpOpen('avg'); });
@@ -4984,14 +5000,14 @@
       const isAno = (m) => m === nM;
       const r1 = (v) => (v == null ? null : Math.round(v * 10) / 10);
       mk('ccShare', { type: 'bar', data: { labels: shareLabels, datasets: shareTop.map((L) => (
-          { label: COSTS_LABEL(L), data: pctOf(L).map(r1),
-            backgroundColor: pctOf(L).map((v, m) => (futuro(m) ? costsTint(COSTS_COLOR[L], .45) : COSTS_COLOR[L])),
+          { label: COSTS_LABEL(L), data: pctOf(L).map(r1), _fut: true,
+            backgroundColor: pctOf(L).map((v, m) => (futuro(m) ? costsTint(COSTS_COLOR[L], .62) : COSTS_COLOR[L])),
             borderColor: pctOf(L).map((v, m) => (isAno(m) ? '#111827' : 'transparent')), borderWidth: pctOf(L).map((v, m) => (isAno(m) ? 1 : 0)),
-            stack: 's', maxBarThickness: 40 }
+            stack: 's', maxBarThickness: 44, borderRadius: 1 }
         )).concat([{ label: 'Others', data: othersPct.map((v, m) => (totCol[m] > 0 ? r1(v) : null)),
-          backgroundColor: othersPct.map((_, m) => (futuro(m) ? 'rgba(156,163,175,.45)' : '#9CA3AF')),
+          backgroundColor: othersPct.map((_, m) => (futuro(m) ? 'rgba(156,163,175,.62)' : '#9CA3AF')),
           borderColor: othersPct.map((_, m) => (isAno(m) ? '#111827' : 'transparent')), borderWidth: othersPct.map((_, m) => (isAno(m) ? 1 : 0)),
-          stack: 's', maxBarThickness: 40 }]) },
+          stack: 's', maxBarThickness: 44, borderRadius: 1 }]) },
         // COGS absoluto de cada coluna, em destaque acima da barra
         plugins: [{ id: 'shareTot', afterDatasetsDraw(ch) {
           const { ctx } = ch; const top = ch.chartArea.top;
@@ -5012,8 +5028,11 @@
           layout: { padding: { top: 24 } },
           interaction: { mode: 'index', intersect: false },
           plugins: { legend: { position: 'bottom', align: 'start', labels: Object.assign({}, CC_LEG, { padding: 14 }) },
-            // com o gráfico mais alto cabe rótulo em fatia bem menor
-            datalabels: { display: (c) => (c.dataset.data[c.dataIndex] || 0) >= 3, color: '#fff', font: { size: 9.5, weight: 800 }, formatter: (v) => (v >= 10 ? Math.round(v) : v.toFixed(1)) + '%' },
+            // rótulo só em fatia com espaço, sem casa decimal (o ,1% poluía) e com contraste
+            // certo: texto escuro nas fatias PROJETADAS (tinta clara), branco nas cheias
+            datalabels: { display: (c) => (c.dataset.data[c.dataIndex] || 0) >= 4,
+              color: (c) => (futuro(c.dataIndex) ? '#1F2937' : '#fff'),
+              font: { size: 10, weight: 800 }, formatter: (v) => Math.round(v) + '%' },
             tooltip: { padding: 10, titleFont: { size: 12 }, bodyFont: { size: 11.5 },
               callbacks: { title: (items) => shareLabels[items[0].dataIndex] + ' — ' + cs + ' ' + ccNum(totCol[items[0].dataIndex] * K),
                 label: (c) => c.dataset.label + ': ' + (c.parsed.y == null ? '—' : c.parsed.y.toFixed(1) + '%'),
@@ -5099,11 +5118,19 @@
         const wTot = UT.reduce((s, r) => s + r.weeksElapsed, 0);
         const kmWk = wTot > 0 ? UT.reduce((s, r) => s + r.odo, 0) / wTot : 0;   // km/semana médio da frota inteira
         const yMax = Math.max(...pts.map((p) => p.y), kmWk * (xMax * 30.44 / 7));
-        mk('ccPerCar', { type: 'scatter', data: { datasets: [
-            { label: 'plates', data: pts, backgroundColor: costsTint(C, .8), pointRadius: 3.5, pointHoverRadius: 5 },
+        // cada bolinha na cor da FAIXA de 10.000 km em que o carro está (frio = rodou pouco,
+        // quente = perto/além das revisões mais caras) — um dataset por faixa, pra legenda sair certa
+        const BAND_COLORS = ['#38BDF8', '#0E7490', '#F59E0B', '#EF4444', '#7F1D1D'];
+        const bandOf = (km) => Math.min(BAND_COLORS.length - 1, Math.floor(km / 10000));
+        const bandLbl = (b) => (b === BAND_COLORS.length - 1 ? (b * 10) + 'k+' : (b * 10) + '–' + ((b + 1) * 10) + 'k');
+        const bands = BAND_COLORS.map((col, b) => ({ b, col, pts: pts.filter((p) => bandOf(p.y) === b) })).filter((x) => x.pts.length);
+        mk('ccPerCar', { type: 'scatter', data: { datasets: bands.map((bd) => (
+            { label: bandLbl(bd.b) + ' km', data: bd.pts, backgroundColor: bd.col,
+              pointRadius: 4, pointHoverRadius: 6, pointBorderColor: '#fff', pointBorderWidth: 1 }
+          )).concat([
             { type: 'line', label: `avg ${ccNum(kmWk)} km/week`, data: [{ x: 0, y: 0 }, { x: xMax, y: kmWk * (xMax * 30.44 / 7) }],
               borderColor: '#6B7280', borderDash: [6, 4], borderWidth: 1.5, pointRadius: 0 },
-          ] },
+          ]) },
           options: { responsive: true, maintainAspectRatio: false,
             plugins: Object.assign({ legend: { labels: CC_LEG },
               tooltip: { padding: 10, displayColors: false, callbacks: { label: (c2) => { const p = c2.raw;
@@ -5542,7 +5569,8 @@
           for (let m = 0; m <= RF.curM; m++) { c2 += (f2.arr[costsSel] || [])[m] || 0; cm2 += f2.cars[m] || 0; }
           return { id: f2.id, per: cm2 > 0 ? c2 / cm2 : 0, tot: c2, n: cntByFleet[f2.id] || 0 };
         }).filter((r) => r.tot > 0 || r.n > 0);
-        if (inds) inds.innerHTML = '';
+        // sem os chips de timing aqui: esconde a coluna deles pra barra ocupar a caixa inteira
+        if (inds) { inds.innerHTML = ''; inds.style.display = 'none'; }
         mk('ccAge', { type: 'bar', data: { labels: rowsBF.map((r) => 'Fleet ' + r.id),
             datasets: [{ data: rowsBF.map((r) => Math.round(r.per * K)), backgroundColor: rowsBF.map((r) => FLEET_COLOR(r.id)), borderRadius: 4, maxBarThickness: 58 }] },
           options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 20 } },
@@ -5552,6 +5580,7 @@
             scales: CC_GRID } });
       } else {
         if (ageBox) ageBox.style.display = perOk ? '' : 'none';
+        if (inds) inds.style.display = '';
         document.getElementById('ccAgeT').textContent = 'When it hits a car’s life';
         // o índice em si virou detalhe: o que importa na leitura é o VEREDITO, não o 2,37×
         const timing = fli == null ? null : (fli >= 1.4

@@ -113,7 +113,7 @@ app.use(requireAuth);
 // Unit Economics (real + teórico) e Finance: SÓ Giga Admin. sub -> chaves removidas do payload.
 // Headcount deixou de ser sub-aba própria (virou aba de 3º nível dentro de SG&A/finadmin);
 // os dados continuam protegidos por requireGiga em /api/finance/hc.
-const RESTRICTED_GIGA_ONLY = { unit: ['ue'], unittheoric: [], pnl: [], fleetplan: [], finadmin: [], fincac: [], finassump: [], findash: [] };
+const RESTRICTED_GIGA_ONLY = { unit: ['ue'], unittheoric: [], pnl: [], fleetplan: [], finadmin: [], fincac: [], finassump: [], findash: [], fincosts: [], finunit: [] };
 // Restrições do visualizador (não-admin), como antes.
 const RESTRICTED_NON_ADMIN = { headcount: ['rh'] };
 app.get('/api/data', (req, res) => {

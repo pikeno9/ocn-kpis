@@ -756,6 +756,15 @@ html { scrollbar-gutter: stable; }
 .uet-ctrl label b { color: var(--accent); }
 .uet-ctrl input[type=range] { width: 150px; accent-color: var(--accent); }
 .uet-ctrl input[type=range]:disabled { opacity: .45; cursor: not-allowed; }
+/* Part Replacement: botão de abrir e sub-linhas por peça */
+.ue-exp { font: inherit; font-size: 11px; font-weight: 800; line-height: 1; width: 17px; height: 17px; margin-left: 6px; padding: 0;
+  border: 1px solid var(--border-2); border-radius: 5px; background: var(--surface); color: var(--text-2); cursor: pointer; vertical-align: middle; }
+.ue-exp:hover, .ue-exp.on { border-color: var(--accent); color: var(--accent); }
+.ue-subrow td { background: color-mix(in srgb, var(--accent) 3%, var(--surface)); }
+.ue-subrow .ue-main { font-weight: 600; opacity: .92; }
+.ue-sublabel { padding-left: 22px !important; position: relative; }
+.ue-sublabel::before { content: "└"; position: absolute; left: 10px; color: var(--text-3); font-size: 11px; }
+.ue-sublabel em { display: block; font-style: normal; font-size: 9.5px; color: var(--text-3); margin-top: 1px; }
 .ue-editable { cursor: pointer; }
 .ue-editable:hover { background: var(--purple-soft); }
 .ue-main { display: block; font-weight: 700; line-height: 1.25; }

@@ -2052,7 +2052,9 @@
     { label: 'Acc Cashflow', group: 'acc' },
   ];
   // rótulo de exibição — a chave interna da saída de multas é distinta p/ não colidir com a entrada
-  const UET_DISPLAY = { 'Traffic fines (out)': 'Traffic fines' };
+  // entrada e saída de multas têm NOMES distintos na tela: uma é receita repassada ao cliente,
+  // a outra é o desembolso para a LM — chamá-las igual confundia leitura e conferência
+  const UET_DISPLAY = { 'Traffic fines (out)': 'Traffic fines paid', 'Traffic fines': 'Traffic fines charged' };
   // parâmetros por linha (a "caixinha" do lápis) — mesma ideia do UE real; cada linha tem sua regra
   const UET_PARAMS = {
     'Subscription': [{ k: '__sub_semanal__', label: 'Weekly subscription fee (R$)' }, { k: '__sub_juros__', label: 'Late-payment interest (%)' }],
@@ -2853,13 +2855,13 @@
       // Color code por NÍVEL: L1 = resultados (Gross/Net Revenue, Gross Margin, Net cashflow),
       // L2 = blocos (COGS, Payment processing, OPEX), L3 = componentes, L4 = detalhe dentro de um L3.
       push('Gross Revenue', P.grossRev, 'pnl-l1', { group: 'grev' });
-      FIN_REV_LINES.forEach((L) => push(L === 'Traffic fines (out)' ? 'Traffic fines' : L, P.rev[L] || [], 'pnl-l3', { ancestors: ['grev'] }));
+      FIN_REV_LINES.forEach((L) => push(L === 'Traffic fines' ? 'Traffic fines charged' : L, P.rev[L] || [], 'pnl-l3', { ancestors: ['grev'] }));
       push('Taxes on sales', P.taxes, 'pnl-l2', { group: 'tax' });
       push('Federal taxes', P.fed, 'pnl-l3', { ancestors: ['tax'] });
       push('Tax input credit', P.cred, 'pnl-l3', { ancestors: ['tax'] });
       push('Net Revenue', P.netRev, 'pnl-l1');
       push('COGS', P.cogsTot, 'pnl-l2', { group: 'cogs' });
-      FIN_COGS_LINES.forEach((L) => push(L === 'Traffic fines (out)' ? 'Traffic fines' : L, P.cogs[L] || [], 'pnl-l3', { ancestors: ['cogs'] }));
+      FIN_COGS_LINES.forEach((L) => push(L === 'Traffic fines (out)' ? 'Traffic fines paid' : L, P.cogs[L] || [], 'pnl-l3', { ancestors: ['cogs'] }));
       push('Sub-rental security deposit', P.secDep, 'pnl-l3', { ancestors: ['cogs'] });
       push('Vehicle Purchase', P.vehPur || [], 'pnl-l3', { ancestors: ['cogs'] });
       push('Payment processing', P.payProc, 'pnl-l2');
@@ -4065,7 +4067,7 @@
     // família (cor) de uma linha de detalhe — receita roxa, COGS laranja, o resto é OPEX
     const DASH_DETAIL_FAM = (k) => (FIN_REV_LINES.includes(k) ? DASH_FAM.rev
       : (FIN_COGS_LINES.includes(k) || k === 'Security deposit' || k === 'Vehicle purchase') ? DASH_FAM.cogs : DASH_FAM.opex);
-    const DRILL_LABEL = (k) => (k === 'Traffic fines (out)' ? 'Traffic fines' : k);
+    const DRILL_LABEL = (k) => (k === 'Traffic fines (out)' ? 'Traffic fines paid' : (k === 'Traffic fines' ? 'Traffic fines charged' : k));
     // valores da linha no P&L (custos vêm positivos p/ o gráfico ler "quanto gastamos")
     function dashSeries(name, PX) {
       const t = DASH_TOTALS[name];
@@ -4404,7 +4406,7 @@
           { label: 'Subrental fee', v: -fy(PA.cogs['Subrental fee'] || zz()), color: '#94A3B8' },
           { label: 'Maintenance', v: -fy(PA.cogs['Maintenance'] || zz()), color: '#94A3B8' },
           { label: 'GPS', v: -fy(PA.cogs['GPS'] || zz()), color: '#94A3B8' },
-          { label: 'Traffic fines', v: -fy(PA.cogs['Traffic fines (out)'] || zz()), color: '#94A3B8' },
+          { label: 'Traffic fines paid', v: -fy(PA.cogs['Traffic fines (out)'] || zz()), color: '#94A3B8' },
         ].filter((b) => Math.abs(b.v) > 1).sort((a, b) => b.v - a.v);
         const dSd = (PnoSd.accCf[LAST] || 0) - (PA.accCf[LAST] || 0);
         const dIns = (accNoIns[LAST] || 0) - (PA.accCf[LAST] || 0);
@@ -4495,7 +4497,7 @@
       'Part Replacement': '#7C3AED', 'GPS': '#0D9488', 'Car Preparation': '#DB2777', 'Sticker': '#64748B',
     };
     // rótulo de tela: o motor precisa da chave técnica ('Traffic fines (out)'), a tela não
-    const COSTS_DISP = { 'Traffic fines (out)': 'Traffic fines', 'Car Preparation': 'Car preparation', 'Part Replacement': 'Part replacement' };
+    const COSTS_DISP = { 'Traffic fines (out)': 'Traffic fines paid', 'Car Preparation': 'Car preparation', 'Part Replacement': 'Part replacement' };
     const COSTS_LABEL = (L) => (L === COSTS_MAIN ? 'Overview' : (COSTS_DISP[L] || L));
     // padrões de gráfico: sem grade de fundo, fontes discretas, moeda fora dos números
     const CC_FONT = { size: 10.5 };
@@ -6948,7 +6950,7 @@
     // rótulo de exibição ≠ chave interna (que segue a planilha).
     // 'Traffic fines (out)' é a linha de SAÍDA — chave distinta da de entrada (senão colidiriam nas
     // entradas manuais/params), mas ambas aparecem como "Traffic fines" na tela.
-    const DISPLAY_LABEL = { 'Deposit Refund': 'Security Deposit Refund', 'Car Preparation (wash + delivery)': 'Car Preparation', 'Traffic fines (out)': 'Traffic fines' };
+    const DISPLAY_LABEL = { 'Deposit Refund': 'Security Deposit Refund', 'Car Preparation (wash + delivery)': 'Car Preparation', 'Traffic fines (out)': 'Traffic fines paid', 'Traffic fines': 'Traffic fines charged' };
     const par = (k) => +params[k] || 0;
     const SEMANAS_MES = 52 / 12; // 4,3333
     const REVISAO_KM = 10000;    // revisão a cada 10.000 km
@@ -7248,13 +7250,30 @@
       const carsNow = plateView ? 1 : Math.max(1, f.cars || (f.placas || []).length || 1);
       const FR = finesRatesByFleet()[f.id];
       const perDay = (FR ? FR.gross * carsNow : brutoTot / Math.max(1, (hoje - ini) / MS)) * (1 + premioHoje) * taxa;
+      // IBNR (incurred but not reported): a notificação da multa demora ~27 dias para chegar, então
+      // as infrações dos últimos FINES_LAG_D dias NÃO estão na base ainda. Contar "infrações novas"
+      // só a partir de HOJE abria um buraco justamente no mês que recebe essa janela — era a queda
+      // do M6. Agora a projeção começa no CORTE DE MATURAÇÃO e desconta o que já chegou da janela
+      // imatura (as multas rápidas), para não contar duas vezes.
+      const cutMat = new Date(hoje.getTime() - FINES_LAG_D * MS);
+      const knownIn = (a, b) => {                       // já emitido com infração no intervalo [a,b)
+        let s = 0;
+        plates.forEach((pl) => (base[pl] || []).forEach((x) => {
+          if (!x.inf) return;
+          const t = new Date(x.inf + 'T12:00:00');
+          if (t >= a && t < b) s += brutoDe(x) * (1 + premioDe(pl)) * taxa;
+        }));
+        return s;
+      };
       for (let p = 1; p <= PMAX; p++) {
         const winStart = new Date(ini.getTime() + (p - 1) * SEMANAS_MES * 7 * MS);
         const winEnd = new Date(ini.getTime() + p * SEMANAS_MES * 7 * MS);
         const infIni = new Date(winStart.getTime() - lag * MS);
         const infFim = new Date(winEnd.getTime() - lag * MS);
-        const novos = Math.max(0, (infFim - Math.max(infIni, hoje)) / MS);
-        finesProjRS[p] += novos * perDay;
+        const from = new Date(Math.max(infIni.getTime(), cutMat.getTime()));
+        const dias = Math.max(0, (infFim - from) / MS);
+        if (!dias) continue;
+        finesProjRS[p] += Math.max(0, dias * perDay - knownIn(from, infFim));
       }
       if (!plateView) for (let p = 0; p <= PMAX; p++) { finesRealRS[p] /= activeCarsAt(p); finesProjRS[p] /= activeCarsAt(p); }
       finesReady = true;
@@ -7299,14 +7318,28 @@
       const carsOut = plateView ? 1 : Math.max(1, f.cars || (f.placas || []).length || 1);
       const FRo = finesRatesByFleet()[f.id];
       const perDay = FRo ? FRo.net * carsOut : total / Math.max(1, (hoje - curIni) / MS);
+      // mesmo IBNR da linha de entrada: a janela imatura (últimos FINES_LAG_D dias) ainda está
+      // chegando na base, então é projetada e o que já chegou dela é descontado
+      const cutMatO = new Date(hoje.getTime() - FINES_LAG_D * MS);
+      const knownOut = (a, b) => {
+        let s = 0;
+        plates.forEach((pl) => (base[pl] || []).forEach((x) => {
+          if (!x.inf) return;
+          const t = new Date(x.inf + 'T12:00:00');
+          if (t >= a && t < b) s += liqDe(x) * LM_FEE;
+        }));
+        return s;
+      };
       for (let p = 1; p <= PMAX; p++) {
         const winStart = new Date(curIni.getTime() + (p - 1) * SEMANAS_MES * 7 * MS);
         const winEnd = new Date(curIni.getTime() + p * SEMANAS_MES * 7 * MS);
         // pagamentos deste mês vêm de infrações ocorridas ~`prazo` dias antes; só conta o trecho futuro
         const infIni = new Date(winStart.getTime() - prazo * MS);
         const infFim = new Date(winEnd.getTime() - prazo * MS);
-        const novos = Math.max(0, (infFim - Math.max(infIni, hoje)) / MS);
-        finesOutProjRS[p] += novos * perDay;
+        const from = new Date(Math.max(infIni.getTime(), cutMatO.getTime()));
+        const dias = Math.max(0, (infFim - from) / MS);
+        if (!dias) continue;
+        finesOutProjRS[p] += Math.max(0, dias * perDay - knownOut(from, infFim));
       }
       if (!plateView) for (let p = 0; p <= PMAX; p++) { finesOutRealRS[p] /= activeCarsAt(p); finesOutProjRS[p] /= activeCarsAt(p); }
       finesOutReady = true;
@@ -7360,8 +7393,12 @@
     // (pastilhas/disco/pneus, classificados pelo texto) na data do evento × custo configurado.
     // Projetado = próximos cruzamentos de km de cada peça, pela quilometragem média da placa.
     let partsRealRS = [], partsProjRS = [], partsReady = false;
+    // detalhe por PEÇA (pastilhas/disco/pneus) — a linha do UE é a soma dos três; guardar aberto
+    // permite abrir a linha e conferir de onde vem o total
+    let partsItem = null;
     function computeParts(f) {
       partsRealRS = []; partsProjRS = []; partsReady = false;
+      partsItem = {};
       const rep = U.reposicao && U.reposicao.placas;
       const fr = U.frota && U.frota.placas;
       if (!curIni || elapsed <= 0) return;
@@ -7369,6 +7406,8 @@
       const moOf = (d) => { const m = Math.ceil(((d - curIni) / MS) / (SEMANAS_MES * 7)); return m < 1 ? 1 : m; };
       const plates = plateView ? [plateView] : (f.placas || []);
       for (let p = 0; p <= PMAX; p++) { partsRealRS[p] = 0; partsProjRS[p] = 0; }
+      Object.keys(partCfgCur).forEach((k) => { partsItem[k] = { real: new Array(PMAX + 1).fill(0), proj: new Array(PMAX + 1).fill(0) }; });
+      const addItem = (k, kind, p, v) => { if (partsItem[k]) partsItem[k][kind][p] += v; };
       // km/dia médio da frota (fallback p/ placas sem odômetro confiável)
       let kmSum = 0, kmN = 0;
       (f.placas || []).forEach((pl) => { const d = fr && fr[pl]; if (d && d.ok && d.odo > 0) { kmSum += d.odo; kmN++; } });
@@ -7402,7 +7441,7 @@
               natural = desde >= min;
             }
             if (kmEv != null) lastKm[it] = kmEv;
-            if (natural) partsRealRS[mo] += cfg.rs;
+            if (natural) { partsRealRS[mo] += cfg.rs; addItem(it, 'real', mo, cfg.rs); }
           });
         });
         if (lossMonthByPlate[pl] != null) return;
@@ -7411,7 +7450,7 @@
         const odo = d && d.ok && d.odo > 0 ? d.odo : kmDiaFrota * diasCorridos; // sem odômetro: estima
         const kmDia = d && d.ok && d.odo > 0 ? d.odo / diasCorridos : kmDiaFrota;
         if (kmDia <= 0) return;
-        Object.values(partCfgCur).forEach((cfg) => {
+        Object.entries(partCfgCur).forEach(([itk, cfg]) => {
           const intervalo = (cfg.km || 0) * 1000;
           if (intervalo <= 0 || !(cfg.rs > 0)) return;
           for (let k = Math.floor(odo / intervalo) + 1; k <= 60; k++) {
@@ -7419,11 +7458,14 @@
             const quando = new Date(hoje.getTime() + diasAte * MS);
             const mo = moOf(quando);
             if (mo > U.periods) break;      // dentro do contrato
-            partsProjRS[Math.max(mo, 1)] += cfg.rs;
+            partsProjRS[Math.max(mo, 1)] += cfg.rs; addItem(itk, 'proj', Math.max(mo, 1), cfg.rs);
           }
         });
       });
-      if (!plateView) for (let p = 0; p <= PMAX; p++) { partsRealRS[p] /= activeCarsAt(p); partsProjRS[p] /= activeCarsAt(p); }
+      if (!plateView) for (let p = 0; p <= PMAX; p++) {
+        partsRealRS[p] /= activeCarsAt(p); partsProjRS[p] /= activeCarsAt(p);
+        Object.values(partsItem).forEach((o) => { o.real[p] /= activeCarsAt(p); o.proj[p] /= activeCarsAt(p); });
+      }
       partsReady = true;
     }
     // Subscription por dados reais (matriz de pagamentos por placa): receita do mês = Σ do VALOR REAL
@@ -7645,7 +7687,7 @@
       finesRealRS = c.finesRealRS || []; finesProjRS = c.finesProjRS || []; finesReady = !!c.finesReady;
       finesOutRealRS = c.finesOutRealRS || []; finesOutProjRS = c.finesOutProjRS || []; finesOutReady = !!c.finesOutReady;
       judRecRealRS = c.judRecRealRS || []; judRecProjRS = c.judRecProjRS || []; judRepRealRS = c.judRepRealRS || []; judRepProjRS = c.judRepProjRS || []; judTermRS = c.judTermRS || 0; judReady = !!c.judReady;
-      partsRealRS = c.partsRealRS || []; partsProjRS = c.partsProjRS || []; partsReady = !!c.partsReady;
+      partsRealRS = c.partsRealRS || []; partsProjRS = c.partsProjRS || []; partsReady = !!c.partsReady; partsItem = c.partsItem || null;
     }
     // combinação "All fleets": média por veículo ponderada — linhas "por carro ativo" pesam pelos carros ativos
     // do mês; as demais (Insurance etc.) pelos carros totais. Uma célula pode sair com realizado E projetado
@@ -7703,6 +7745,34 @@
       const o = orcVal(line, srcP);
       return o == null ? null : Math.round(o * fx * k);
     };
+    // ---- Part Replacement aberto por PEÇA ----
+    // A linha é a soma de pastilhas + disco + pneus. Em vez de recalcular a combinação de frotas
+    // (all-mode, visão agregada, câmbio...), mede-se a PARTICIPAÇÃO de cada peça nos dados de
+    // contexto e reparte-se o valor da própria célula — assim as sub-linhas sempre fecham no total.
+    let partsOpen = false;
+    const PART_LABEL = { pastilhas: 'Brake pads', disco: 'Brake discs', pneus: 'Tyres' };
+    function partsShares(period) {
+      const acc = {};
+      const add = (pi, w) => { if (!pi) return; Object.entries(pi).forEach(([k, o]) => {
+        const a = acc[k] = acc[k] || { real: 0, proj: 0 };
+        a.real += (o.real[period] || 0) * w; a.proj += (o.proj[period] || 0) * w; }); };
+      if (allMode && !plateView && fleetCtx) fleetCtx.forEach((c) => add(c.partsItem, c.f.cars || 1));
+      else add(partsItem, 1);
+      return acc;
+    }
+    function partsRowSplit(item, period) {
+      const e = effSplit('Part Replacement', period);
+      if (!e) return null;
+      const sh = partsShares(period);
+      const tR = Object.values(sh).reduce((s, o) => s + o.real, 0);
+      const tP = Object.values(sh).reduce((s, o) => s + o.proj, 0);
+      const mine = sh[item] || { real: 0, proj: 0 };
+      return {
+        real: tR > 0 ? (e.real || 0) * (mine.real / tR) : 0,
+        proj: tP > 0 ? (e.proj || 0) * (mine.proj / tP) : 0,
+        status: e.status,
+      };
+    }
     function cellLeaf(line, period) {
       const e = effSplit(line, period);
       const orc = orcDisp(line, period);
@@ -8370,7 +8440,7 @@
             c.finesRealRS = finesRealRS; c.finesProjRS = finesProjRS; c.finesReady = finesReady;
             c.finesOutRealRS = finesOutRealRS; c.finesOutProjRS = finesOutProjRS; c.finesOutReady = finesOutReady;
             c.judRecRealRS = judRecRealRS; c.judRecProjRS = judRecProjRS; c.judRepRealRS = judRepRealRS; c.judRepProjRS = judRepProjRS; c.judTermRS = judTermRS; c.judReady = judReady;
-            c.partsRealRS = partsRealRS; c.partsProjRS = partsProjRS; c.partsReady = partsReady;
+            c.partsRealRS = partsRealRS; c.partsProjRS = partsProjRS; c.partsReady = partsReady; c.partsItem = partsItem;
           });
         }
       } else {
@@ -8391,9 +8461,12 @@
         const leaf = isLeaf(l.group);
         const isParam = editable && LINE_PARAMS[l.label];
         const shown = DISPLAY_LABEL[l.label] || l.label;
-        const labelInner = isParam
+        const isParts = l.label === 'Part Replacement';
+        const labelInner = (isParam
           ? `<span class="ue-param-label" data-pline="${l.label.replace(/"/g, '&quot;')}">${shown} <span class="ue-pencil">✎</span></span>`
-          : shown;
+          : shown)
+          // Part Replacement abre em pastilhas / disco / pneus
+          + (isParts ? `<button type="button" class="ue-exp${partsOpen ? ' on' : ''}" id="uePartsExp" title="${partsOpen ? 'Hide' : 'Show'} the parts behind this line">${partsOpen ? '−' : '+'}</button>` : '');
         html += `<tr class="ue-row ue-${l.group} ${leaf ? 'ue-leaf' : 'ue-calc'}"><td class="ue-rowlabel">${labelInner}</td>`;
         for (let p = 0; p <= PMAX; p++) {
           if (leaf) {
@@ -8405,6 +8478,24 @@
         const tot = leaf ? leafTotal(l.label) : colTotal(gmap[l.group], l.group === 'acc');
         html += `<td class="ue-cell ue-totalcol">${cellVal(tot)}</td>`;
         html += '</tr>';
+        if (isParts && partsOpen) {
+          const items = Object.keys(PART_LABEL).filter((k) => (allMode ? partCfg : partCfgCur)[k]);
+          items.forEach((it) => {
+            const cfg = (allMode ? partCfg : partCfgCur)[it] || {};
+            html += `<tr class="ue-row ue-outflow ue-leaf ue-subrow"><td class="ue-rowlabel ue-sublabel">${PART_LABEL[it] || it}` +
+              `<em>every ${(cfg.km || 0).toLocaleString('pt-BR')}.000 km · R$ ${(cfg.rs || 0).toLocaleString('pt-BR')}</em></td>`;
+            let sumTot = 0;
+            for (let p = 0; p <= PMAX; p++) {
+              const e = partsRowSplit(it, p);
+              const r = e ? Math.round(e.real) : 0, pj = e ? Math.round(e.proj) : 0;
+              sumTot += r + pj;
+              html += `<td class="ue-cell">${(!r && !pj) ? '<span class="ue-main ue-empty">-</span>'
+                : (cleanView ? `<span class="ue-main ue-${r && pj ? 'mix' : (r ? 'real' : 'proj')}">${ueFmt(r + pj)}</span>`
+                  : (r ? `<span class="ue-main ue-real">${ueFmt(r)}</span>` : '') + (pj ? `<span class="ue-main ue-proj">${ueFmt(pj)}</span>` : ''))}</td>`;
+            }
+            html += `<td class="ue-cell ue-totalcol"><span class="ue-main ue-real">${ueFmt(sumTot)}</span></td></tr>`;
+          });
+        }
       });
       html += '</tbody>';
       tbl.innerHTML = html;
@@ -8415,6 +8506,8 @@
         tbl.querySelectorAll('.ue-editable').forEach((td) => td.addEventListener('click', () => openEditor(td, f)));
         tbl.querySelectorAll('.ue-param-label').forEach((el) => el.addEventListener('click', () => openParamModal(el.dataset.pline, f)));
       }
+      const pExp = document.getElementById('uePartsExp');
+      if (pExp) pExp.addEventListener('click', (ev) => { ev.stopPropagation(); partsOpen = !partsOpen; renderTable(f); });
       // no modo limpo a legenda some junto com o resto dos detalhes (só sobra a tabela e a TIR)
       document.getElementById('ueFoot').innerHTML = cleanView ? ''
         : '<span class="ue-tag ue-tag-real">Actual</span>'

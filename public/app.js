@@ -7466,9 +7466,10 @@
     // detalhe por PEÇA (pastilhas/disco/pneus) — a linha do UE é a soma dos três; guardar aberto
     // permite abrir a linha e conferir de onde vem o total
     let partsItem = null;
+    let partsSwaps = [];   // trocas do CONTEXTO atual (placa): {it, mo, km, kind:'real'|'proj', natural}
     function computeParts(f) {
       partsRealRS = []; partsProjRS = []; partsReady = false;
-      partsItem = {};
+      partsItem = {}; partsSwaps = [];
       const rep = U.reposicao && U.reposicao.placas;
       const fr = U.frota && U.frota.placas;
       if (!curIni || elapsed <= 0) return;
@@ -7511,6 +7512,7 @@
               natural = desde >= min;
             }
             if (kmEv != null) lastKm[it] = kmEv;
+            partsSwaps.push({ it, mo: Math.min(mo, PMAX), km: kmEv, kind: 'real', natural });
             if (natural) { partsRealRS[mo] += cfg.rs; addItem(it, 'real', mo, cfg.rs); }
           });
         });
@@ -7520,15 +7522,22 @@
         const odo = d && d.ok && d.odo > 0 ? d.odo : kmDiaFrota * diasCorridos; // sem odômetro: estima
         const kmDia = d && d.ok && d.odo > 0 ? d.odo / diasCorridos : kmDiaFrota;
         if (kmDia <= 0) return;
+        // próxima troca = ÚLTIMA REALIZADA + intervalo (sem troca registrada: múltiplos do
+        // intervalo, que dá no mesmo com base 0). Alvo JÁ ULTRAPASSADO sem troca no site =
+        // atrasada -> agenda para já (dias, não km). As seguintes seguem o ritmo da placa.
         Object.entries(partCfgCur).forEach(([itk, cfg]) => {
           const intervalo = (cfg.km || 0) * 1000;
           if (intervalo <= 0 || !(cfg.rs > 0)) return;
-          for (let k = Math.floor(odo / intervalo) + 1; k <= 60; k++) {
-            const diasAte = (k * intervalo - odo) / kmDia;
+          const baseKm = lastKm[itk] != null ? lastKm[itk] : 0;
+          for (let k = 1; k <= 60; k++) {
+            const alvo = baseKm + k * intervalo;
+            const diasAte = alvo <= odo ? 3 : (alvo - odo) / kmDia;   // atrasada: ~esta semana
             const quando = new Date(hoje.getTime() + diasAte * MS);
             const mo = moOf(quando);
             if (mo > U.periods) break;      // dentro do contrato
-            partsProjRS[Math.max(mo, 1)] += cfg.rs; addItem(itk, 'proj', Math.max(mo, 1), cfg.rs);
+            const m2 = Math.max(mo, 1);
+            partsProjRS[m2] += cfg.rs; addItem(itk, 'proj', m2, cfg.rs);
+            partsSwaps.push({ it: itk, mo: Math.min(m2, PMAX), km: alvo, kind: 'proj' });
           }
         });
       });
@@ -8252,6 +8261,95 @@
       draw();
     }
 
+    // ---- barra do contrato (função própria: re-renderiza no slot ao trocar de placa) ----
+    // Na visão POR PLACA a barra vira a LINHA DO TEMPO do carro: um segmento colorido por
+    // MOTORISTA (vínculo), com o km/semana médio dele dentro e, nas trocas de motorista, o
+    // odômetro estimado daquele momento acima da barra. Visão de frota segue a barra simples.
+    const DRIVER_PAL = ['#5A00F8', '#0EA5E9', '#F59E0B', '#DB2777', '#059669', '#7C3AED', '#DC2626'];
+    function contractBarHtml(f) {
+      const ini = f.inicio ? new Date(f.inicio + 'T12:00:00') : null;
+      if (!ini || allMode || cleanView) return '';
+      const totalWeeks = U.periods * SEMANAS_MES;                      // 12 × 4,3333 = 52
+      const wkNow = Math.max(0, (hoje - ini) / (7 * 86400000));
+      const pct = Math.max(0, Math.min(100, (wkNow / totalWeeks) * 100));
+      const endIso = new Date(ini.getTime() + totalWeeks * 7 * 86400000).toISOString().slice(0, 10);
+      const done = pct >= 100;
+      const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+      const totalMs = totalWeeks * 7 * 86400000;
+      const fmtK = (v) => (v >= 9500 ? (Math.round(v / 100) / 10).toLocaleString('pt-BR') + 'k' : Math.round(v).toLocaleString('pt-BR'));
+      let ticks = '';
+      const cur = new Date(ini.getFullYear(), ini.getMonth() + 1, 1); // próxima virada de mês
+      while (cur.getTime() - ini.getTime() < totalMs) {
+        const at = ((cur.getTime() - ini.getTime()) / totalMs) * 100;
+        ticks += `<span class="ue-contract-tick" style="left:${at.toFixed(2)}%"><i></i><b>${MESES[cur.getMonth()]}</b></span>`;
+        cur.setMonth(cur.getMonth() + 1);
+      }
+      // km ATUAL sobre a posição de hoje + km ESPERADO no fim (ritmo médio até aqui).
+      // Frota = MÉDIA das placas com odômetro confiável; placa isolada = o odômetro dela.
+      const frP = (U.frota || {}).placas || {};
+      const kmTags = (() => {
+        const list = plateView ? [plateView] : (f.placas || []);
+        let s = 0, n = 0;
+        list.forEach((pl) => { const d = frP[pl]; if (d && d.ok && d.odo > 0) { s += d.odo; n++; } });
+        if (!n) return '';
+        const avg = s / n;
+        const dias = Math.max(1, (hoje - ini) / 86400000);
+        const exp = (avg / dias) * (totalMs / 86400000);
+        return `<span class="ue-contract-km" style="left:${Math.max(3, Math.min(94, pct)).toFixed(1)}%" title="current odometer${plateView ? '' : ' — fleet average'}">${fmtK(avg)}</span>` +
+               `<span class="ue-contract-km ue-contract-kmend" title="expected at the end of the 52 weeks, at today's pace">${fmtK(exp)}</span>`;
+      })();
+      // ---- segmentos por MOTORISTA (só placa isolada) ----
+      let fill = `<div class="ue-contract-fill${done ? ' done' : ''}" style="width:${pct.toFixed(1)}%"></div>`;
+      let changeTags = '';
+      if (plateView) {
+        const vs = ((U.vinculos) || []).filter((v) => v.placa === plateView).sort((a, b) => (a.ini < b.ini ? -1 : 1));
+        const KS = U.kmSemanal || null;
+        const serie = KS && KS.placas ? KS.placas[plateView] : null;
+        const dNow = frP[plateView];
+        const odoNow = dNow && dNow.odo > 0 ? dNow.odo : null;
+        // odômetro estimado numa data = odômetro atual − km rodado nas semanas DEPOIS dela
+        const odoAt = (iso) => {
+          if (!serie || odoNow == null) return null;
+          let s = 0;
+          KS.weeks.forEach((w, i) => { if (w >= iso && serie[i] != null) s += serie[i]; });
+          return Math.max(0, odoNow - s);
+        };
+        const kmWkOf = (a, b) => {
+          if (!serie) return null;
+          let s = 0, n = 0;
+          KS.weeks.forEach((w, i) => { if (w >= a && w < b && serie[i] != null) { s += serie[i]; n++; } });
+          return n ? s / n : null;
+        };
+        if (vs.length) {
+          const hojeIso2 = hoje.toISOString().slice(0, 10);
+          const pos = (iso) => Math.max(0, Math.min(100, ((new Date(iso + 'T12:00:00') - ini) / totalMs) * 100));
+          fill = vs.map((v, i) => {
+            const a = pos(v.ini), b = pos(v.fim && v.fim < hojeIso2 ? v.fim : hojeIso2);
+            if (b <= a) return '';
+            const col = DRIVER_PAL[i % DRIVER_PAL.length];
+            const kw = kmWkOf(v.ini, v.fim && v.fim < hojeIso2 ? v.fim : hojeIso2);
+            const nome = (v.nome || '?').split(' ').slice(0, 2).join(' ');
+            const lbl = kw != null && (b - a) >= 11 ? `<b>${fmtK(kw)}/wk</b>` : '';
+            return `<div class="ue-driver-seg" style="left:${a.toFixed(1)}%;width:${(b - a).toFixed(1)}%;background:${col}" ` +
+              `title="${nome} · ${v.ini} → ${v.fim || 'today'}${kw != null ? ' · ' + Math.round(kw).toLocaleString('pt-BR') + ' km/week' : ''}">${lbl}</div>`;
+          }).join('');
+          // odômetro no MOMENTO de cada troca de motorista (a partir do 2º vínculo)
+          changeTags = vs.slice(1).map((v) => {
+            const km = odoAt(v.ini);
+            if (km == null) return '';
+            return `<span class="ue-contract-km ue-km-change" style="left:${pos(v.ini).toFixed(1)}%" title="odometer when the driver changed (${v.ini})">${fmtK(km)}</span>`;
+          }).join('');
+        }
+      }
+      return `<div class="ue-contract">` +
+          `<span class="ue-contract-date">${fmtDate(f.inicio)}</span>` +
+          `<div class="ue-contract-track${plateView ? ' ue-track-drivers' : ''}" title="${Math.floor(wkNow)} of ${Math.round(totalWeeks)} weeks elapsed">` +
+            fill + ticks + kmTags + changeTags +
+            `<span class="ue-contract-lbl">week ${Math.min(Math.floor(wkNow), Math.round(totalWeeks))} of ${Math.round(totalWeeks)} · ${Math.round(pct)}%</span>` +
+          `</div>` +
+          `<span class="ue-contract-date">${fmtDate(endIso)}</span>` +
+        `</div>`;
+    }
     // painel de visões: Fleet (unitary) = por veículo · Fleet (aggregate) = soma de todas as placas · uma placa
     function renderPlates(f) {
       const platesEl = document.getElementById('uePlates');
@@ -8271,6 +8369,9 @@
         platesEl.querySelectorAll('.ue-plate-btn').forEach((x) => x.classList.toggle('active', x === b));
         const titleEl = document.querySelector('#ueHead .ue-fleet-title');
         if (titleEl) titleEl.textContent = f.label + ' — ' + f.modelLabel + (plateView ? ' · ' + plateView : (viewAgg ? ' · aggregate' : ''));
+        // a BARRA muda com a placa (odômetro, esperado, segmentos por motorista) — re-renderiza o slot
+        const bw = document.getElementById('ueBarWrap');
+        if (bw) bw.innerHTML = contractBarHtml(f);
         renderTable(f);
       }));
     }
@@ -8356,50 +8457,7 @@
         : 'no start date in the base';
       // barra do contrato: início ——[quanto já correu]—— início + 52 semanas (só com data de início;
       // em "All fleets" cada frota tem um começo diferente, então a barra não aparece)
-      let contractBar = '';
-      if (ini && !allMode) {
-        const totalWeeks = U.periods * SEMANAS_MES;                      // 12 × 4,3333 = 52
-        const wkNow = Math.max(0, (hoje - ini) / (7 * 86400000));
-        const pct = Math.max(0, Math.min(100, (wkNow / totalWeeks) * 100));
-        const endIso = new Date(ini.getTime() + totalWeeks * 7 * 86400000).toISOString().slice(0, 10);
-        const done = pct >= 100;
-        // marcas de virada de mês do CALENDÁRIO ao longo da barra (1º dia de cada mês dentro do contrato)
-        const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-        const totalMs = totalWeeks * 7 * 86400000;
-        let ticks = '';
-        const cur = new Date(ini.getFullYear(), ini.getMonth() + 1, 1); // próxima virada de mês
-        while (cur.getTime() - ini.getTime() < totalMs) {
-          const at = ((cur.getTime() - ini.getTime()) / totalMs) * 100;
-          ticks += `<span class="ue-contract-tick" style="left:${at.toFixed(2)}%"><i></i><b>${MESES[cur.getMonth()]}</b></span>`;
-          cur.setMonth(cur.getMonth() + 1);
-        }
-        // km ATUAL acima da posição de hoje e km ESPERADO no fim das 52 semanas (ritmo médio
-        // até aqui projetado). Frota = MÉDIA das placas com odômetro confiável (aggregate usa a
-        // mesma média — somar odômetro de 50 carros não diz nada); placa isolada = o dela.
-        const kmTags = (() => {
-          const frP = (U.frota || {}).placas || {};
-          const list = plateView ? [plateView] : (f.placas || []);
-          let s = 0, n = 0;
-          list.forEach((pl) => { const d = frP[pl]; if (d && d.ok && d.odo > 0) { s += d.odo; n++; } });
-          if (!n) return '';
-          const avg = s / n;
-          const dias = Math.max(1, (hoje - ini) / 86400000);
-          const exp = (avg / dias) * (totalMs / 86400000);
-          const fmtK = (v) => (v >= 9500 ? (Math.round(v / 100) / 10).toLocaleString('pt-BR') + 'k' : Math.round(v).toLocaleString('pt-BR')) + ' km';
-          return `<span class="ue-contract-km" style="left:${Math.max(3, Math.min(94, pct)).toFixed(1)}%" title="current odometer${plateView ? '' : ' — fleet average'}">${fmtK(avg)}</span>` +
-                 `<span class="ue-contract-km ue-contract-kmend" title="expected at the end of the 52 weeks, at today's pace">${fmtK(exp)}</span>`;
-        })();
-        contractBar =
-          `<div class="ue-contract">` +
-            `<span class="ue-contract-date">${fmtDate(f.inicio)}</span>` +
-            `<div class="ue-contract-track" title="${Math.floor(wkNow)} of ${Math.round(totalWeeks)} weeks elapsed">` +
-              `<div class="ue-contract-fill${done ? ' done' : ''}" style="width:${pct.toFixed(1)}%"></div>` +
-              ticks + kmTags +
-              `<span class="ue-contract-lbl">week ${Math.min(Math.floor(wkNow), Math.round(totalWeeks))} of ${Math.round(totalWeeks)} · ${Math.round(pct)}%</span>` +
-            `</div>` +
-            `<span class="ue-contract-date">${fmtDate(endIso)}</span>` +
-          `</div>`;
-      }
+      const contractBar = contractBarHtml(f);
       document.getElementById('ueHead').innerHTML =
         `<div class="ue-headrow">` +
           `<div class="ue-fleet-head">` +
@@ -8430,7 +8488,7 @@
             `<button class="ue-tool-btn ue-info-btn" id="ueInfo" title="Where each line comes from and how it updates">?</button>` +
           `</div>` +
         `</div>` +
-        (cleanView ? '' : contractBar) +
+        `<div id="ueBarWrap">${contractBar}</div>` +
         // premissas RECOLHIDAS por padrão: os 4 sliders só aparecem ao clicar no botão
         (cleanView ? '' :
         `<div class="ue-sliders-wrap">` +
@@ -8575,26 +8633,14 @@
         html += '</tr>';
         if (isParts && partsOpen) {
           const items = Object.keys(PART_LABEL).filter((k) => (allMode ? partCfg : partCfgCur)[k]);
-          // na visão POR PLACA, cada troca realizada ganha o km ESTIMADO em que aconteceu
-          // (ritmo da placa × dias até o evento — a API de ocorrências não traz o odômetro do dia)
-          const swapKmOf = (() => {
-            if (!plateView || !curIni) return () => null;
-            const evs = (((U.reposicao || {}).placas) || {})[plateView] || [];
-            const dFr = (((U.frota || {}).placas) || {})[plateView];
-            const dias = Math.max(1, (hoje - curIni) / 86400000);
-            const kmDia = dFr && dFr.ok && dFr.odo > 0 ? dFr.odo / dias : 0;
-            if (!kmDia) return () => null;
-            return (it, p) => {
-              const hit = evs.find((ev) => {
-                if (!ev.itens.includes(it)) return false;
-                const mo = Math.max(1, Math.ceil(((new Date(ev.d + 'T12:00:00') - curIni) / 86400000) / (SEMANAS_MES * 7)));
-                return Math.min(mo, PMAX) === p;
-              });
-              if (!hit) return null;
-              const km = kmDia * Math.max(0, (new Date(hit.d + 'T12:00:00') - curIni) / 86400000);
-              return (Math.round(km / 100) / 10).toLocaleString('pt-BR') + 'k km';
-            };
-          })();
+          // km da troca na célula (visão POR PLACA): realizada usa o km estimado no dia do
+          // evento; PROJETADA usa o alvo = última troca + intervalo (registrados no computeParts)
+          const swapKmOf = (it, p, kind) => {
+            if (!plateView) return null;
+            const hit = partsSwaps.find((sw) => sw.it === it && sw.mo === p && sw.kind === kind && (kind !== 'real' || sw.natural));
+            if (!hit || hit.km == null) return null;
+            return (Math.round(hit.km / 100) / 10).toLocaleString('pt-BR') + 'k';
+          };
           items.forEach((it) => {
             const cfg = (allMode ? partCfg : partCfgCur)[it] || {};
             html += `<tr class="ue-row ue-outflow ue-leaf ue-subrow"><td class="ue-rowlabel ue-sublabel">${PART_LABEL[it] || it}` +
@@ -8604,11 +8650,11 @@
               const e = partsRowSplit(it, p);
               const r = e ? Math.round(e.real) : 0, pj = e ? Math.round(e.proj) : 0;
               sumTot += r + pj;
-              const kmTag = r ? swapKmOf(it, p) : null;
+              const kmTag = r ? swapKmOf(it, p, 'real') : (pj ? swapKmOf(it, p, 'proj') : null);
               html += `<td class="ue-cell">${(!r && !pj) ? '<span class="ue-main ue-empty">-</span>'
                 : (cleanView ? `<span class="ue-main ue-${r && pj ? 'mix' : (r ? 'real' : 'proj')}">${ueFmt(r + pj)}</span>`
                   : (r ? `<span class="ue-main ue-real">${ueFmt(r)}</span>` : '') + (pj ? `<span class="ue-main ue-proj">${ueFmt(pj)}</span>` : ''))
-                }${kmTag ? `<span class="ue-kmtag" title="estimated odometer at the swap">~${kmTag}</span>` : ''}</td>`;
+                }${kmTag ? `<span class="ue-kmtag" title="${r ? 'estimated odometer at the swap' : 'expected odometer: last swap + interval'}">${kmTag}</span>` : ''}</td>`;
             }
             html += `<td class="ue-cell ue-totalcol"><span class="ue-main ue-real">${ueFmt(sumTot)}</span></td></tr>`;
           });

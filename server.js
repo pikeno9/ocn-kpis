@@ -57,8 +57,6 @@ async function refresh(force) {
     catch (e) { console.error('[import_rev] falhou:', e.message); data.ue.revBase = null; }
     try { data.ue.multasBase = compute.parseMultasBase(sheets.multasCons); }
     catch (e) { console.error('[multas_consolidado] falhou:', e.message); data.ue.multasBase = null; }
-    try { data.ue.kmSemanal = await frota.fetchKmSemanal(Object.keys((data.ue.frota || {}).placas || {})); }
-    catch (e) { console.error('[kmSemanal] falhou:', e.message); data.ue.kmSemanal = null; }
     try { data.ue.insurancePay = compute.parseInsurancePay(sheets.insurance); }
     catch (e) { console.error('[insurance] falhou:', e.message); data.ue.insurancePay = null; }
     try { data.ue.judBase = compute.parseJudBase(sheets.jud); }
@@ -72,6 +70,10 @@ async function refresh(force) {
       data.payments = payments.build(matriz, sheets.clientes, refDate(), esperado);
     }
     catch (e) { console.error('[payments] falhou:', e.message); data.payments = null; }
+    // POR ÚLTIMO de propósito: são ~170 requests na API de frota — rodar antes estourava o
+    // rate limit (HTTP 429) e derrubava as chamadas seguintes (reposição ficou vazia num boot)
+    try { data.ue.kmSemanal = await frota.fetchKmSemanal(Object.keys((data.ue.frota || {}).placas || {})); }
+    catch (e) { console.error('[kmSemanal] falhou:', e.message); data.ue.kmSemanal = null; }
     cache = { data, updatedAt: new Date().toISOString(), ok: true, error: null };
     console.log(`[refresh] OK — ${data.kpis.recebidosAno} carros, ${data.ocorrencias.total} ocorrências (${cache.updatedAt})`);
   } catch (e) {

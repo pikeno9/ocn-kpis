@@ -4478,7 +4478,7 @@
     let costsFinesCount = false;  // dispersão de multas por cliente: false = valor total, true = nº de multas
     let costsLeftBig = false;     // gráfico da esquerda expandido (largura toda + mais alto)
     let costsOutliers = false;    // dispersões: destacar os pontos fora da curva (com rótulo)
-    let costsCorrVar = 'fcount';  // correlação de recuperações: 'fcount' multas (nº) · 'fval' multas (valor) · 'km' km/semana
+    let costsCorrTab = 'logit';   // análise ativa do painel de recuperações (logit/km/model/surv/pay2/drop)
     let costsMonthInit = false;   // a aba abre no MÊS VIGENTE; depois disso a escolha é do usuário
     // paleta das frotas: matizes bem separados no círculo cromático, para pilhas vizinhas nunca
     // se confundirem (roxo · verde · âmbar · azul · rosa · teal · vermelho · lima)
@@ -5109,6 +5109,195 @@
       });
       return { evs, cases: looseCases, fx };
     }
+    // ================= MOTOR ESTATÍSTICO (análises de recuperação) =================
+    // Implementações compactas e testadas dos testes clássicos — o site não tem Python, então
+    // regressão logística (IRLS), Mann-Whitney, qui-quadrado, Kaplan-Meier e Cox vivem aqui.
+    const erf = (x) => { const s = x < 0 ? -1 : 1; x = Math.abs(x);
+      const t = 1 / (1 + .3275911 * x);
+      const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - .284496736) * t + .254829592) * t * Math.exp(-x * x);
+      return s * y; };
+    const normCdf = (z) => .5 * (1 + erf(z / Math.SQRT2));
+    const pWald = (z) => 2 * (1 - normCdf(Math.abs(z)));
+    const gammaln = (x) => { const g = [676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059, 12.507343278686905, -.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+      if (x < .5) return Math.log(Math.PI / Math.sin(Math.PI * x)) - gammaln(1 - x);
+      x -= 1; let a = .99999999999980993; const t = x + 7.5;
+      for (let i = 0; i < 8; i++) a += g[i] / (x + i + 1);
+      return .5 * Math.log(2 * Math.PI) + (x + .5) * Math.log(t) - t + Math.log(a); };
+    // Q(a,x) — gama incompleta regularizada superior (série + fração continuada, NR)
+    function gammaQ(a, x) {
+      if (x < 0 || a <= 0) return NaN;
+      if (x === 0) return 1;
+      if (x < a + 1) {   // série para P, devolve 1−P
+        let ap = a, sum = 1 / a, del = sum;
+        for (let i = 0; i < 200; i++) { ap++; del *= x / ap; sum += del; if (Math.abs(del) < Math.abs(sum) * 1e-12) break; }
+        return 1 - sum * Math.exp(-x + a * Math.log(x) - gammaln(a));
+      }
+      let b = x + 1 - a, c = 1e30, d = 1 / b, h = d;   // fração continuada para Q
+      for (let i = 1; i < 200; i++) {
+        const an = -i * (i - a); b += 2;
+        d = an * d + b; if (Math.abs(d) < 1e-30) d = 1e-30;
+        c = b + an / c; if (Math.abs(c) < 1e-30) c = 1e-30;
+        d = 1 / d; const del = d * c; h *= del;
+        if (Math.abs(del - 1) < 1e-12) break;
+      }
+      return h * Math.exp(-x + a * Math.log(x) - gammaln(a));
+    }
+    const chi2P = (x, df) => gammaQ(df / 2, x / 2);
+    // regressão LOGÍSTICA por IRLS (covariáveis padronizadas por dentro; betas devolvidos na escala original)
+    function logisticFit(rows, keys) {
+      const n = rows.length, p = keys.length + 1;
+      if (n < p + 5) return null;
+      const mu = keys.map((k) => rows.reduce((s, r) => s + r[k], 0) / n);
+      const sd = keys.map((k, j) => Math.sqrt(rows.reduce((s, r) => s + (r[k] - mu[j]) * (r[k] - mu[j]), 0) / n) || 1);
+      const X = rows.map((r) => [1, ...keys.map((k, j) => (r[k] - mu[j]) / sd[j])]);
+      const y = rows.map((r) => (r.y ? 1 : 0));
+      let beta = new Array(p).fill(0);
+      const solve = (A, b) => {   // Gauss com pivoteamento parcial
+        const M = A.map((row, i) => [...row, b[i]]);
+        for (let c = 0; c < p; c++) {
+          let piv = c; for (let r = c + 1; r < p; r++) if (Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r;
+          if (Math.abs(M[piv][c]) < 1e-12) return null;
+          [M[c], M[piv]] = [M[piv], M[c]];
+          for (let r = 0; r < p; r++) { if (r === c) continue; const f = M[r][c] / M[c][c]; for (let k2 = c; k2 <= p; k2++) M[r][k2] -= f * M[c][k2]; }
+        }
+        return M.map((row, i) => row[p] / row[i]);
+      };
+      let H = null;
+      for (let it = 0; it < 60; it++) {
+        const eta = X.map((xi) => xi.reduce((s, v, j) => s + v * beta[j], 0));
+        const pr = eta.map((e) => 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, e)))));
+        const grad = new Array(p).fill(0);
+        H = Array.from({ length: p }, () => new Array(p).fill(0));
+        for (let i = 0; i < n; i++) {
+          const w = Math.max(1e-9, pr[i] * (1 - pr[i])), d = y[i] - pr[i];
+          for (let j = 0; j < p; j++) {
+            grad[j] += X[i][j] * d;
+            for (let k2 = 0; k2 <= j; k2++) H[j][k2] += w * X[i][j] * X[i][k2];
+          }
+        }
+        for (let j = 0; j < p; j++) { H[j][j] += 1e-6; for (let k2 = j + 1; k2 < p; k2++) H[j][k2] = H[k2][j]; }
+        const step = solve(H.map((r) => [...r]), grad);
+        if (!step) return null;
+        beta = beta.map((b, j) => b + step[j]);
+        if (Math.max(...step.map(Math.abs)) < 1e-8) break;
+      }
+      // erro-padrão = sqrt(diag(H⁻¹)) — inverte resolvendo p sistemas
+      const se = [];
+      for (let j = 0; j < p; j++) { const e = new Array(p).fill(0); e[j] = 1; const col = solve(H.map((r) => [...r]), e); se.push(col ? Math.sqrt(Math.max(0, col[j])) : NaN); }
+      // volta à escala ORIGINAL das covariáveis
+      const out = keys.map((k, j) => ({ k, beta: beta[j + 1] / sd[j], se: se[j + 1] / sd[j] }));
+      out.forEach((o) => { o.z = o.beta / o.se; o.p = pWald(o.z); o.or = Math.exp(o.beta); });
+      return { coefs: out, n, events: y.reduce((a, b) => a + b, 0) };
+    }
+    // Mann-Whitney U (aproximação normal com correção de empates), bicaudal
+    function mannWhitney(a, b) {
+      const all = a.map((v) => ({ v, g: 0 })).concat(b.map((v) => ({ v, g: 1 }))).sort((x, y) => x.v - y.v);
+      const n = all.length, n1 = a.length, n2 = b.length;
+      if (!n1 || !n2) return null;
+      let i = 0; const tieT = [];
+      while (i < n) { let j = i; while (j + 1 < n && all[j + 1].v === all[i].v) j++;
+        const rank = (i + j + 2) / 2; for (let k2 = i; k2 <= j; k2++) all[k2].rank = rank;
+        if (j > i) tieT.push(j - i + 1); i = j + 1; }
+      const R1 = all.filter((x) => x.g === 0).reduce((s, x) => s + x.rank, 0);
+      const U1 = R1 - n1 * (n1 + 1) / 2, U = Math.min(U1, n1 * n2 - U1);
+      const tieAdj = tieT.reduce((s, t) => s + (t * t * t - t), 0);
+      const sd = Math.sqrt(n1 * n2 / 12 * ((n + 1) - tieAdj / (n * (n - 1))));
+      const z = sd > 0 ? (U - n1 * n2 / 2 + .5) / sd : 0;
+      return { U, z, p: pWald(z) };
+    }
+    // Kaplan-Meier: S(t) + vida média restrita (RMST) até tMax
+    function kmSurvival(rows, tMax) {   // rows: {t, ev}
+      const evTimes = [...new Set(rows.filter((r) => r.ev).map((r) => r.t))].sort((a, b) => a - b);
+      let s = 1; const curve = [{ t: 0, s: 1 }];
+      evTimes.forEach((t) => {
+        const nRisk = rows.filter((r) => r.t >= t).length;
+        const d = rows.filter((r) => r.ev && r.t === t).length;
+        if (nRisk > 0) { s *= 1 - d / nRisk; curve.push({ t, s }); }
+      });
+      let rmst = 0, prevT = 0, prevS = 1;   // integral de S(t) até tMax (escada)
+      curve.slice(1).forEach((pt) => { const t = Math.min(pt.t, tMax); if (t > prevT) rmst += prevS * (t - prevT); prevT = t; prevS = pt.s; });
+      if (prevT < tMax) rmst += prevS * (tMax - prevT);
+      return { curve, rmst };
+    }
+    // Cox proporcional (parcial de Breslow, Newton) — covariáveis padronizadas por dentro
+    function coxFit(rows, keys) {   // rows: {t, ev, <keys>}
+      const n = rows.length, p = keys.length;
+      const events = rows.filter((r) => r.ev).length;
+      if (events < p + 3) return null;
+      const mu = keys.map((k) => rows.reduce((s, r) => s + r[k], 0) / n);
+      const sd = keys.map((k, j) => Math.sqrt(rows.reduce((s, r) => s + (r[k] - mu[j]) * (r[k] - mu[j]), 0) / n) || 1);
+      const X = rows.map((r) => keys.map((k, j) => (r[k] - mu[j]) / sd[j]));
+      let beta = new Array(p).fill(0);
+      const solve = (A, b) => { const M = A.map((row, i) => [...row, b[i]]);
+        for (let c = 0; c < p; c++) { let piv = c; for (let r = c + 1; r < p; r++) if (Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r;
+          if (Math.abs(M[piv][c]) < 1e-12) return null; [M[c], M[piv]] = [M[piv], M[c]];
+          for (let r = 0; r < p; r++) { if (r === c) continue; const f = M[r][c] / M[c][c]; for (let k2 = c; k2 <= p; k2++) M[r][k2] -= f * M[c][k2]; } }
+        return M.map((row, i) => row[p] / row[i]); };
+      let H = null;
+      for (let it = 0; it < 60; it++) {
+        const grad = new Array(p).fill(0);
+        H = Array.from({ length: p }, () => new Array(p).fill(0));
+        const evTimes = [...new Set(rows.filter((r) => r.ev).map((r) => r.t))];
+        for (const t of evTimes) {
+          const risk = []; rows.forEach((r, i) => { if (r.t >= t) risk.push(i); });
+          const dIdx = []; rows.forEach((r, i) => { if (r.ev && r.t === t) dIdx.push(i); });
+          let s0 = 0; const s1 = new Array(p).fill(0), s2 = Array.from({ length: p }, () => new Array(p).fill(0));
+          for (const i of risk) {
+            const w = Math.exp(Math.max(-30, Math.min(30, X[i].reduce((s, v, j) => s + v * beta[j], 0))));
+            s0 += w;
+            for (let j = 0; j < p; j++) { s1[j] += w * X[i][j]; for (let k2 = 0; k2 <= j; k2++) s2[j][k2] += w * X[i][j] * X[i][k2]; }
+          }
+          const d = dIdx.length;
+          for (let j = 0; j < p; j++) {
+            grad[j] += dIdx.reduce((s, i) => s + X[i][j], 0) - d * s1[j] / s0;
+            for (let k2 = 0; k2 <= j; k2++) H[j][k2] += d * (s2[j][k2] / s0 - (s1[j] / s0) * (s1[k2] / s0));
+          }
+        }
+        for (let j = 0; j < p; j++) { H[j][j] += 1e-6; for (let k2 = j + 1; k2 < p; k2++) H[j][k2] = H[k2][j]; }
+        const step = solve(H.map((r) => [...r]), grad);
+        if (!step) return null;
+        beta = beta.map((b, j) => b + step[j]);
+        if (Math.max(...step.map(Math.abs)) < 1e-8) break;
+      }
+      const se = [];
+      for (let j = 0; j < p; j++) { const e = new Array(p).fill(0); e[j] = 1; const col = solve(H.map((r) => [...r]), e); se.push(col ? Math.sqrt(Math.max(0, col[j])) : NaN); }
+      const coefs = keys.map((k, j) => { const b = beta[j] / sd[j], s = se[j] / sd[j];
+        return { k, beta: b, se: s, z: b / s, p: pWald(b / s), hr: Math.exp(b) }; });
+      return { coefs, n, events };
+    }
+    // ---- dataset por CONTRATO para as análises (vínculo × multas × km × pagamentos × modelo) ----
+    function recAnalysisData() {
+      const U = OCN.ue || {};
+      const fx = finPar('__fin_fx__') || 5.5;
+      const hojeIso = U.hoje || new Date().toISOString().slice(0, 10);
+      const modelOf = {}; (U.fleets || []).forEach((f) => (f.placas || []).forEach((pl) => { modelOf[pl] = f.modelLabel || f.model; }));
+      const MB = ((U.multasBase || {}).placas) || {};
+      const PAY = ((U.pagamentos || {}).placas) || {};
+      const UT = {}; (((OCN.utilization) || {}).plates || []).forEach((r) => { UT[r.plate] = r.kmWeek; });
+      const rows = [];
+      (U.vinculos || []).forEach((v) => {
+        const end = v.fim || hojeIso;
+        const durM = Math.max(.25, (new Date(end + 'T12:00:00') - new Date(v.ini + 'T12:00:00')) / 86400000 / 30.44);
+        const rec = !!(v.fim && /recupera/i.test(v.motivo || ''));
+        const troca = !!(v.fim && /troca/i.test(v.motivo || ''));
+        let fines = 0, finesV = 0;
+        (MB[v.placa] || []).forEach((x) => { const d = x.inf || x.email || x.venc; if (d && d >= v.ini && d <= end) { fines++; finesV += x.v || 0; } });
+        // 2ª semana do contrato (a 1ª é paga na retirada): atrasou ou nem pagou?
+        // A matriz só traz semanas PAGAS, com a flag `a` = pagamento em atraso. Então:
+        // atrasou = 2ª cobrança paga com atraso (a=1) OU ausente da matriz com o contrato
+        // já na 3ª semana de vida (nunca pagou). Contrato mais novo que isso fica de fora.
+        const weeks = (PAY[v.placa] || []).filter((s) => s.v && s.v >= v.ini && s.v <= end).sort((a, b) => (a.v < b.v ? -1 : 1));
+        const durW = (new Date(end + 'T12:00:00') - new Date(v.ini + 'T12:00:00')) / 86400000 / 7;
+        let delay2 = null;
+        if (durW >= 3) { const w2 = weeks[1]; delay2 = !w2 ? true : (w2.a === 1); }
+        rows.push({ placa: v.placa, nome: v.nome, ini: v.ini, fim: v.fim, durM, rec, troca,
+          ended: !!(v.fim && !troca),                       // devolução/recuperação/perda encerram o contrato
+          finesPM: fines / durM, finesVPM: finesV / fx / durM,
+          kmWeek: UT[v.placa] != null ? UT[v.placa] : null,
+          model: modelOf[v.placa] || '?', delay2 });
+      });
+      return rows;
+    }
     function renderCostsLeft(C, H) {
       const { mk, K, cs, noDL } = H;
       const box = document.getElementById('ccLeftBox'), grid = document.getElementById('ccSmallGrid');
@@ -5144,6 +5333,9 @@
         expBtn.onclick = () => { costsLeftBig = !costsLeftBig; renderCosts(); };
       }
       box.classList.toggle('expanded', costsLeftBig && canExpand);
+      // a área de resultados estatísticos só existe no painel do Recovery
+      const st0 = document.getElementById('cclStats');
+      if (st0 && costsSel !== 'Recovery cost') { st0.style.display = 'none'; st0.innerHTML = ''; }
       const show = (on) => { box.style.display = on ? '' : 'none'; grid.style.gridTemplateColumns = on ? '' : '1fr'; };
       const fx = finPar('__fin_fx__') || 5.5;
       const fleetsMeta = ((OCN.ue || {}).fleets) || [];
@@ -5354,61 +5546,246 @@
         return;
       }
       if (costsSel === 'Recovery cost') {
-        // ---- CORRELAÇÃO: o que anda junto com as recuperações ----
-        // Um ponto por CONTRATO (vínculo): a variável escolhida no eixo X e, no Y, o desfecho —
-        // 1 = recuperado, 0 = não. A linha de tendência é a regressão linear do desfecho sobre a
-        // variável: quanto mais inclinada, mais aquela variável "anda junto" com a recuperação.
-        const vinc2 = (((OCN.ue || {}).vinculos) || []);
-        if (!vinc2.length) { show(false); return; }
+        // ============ O QUE CAUSA AS RECUPERAÇÕES — painel de análises ============
+        // Seis análises, cada uma no seu botão: regressão logística (risco por multas/mês, km e
+        // idade), boxplot + Mann-Whitney do km/semana, tabela por modelo + qui-quadrado,
+        // sobrevivência (Kaplan-Meier + Cox), atraso da 2ª semana e queda brusca de uso.
+        const AR = recAnalysisData();
+        if (!AR.length) { show(false); return; }
         show(true); title('What drives repossessions');
-        const MB2 = (((OCN.ue || {}).multasBase) || {}).placas || {};
-        const UT2 = {}; ((((OCN.utilization) || {}).plates) || []).forEach((r) => { UT2[r.plate] = r.kmWeek; });
+        const statsEl = document.getElementById('cclStats');
+        if (statsEl) { statsEl.style.display = ''; statsEl.innerHTML = ''; }
         if (ctl) {
-          const VARS = [['fcount', 'Fines (count)'], ['fval', 'Fines (value)'], ['km', 'km/week']];
-          ctl.innerHTML = VARS.map(([k, lb]) => `<button type="button" class="ccl-btn${costsCorrVar === k ? ' on' : ''}" data-m="${k}" style="--c:${C}">${lb}</button>`).join('');
-          ctl.querySelectorAll('.ccl-btn').forEach((b) => b.addEventListener('click', () => { costsCorrVar = b.dataset.m; renderCosts(); }));
+          const TB = [['logit', 'Risk model'], ['km', 'km/week'], ['model', 'By model'], ['surv', 'Survival'], ['pay2', '2nd week'], ['drop', 'Usage drop']];
+          ctl.innerHTML = TB.map(([k, lb]) => `<button type="button" class="ccl-btn${costsCorrTab === k ? ' on' : ''}" data-m="${k}" style="--c:${C}">${lb}</button>`).join('');
+          ctl.querySelectorAll('.ccl-btn').forEach((b) => b.addEventListener('click', () => { costsCorrTab = b.dataset.m; renderCosts(); }));
         }
-        const ptsC = [];
-        vinc2.forEach((v) => {
-          const end = v.fim || hojeIso;
-          let xv = null;
-          if (costsCorrVar === 'km') { xv = UT2[v.placa] != null ? UT2[v.placa] : null; }
-          else {
-            let tot = 0, n = 0;
-            (MB2[v.placa] || []).forEach((x) => { const d = x.inf || x.email || x.venc; if (d && d >= v.ini && d <= end) { tot += x.v || 0; n++; } });
-            xv = costsCorrVar === 'fval' ? Math.round((tot / fx) * K) : n;
+        const fmtP = (p) => (p == null || isNaN(p) ? '—' : (p < .001 ? '<0,001' : p.toFixed(3).replace('.', ',')));
+        const sigCls = (p) => (p != null && p < .05 ? 'sig' : 'nsig');
+        const read = (html) => `<div class="ccl-read">${html}</div>`;
+        const quart = (arr) => { const a = [...arr].sort((x, y) => x - y); const q = (f) => { const i = (a.length - 1) * f; const lo = Math.floor(i); return a[lo] + (a[Math.min(a.length - 1, lo + 1)] - a[lo]) * (i - lo); }; return { p5: q(.05), q1: q(.25), med: q(.5), q3: q(.75), p95: q(.95) }; };
+        // ---------- 1) REGRESSÃO LOGÍSTICA: recuperado ~ multas/mês + km/semana + idade ----------
+        if (costsCorrTab === 'logit') {
+          costsLeftHelp = { t: 'Risk model — logistic regression', d: 'The classic default-risk model: the chance of a contract ending in repossession, explained by fines PER MONTH of contract (raw fine counts would punish long contracts), the plate\'s km/week and the contract age. Fitted by maximum likelihood (IRLS), same result as statsmodels\' logit. ODDS RATIO above 1 = each extra unit of the variable multiplies the odds of repossession by that much; p < 0,05 = the association is unlikely to be luck. Contract age enters as a control, but read it with care: repossessed contracts are short by construction.' };
+          // km entra em CENTENAS de km/semana — o odds ratio "por 1 km" arredonda para ×1,00 e não diz nada
+          const rowsL = AR.filter((r) => r.kmWeek != null).map((r) => ({ y: r.rec, finesPM: r.finesPM, kmWeek: r.kmWeek / 100, durM: r.durM }));
+          const fit = logisticFit(rowsL, ['finesPM', 'kmWeek', 'durM']);
+          const LBL = { finesPM: 'Fines / month', kmWeek: 'km/week (per +100)', durM: 'Contract age (mo)' };
+          if (fit) {
+            const ors = fit.coefs;
+            mk('ccPerCar', { type: 'bar', data: { labels: ors.map((o) => LBL[o.k]),
+                datasets: [{ data: ors.map((o) => Math.round(o.or * 100) / 100), backgroundColor: ors.map((o) => (o.p < .05 ? (o.or > 1 ? '#DC2626' : '#15803D') : '#9CA3AF')), borderRadius: 5, maxBarThickness: 46 }] },
+              plugins: [{ id: 'orRef', beforeDatasetsDraw(ch) { const { ctx, chartArea: a } = ch, ys = ch.scales.y;
+                const y1 = ys.getPixelForValue(1); ctx.save(); ctx.strokeStyle = '#374151'; ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.moveTo(a.left, y1); ctx.lineTo(a.right, y1); ctx.stroke();
+                ctx.setLineDash([]); ctx.font = '700 9px ' + getComputedStyle(document.body).fontFamily; ctx.fillStyle = '#6B7280'; ctx.textAlign = 'left'; ctx.fillText('odds ratio = 1 (no effect)', a.left + 4, y1 - 5); ctx.restore(); } }],
+              options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 18 } },
+                plugins: { legend: { display: false },
+                  datalabels: { anchor: 'end', align: 'top', offset: 1, color: '#374151', font: { size: 10.5, weight: 800 }, formatter: (v) => ('×' + String(v).replace('.', ',')) },
+                  tooltip: { displayColors: false, callbacks: { label: (c2) => { const o = ors[c2.dataIndex]; return `odds ratio ${o.or.toFixed(2)} · p ${fmtP(o.p)}`; } } } },
+                scales: { x: { grid: { display: false }, border: { display: false }, ticks: { font: { size: 10.5, weight: 700 }, color: '#374151', maxRotation: 0 } },
+                  y: { beginAtZero: true, grace: '12%', grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280' } } } } });
+            if (statsEl) {
+              const sig = ors.filter((o) => o.p < .05);
+              statsEl.innerHTML =
+                `<table><thead><tr><th>Variable</th><th>coef (β)</th><th>odds ratio</th><th>p-value</th></tr></thead><tbody>` +
+                ors.map((o) => `<tr><td>${LBL[o.k]}</td><td>${o.beta.toFixed(3).replace('.', ',')}</td><td><b>×${o.or.toFixed(2).replace('.', ',')}</b></td><td class="${sigCls(o.p)}">${fmtP(o.p)}</td></tr>`).join('') +
+                `</tbody></table>` +
+                read(`<b>${fit.n}</b> contracts with km data · <b>${fit.events}</b> repossessions. ` +
+                  (sig.length ? sig.map((o) => `<b>${LBL[o.k]}</b> ${o.or > 1 ? 'raises' : 'lowers'} the odds ×${o.or.toFixed(2).replace('.', ',')} per unit (p ${fmtP(o.p)})`).join('; ') + '.' : 'No variable clears p < 0,05 yet — with this sample, none of them separates who gets repossessed.'));
+            }
+          } else { mk('ccPerCar', { type: 'bar', data: { labels: [], datasets: [] }, options: {} }); if (statsEl) statsEl.innerHTML = read('Not enough data to fit the model yet.'); }
+          return;
+        }
+        // ---------- 2) km/SEMANA: boxplot recuperados × não + Mann-Whitney ----------
+        if (costsCorrTab === 'km') {
+          costsLeftHelp = { t: 'km/week — recovered vs kept', d: 'Side-by-side boxplots of the plate\'s km/week for contracts that ended in repossession and the rest. Box = middle 50% (quartiles), line = median, whiskers = 5th–95th percentile. The MANN-WHITNEY test compares the two groups without assuming any distribution: p < 0,05 means the km/week of repossessed contracts is genuinely different, not sample luck. km/week is the plate\'s current pace — a proxy for contracts that already ended.' };
+          const g1 = AR.filter((r) => r.rec && r.kmWeek != null).map((r) => r.kmWeek);
+          const g0 = AR.filter((r) => !r.rec && r.kmWeek != null).map((r) => r.kmWeek);
+          if (g1.length >= 3 && g0.length >= 3) {
+            const q1 = quart(g1), q0 = quart(g0);
+            const mw = mannWhitney(g1, g0);
+            const QS = [q1, q0];
+            mk('ccPerCar', { type: 'bar', data: { labels: [`repossessed (${g1.length})`, `kept / other (${g0.length})`],
+                datasets: [{ data: [[q1.q1, q1.q3], [q0.q1, q0.q3]], backgroundColor: ['rgba(220,38,38,.55)', 'rgba(156,163,175,.5)'], borderColor: ['#DC2626', '#6B7280'], borderWidth: 1.5, borderRadius: 4, maxBarThickness: 92 }] },
+              plugins: [{ id: 'boxParts', afterDatasetsDraw(ch) {
+                const { ctx } = ch, ys = ch.scales.y, meta = ch.getDatasetMeta(0);
+                ctx.save();
+                meta.data.forEach((el, i2) => { const q = QS[i2]; const w = el.width;
+                  ctx.strokeStyle = i2 === 0 ? '#B91C1C' : '#4B5563'; ctx.lineWidth = 2.5;   // mediana
+                  ctx.beginPath(); ctx.moveTo(el.x - w / 2, ys.getPixelForValue(q.med)); ctx.lineTo(el.x + w / 2, ys.getPixelForValue(q.med)); ctx.stroke();
+                  ctx.lineWidth = 1.2;                                                        // bigodes p5–p95
+                  ctx.beginPath(); ctx.moveTo(el.x, ys.getPixelForValue(q.q3)); ctx.lineTo(el.x, ys.getPixelForValue(q.p95));
+                  ctx.moveTo(el.x - w / 4, ys.getPixelForValue(q.p95)); ctx.lineTo(el.x + w / 4, ys.getPixelForValue(q.p95));
+                  ctx.moveTo(el.x, ys.getPixelForValue(q.q1)); ctx.lineTo(el.x, ys.getPixelForValue(q.p5));
+                  ctx.moveTo(el.x - w / 4, ys.getPixelForValue(q.p5)); ctx.lineTo(el.x + w / 4, ys.getPixelForValue(q.p5)); ctx.stroke();
+                });
+                ctx.restore();
+              } }],
+              options: { responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false }, datalabels: { display: false },
+                  tooltip: { displayColors: false, callbacks: { label: (c2) => { const q = QS[c2.dataIndex]; return `median ${ccNum(q.med)} · box ${ccNum(q.q1)}–${ccNum(q.q3)} · whiskers ${ccNum(q.p5)}–${ccNum(q.p95)} km/wk`; } } } },
+                scales: { x: { grid: { display: false }, border: { display: false }, ticks: { font: { size: 11, weight: 700 }, color: '#374151' } },
+                  y: { beginAtZero: true, grid: { color: 'rgba(120,120,140,.10)' }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280', callback: ccK }, title: { display: true, text: 'km/week', color: '#9CA3AF', font: { size: 10 } } } } } });
+            if (statsEl) statsEl.innerHTML =
+              `<table><thead><tr><th>Group</th><th>n</th><th>median</th><th>Q1–Q3</th></tr></thead><tbody>` +
+              `<tr><td>Repossessed</td><td>${g1.length}</td><td><b>${ccNum(q1.med)}</b></td><td>${ccNum(q1.q1)}–${ccNum(q1.q3)}</td></tr>` +
+              `<tr><td>Kept / other end</td><td>${g0.length}</td><td><b>${ccNum(q0.med)}</b></td><td>${ccNum(q0.q1)}–${ccNum(q0.q3)}</td></tr>` +
+              `</tbody></table>` +
+              read(`Mann-Whitney: U = ${Math.round(mw.U)}, p = <b class="${sigCls(mw.p)}">${fmtP(mw.p)}</b>. ` +
+                (mw.p < .05 ? `Repossessed contracts run <b>${q1.med < q0.med ? 'less' : 'more'}</b> km/week — a real usage difference.` : 'No significant km/week difference between the groups so far.'));
+          } else { if (statsEl) statsEl.innerHTML = read('Too few repossessions with km data for a group comparison.'); mk('ccPerCar', { type: 'bar', data: { labels: [], datasets: [] }, options: {} }); }
+          return;
+        }
+        // ---------- 3) POR MODELO: tabela de contingência + qui-quadrado ----------
+        if (costsCorrTab === 'model') {
+          costsLeftHelp = { t: 'Repossession rate by car model', d: 'Do some car models get repossessed more? The bars are the repossession RATE per model (repossessions ÷ contracts of that model), and the chi-square test asks whether the differences between models are bigger than luck would produce (p < 0,05 = yes). Small groups make weak evidence — the table shows every n.' };
+          const byM = {};
+          AR.forEach((r) => { const m = r.model || '?'; (byM[m] = byM[m] || { n: 0, rec: 0 }).n++; if (r.rec) byM[m].rec++; });
+          const ms = Object.entries(byM).filter(([, o]) => o.n >= 3).sort((a, b) => b[1].n - a[1].n);
+          const totN = ms.reduce((s, [, o]) => s + o.n, 0), totR = ms.reduce((s, [, o]) => s + o.rec, 0);
+          let chi = 0;
+          ms.forEach(([, o]) => { const eR = o.n * totR / totN, eK = o.n * (totN - totR) / totN;
+            if (eR > 0) chi += (o.rec - eR) * (o.rec - eR) / eR;
+            if (eK > 0) chi += ((o.n - o.rec) - eK) * ((o.n - o.rec) - eK) / eK; });
+          const df = ms.length - 1, pChi = df > 0 ? chi2P(chi, df) : null;
+          mk('ccPerCar', { type: 'bar', data: { labels: ms.map(([m]) => m),
+              datasets: [{ data: ms.map(([, o]) => Math.round(o.rec / o.n * 1000) / 10), backgroundColor: ms.map(([m]) => MODEL_COLOR[Object.keys(MODEL_COLOR).find((k2) => m.includes(k2))] || C), borderRadius: 5, maxBarThickness: 56 }] },
+            options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 18 } },
+              plugins: { legend: { display: false },
+                datalabels: { anchor: 'end', align: 'top', offset: 1, color: '#374151', font: { size: 10.5, weight: 800 }, formatter: (v) => String(v).replace('.', ',') + '%' },
+                tooltip: { displayColors: false, callbacks: { label: (c2) => { const o = ms[c2.dataIndex][1]; return `${o.rec} of ${o.n} contracts repossessed`; } } } },
+              scales: { x: { grid: { display: false }, border: { display: false }, ticks: { font: { size: 10.5, weight: 700 }, color: '#374151', maxRotation: 0 } },
+                y: { beginAtZero: true, grace: '12%', grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280', callback: (v) => v + '%' } } } } });
+          if (statsEl) statsEl.innerHTML =
+            `<table><thead><tr><th>Model</th><th>contracts</th><th>repossessed</th><th>rate</th></tr></thead><tbody>` +
+            ms.map(([m, o]) => `<tr><td>${escH(m)}</td><td>${o.n}</td><td>${o.rec}</td><td><b>${(o.rec / o.n * 100).toFixed(1).replace('.', ',')}%</b></td></tr>`).join('') +
+            `</tbody></table>` +
+            read(`Chi-square: χ² = ${chi.toFixed(2).replace('.', ',')} (df ${df}), p = <b class="${sigCls(pChi)}">${fmtP(pChi)}</b>. ` +
+              (pChi != null && pChi < .05 ? 'The repossession rate really differs between models.' : 'The differences between models are within what chance would produce.'));
+          return;
+        }
+        // ---------- 4) SOBREVIVÊNCIA: Kaplan-Meier + Cox ----------
+        if (costsCorrTab === 'surv') {
+          costsLeftHelp = { t: 'Survival — Kaplan-Meier + Cox', d: 'The curve is the Kaplan-Meier estimate of contracts SURVIVING repossession over their life: it starts at 100% and steps down at each repossession; contracts still running (or ended for other reasons) are censored, not counted as events. The Cox model below asks which variables ACCELERATE repossession: hazard ratio above 1 = the variable raises the instantaneous risk (a HR of 1,5 = 50% higher risk per extra unit), with its p-value.' };
+          const rowsS = AR.map((r) => ({ t: r.durM, ev: r.rec ? 1 : 0, finesPM: r.finesPM, kmWeek: r.kmWeek != null ? r.kmWeek / 100 : null }));
+          const kmC = kmSurvival(rowsS, 12);
+          const rowsCox = rowsS.filter((r) => r.kmWeek != null);
+          const cox = coxFit(rowsCox, ['finesPM', 'kmWeek']);
+          const stepPts = [];   // curva em escada
+          kmC.curve.forEach((pt, i2) => { if (i2 > 0) stepPts.push({ x: pt.t, y: kmC.curve[i2 - 1].s * 100 }); stepPts.push({ x: pt.t, y: pt.s * 100 }); });
+          stepPts.push({ x: 12, y: kmC.curve[kmC.curve.length - 1].s * 100 });
+          mk('ccPerCar', { type: 'line', data: { datasets: [{ label: 'contracts surviving repossession', data: stepPts, borderColor: C, backgroundColor: costsTint(C, .15), fill: true, stepped: false, pointRadius: 0, borderWidth: 2.5, tension: 0 }] },
+            options: { responsive: true, maintainAspectRatio: false,
+              plugins: { legend: { labels: CC_LEG }, datalabels: { display: false },
+                tooltip: { displayColors: false, callbacks: { label: (c2) => `M${c2.parsed.x.toFixed(1)} · ${c2.parsed.y.toFixed(1).replace('.', ',')}% still with the driver` } } },
+              scales: { x: { type: 'linear', min: 0, max: 12, grid: { display: false }, border: { display: false }, title: { display: true, text: 'months of contract', color: '#9CA3AF', font: { size: 10 } }, ticks: { font: CC_FONT, color: '#6B7280', stepSize: 1 } },
+                y: { min: 0, max: 100, grid: { color: 'rgba(120,120,140,.10)' }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280', callback: (v) => v + '%' } } } } });
+          if (statsEl) {
+            const LBL2 = { finesPM: 'Fines / month', kmWeek: 'km/week (per +100)' };
+            statsEl.innerHTML =
+              (cox ? `<table><thead><tr><th>Cox variable</th><th>hazard ratio</th><th>p-value</th></tr></thead><tbody>` +
+                cox.coefs.map((o) => `<tr><td>${LBL2[o.k]}</td><td><b>×${o.hr.toFixed(2).replace('.', ',')}</b></td><td class="${sigCls(o.p)}">${fmtP(o.p)}</td></tr>`).join('') +
+                `</tbody></table>` : '') +
+              read(`Kaplan-Meier over <b>${rowsS.length}</b> contracts (${rowsS.filter((r) => r.ev).length} repossessions): ` +
+                `by M3 <b>${(kmSurvival(rowsS, 3).curve.slice(-1)[0].s * 100).toFixed(1).replace('.', ',')}%</b> of contracts still stand. ` +
+                (cox ? cox.coefs.filter((o) => o.p < .05).map((o) => `<b>${LBL2[o.k]}</b> multiplies the repossession hazard ×${o.hr.toFixed(2).replace('.', ',')} per unit (p ${fmtP(o.p)})`).join('; ') + (cox.coefs.some((o) => o.p < .05) ? '.' : 'No Cox variable clears p < 0,05 yet.') : ''));
           }
-          if (xv == null) return;
-          const rec = !!(v.fim && /recupera/i.test(v.motivo || ''));
-          ptsC.push({ x: xv, yReal: rec ? 1 : 0, y: (rec ? 1 : 0) + (Math.random() - .5) * .12, rec, nome: v.nome, placa: v.placa, fim: v.fim });
-        });
-        if (!ptsC.length) { show(false); return; }
-        // regressão linear do desfecho (0/1) sobre a variável + correlação de Pearson
-        const n2 = ptsC.length;
-        const mx2 = ptsC.reduce((s, p) => s + p.x, 0) / n2, my2 = ptsC.reduce((s, p) => s + p.yReal, 0) / n2;
-        let sxx = 0, sxy = 0, syy = 0;
-        ptsC.forEach((p) => { const dx = p.x - mx2, dy = p.yReal - my2; sxx += dx * dx; sxy += dx * dy; syy += dy * dy; });
-        const slope = sxx > 1e-9 ? sxy / sxx : 0, icpt = my2 - slope * mx2;
-        const rP = (sxx > 1e-9 && syy > 1e-9) ? sxy / Math.sqrt(sxx * syy) : 0;
-        const xMax2 = Math.max(1, ...ptsC.map((p) => p.x));
-        const varLbl = costsCorrVar === 'km' ? 'km/week of the plate' : (costsCorrVar === 'fval' ? 'fines value in the contract' : 'fines in the contract');
-        costsLeftHelp = { t: 'What drives repossessions', d: 'Repossessions happen when drivers stop paying — this chart asks what walks together with that. One dot per CONTRACT: the chosen variable on the horizontal (' + varLbl + ') and the outcome on the vertical — top row = repossessed, bottom row = not (dots are slightly scattered so they do not pile up). The TREND LINE is the linear regression of the outcome on the variable: the steeper it climbs, the stronger the association, and r is the correlation (−1 to 1; near 0 = no relation). Correlation is not causation — but a steep line says where to look first. km/week uses the plate\'s current pace from the fleet site, so it is a proxy for ended contracts.' };
-        mk('ccPerCar', { type: 'scatter', data: { datasets: [
-            { label: 'repossessed', data: ptsC.filter((p) => p.rec), backgroundColor: '#DC2626', pointRadius: 4, pointHoverRadius: 6, pointBorderColor: '#fff', pointBorderWidth: 1 },
-            { label: 'active / other end', data: ptsC.filter((p) => !p.rec), backgroundColor: 'rgba(156,163,175,.55)', pointRadius: 3.5, pointHoverRadius: 5, pointBorderColor: '#fff', pointBorderWidth: 1 },
-            { type: 'line', label: `trend · r = ${rP.toFixed(2).replace('.', ',')}`, data: [{ x: 0, y: icpt }, { x: xMax2, y: icpt + slope * xMax2 }],
-              borderColor: C, borderDash: [6, 4], borderWidth: 2, pointRadius: 0, datalabels: { display: false } },
-          ] },
-          options: { responsive: true, maintainAspectRatio: false,
-            plugins: Object.assign({ legend: { labels: CC_LEG },
-              tooltip: { displayColors: false, callbacks: {
-                title: (items) => { const p = items[0].raw; return p ? (p.nome || '?').split(' ').slice(0, 2).join(' ') + ' · ' + p.placa : ''; },
-                label: (c2) => { const p = c2.raw; if (!p) return c2.dataset.label; const vl = costsCorrVar === 'fval' ? cs + ' ' + ccNum(p.x) : ccNum(p.x) + (costsCorrVar === 'km' ? ' km/wk' : ' fines'); return vl + ' · ' + (p.rec ? 'repossessed' + (p.fim ? ' on ' + p.fim : '') : 'still active or ended otherwise'); } } } }, noDL),
-            scales: { x: { min: 0, grid: { display: false }, border: { display: false },
-                title: { display: true, text: varLbl, color: '#9CA3AF', font: { size: 10 } },
-                ticks: { font: CC_FONT, color: '#6B7280', callback: costsCorrVar === 'fval' ? ccK : undefined, precision: 0 } },
-              y: { min: -.2, max: 1.2, grid: { display: false }, border: { display: false },
-                ticks: { font: CC_FONT, color: '#6B7280', stepSize: 1, callback: (v) => (v === 1 ? 'repossessed' : (v === 0 ? 'kept' : '')) } } } } });
+          return;
+        }
+        // ---------- 5) 2ª SEMANA sem pagar × recuperação ----------
+        if (costsCorrTab === 'pay2') {
+          costsLeftHelp = { t: 'The 2nd week tells the story', d: 'The 1st week is paid on pickup — the 2nd is the first one a driver can actually miss. Bars: repossession rate among contracts whose 2nd weekly payment was LATE or never made (the payments matrix flags late payments and omits unpaid weeks) vs the ones that paid it on time. Contracts younger than 3 weeks are left out — their 2nd week has not happened yet. The chi-square p says whether the gap is real. A big gap makes the 2nd week the earliest tripwire we have.' };
+          const rowsP = AR.filter((r) => r.delay2 != null);
+          const gMiss = rowsP.filter((r) => r.delay2), gPaid = rowsP.filter((r) => !r.delay2);
+          const rMiss = gMiss.filter((r) => r.rec).length, rPaid = gPaid.filter((r) => r.rec).length;
+          let chi2 = 0, p2 = null;
+          if (gMiss.length && gPaid.length) {
+            const N = rowsP.length, R = rMiss + rPaid;
+            [[gMiss.length, rMiss], [gPaid.length, rPaid]].forEach(([n, r]) => {
+              const eR = n * R / N, eK = n * (N - R) / N;
+              if (eR > 0) chi2 += (r - eR) * (r - eR) / eR;
+              if (eK > 0) chi2 += ((n - r) - eK) * ((n - r) - eK) / eK;
+            });
+            p2 = chi2P(chi2, 1);
+          }
+          mk('ccPerCar', { type: 'bar', data: { labels: [`2nd week late / unpaid (${gMiss.length})`, `2nd week on time (${gPaid.length})`],
+              datasets: [{ data: [gMiss.length ? Math.round(rMiss / gMiss.length * 1000) / 10 : 0, gPaid.length ? Math.round(rPaid / gPaid.length * 1000) / 10 : 0],
+                backgroundColor: ['#DC2626', '#9CA3AF'], borderRadius: 5, maxBarThickness: 92 }] },
+            options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 18 } },
+              plugins: { legend: { display: false },
+                datalabels: { anchor: 'end', align: 'top', offset: 1, color: '#374151', font: { size: 12, weight: 800 }, formatter: (v) => String(v).replace('.', ',') + '%' },
+                tooltip: { displayColors: false, callbacks: { label: (c2) => (c2.dataIndex === 0 ? `${rMiss} of ${gMiss.length} repossessed` : `${rPaid} of ${gPaid.length} repossessed`) } } },
+              scales: { x: { grid: { display: false }, border: { display: false }, ticks: { font: { size: 11, weight: 700 }, color: '#374151' } },
+                y: { beginAtZero: true, grace: '12%', grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280', callback: (v) => v + '%' }, title: { display: true, text: 'repossession rate', color: '#9CA3AF', font: { size: 10 } } } } } });
+          if (statsEl) statsEl.innerHTML =
+            `<table><thead><tr><th>2nd weekly payment</th><th>contracts</th><th>repossessed</th><th>rate</th></tr></thead><tbody>` +
+            `<tr><td>Late or never paid</td><td>${gMiss.length}</td><td>${rMiss}</td><td><b>${gMiss.length ? (rMiss / gMiss.length * 100).toFixed(1).replace('.', ',') : '—'}%</b></td></tr>` +
+            `<tr><td>Paid on time</td><td>${gPaid.length}</td><td>${rPaid}</td><td><b>${gPaid.length ? (rPaid / gPaid.length * 100).toFixed(1).replace('.', ',') : '—'}%</b></td></tr>` +
+            `</tbody></table>` +
+            read(`Chi-square: χ² = ${chi2.toFixed(2).replace('.', ',')}, p = <b class="${sigCls(p2)}">${fmtP(p2)}</b>. ` +
+              (p2 != null && p2 < .05 ? 'A late 2nd week is a REAL early-warning sign — worth acting on it immediately.' : 'The gap is not statistically solid yet, but watch it as the sample grows.') +
+              ' Contracts younger than 3 weeks are left out.');
+          return;
+        }
+        // ---------- 6) QUEDA DE USO: km semanal antes da recuperação + watchlist ----------
+        if (costsCorrTab === 'drop') {
+          costsLeftHelp = { t: 'Usage drop before repossession', d: 'The odometer history (fleet-site readings, ~3/day since April) turned into km per week. The line is the AVERAGE weekly km of repossessed contracts, aligned to the repossession week (week 0) — if it fades before zero, the car "disappears from normal use" before we take it. The dashed grey line is the average pace of active contracts, as the normal-use reference. The WATCHLIST below applies the same signal to ACTIVE contracts today: plates whose last full week ran under half of their previous 3-week average.' };
+          const KS = ((OCN.ue || {}).kmSemanal) || null;
+          if (!KS || !KS.weeks || !KS.weeks.length) {
+            mk('ccPerCar', { type: 'bar', data: { labels: [], datasets: [] }, options: {} });
+            if (statsEl) statsEl.innerHTML = read('Odometer history not available on this refresh — the fleet-site readings feed did not load.');
+            return;
+          }
+          const wIdx = (iso) => { const w = KS.weeks; for (let i2 = w.length - 1; i2 >= 0; i2--) if (w[i2] <= iso) return i2; return -1; };
+          // média de km por semana RELATIVA à recuperação (t-8..t0), só semanas dentro do contrato
+          const REL = 8, sum = new Array(REL + 1).fill(0), cnt = new Array(REL + 1).fill(0);
+          AR.filter((r) => r.rec && r.fim).forEach((r) => {
+            const serie = KS.placas[r.placa]; if (!serie) return;
+            const i0 = wIdx(r.fim); if (i0 < 0) return;
+            for (let k2 = 0; k2 <= REL; k2++) {
+              const i2 = i0 - k2; if (i2 < 0) break;
+              if (KS.weeks[i2] < r.ini) break;                    // fora do contrato
+              const v = serie[i2]; if (v == null) continue;
+              sum[REL - k2] += v; cnt[REL - k2]++;
+            }
+          });
+          const avgRel = sum.map((s, i2) => (cnt[i2] ? Math.round(s / cnt[i2]) : null));
+          // referência: ritmo médio das placas de contratos ATIVOS nas últimas 4 semanas completas
+          const activePl = new Set(AR.filter((r) => !r.fim).map((r) => r.placa));
+          let aSum = 0, aCnt = 0;
+          activePl.forEach((pl) => { const s = KS.placas[pl]; if (!s) return;
+            for (let i2 = Math.max(0, KS.weeks.length - 5); i2 < KS.weeks.length - 1; i2++) if (s[i2] != null) { aSum += s[i2]; aCnt++; } });
+          const ref = aCnt ? Math.round(aSum / aCnt) : null;
+          const labelsRel = Array.from({ length: REL + 1 }, (_, i2) => (i2 === REL ? 'week 0' : ('−' + (REL - i2))));
+          mk('ccPerCar', { type: 'line', data: { labels: labelsRel, datasets: [
+              { label: 'avg km/week of repossessed contracts', data: avgRel, borderColor: '#DC2626', backgroundColor: 'rgba(220,38,38,.10)', fill: true, tension: .3, pointRadius: 3, borderWidth: 2.5, spanGaps: true },
+            ].concat(ref != null ? [{ label: `active contracts pace (${ccNum(ref)} km/wk)`, data: labelsRel.map(() => ref), borderColor: '#6B7280', borderDash: [6, 4], borderWidth: 1.5, pointRadius: 0 }] : []) },
+            options: { responsive: true, maintainAspectRatio: false,
+              plugins: { legend: { labels: CC_LEG }, datalabels: { display: false },
+                tooltip: { displayColors: false, callbacks: { label: (c2) => ccNum(c2.parsed.y) + ' km/week · ' + (cnt[c2.dataIndex] || 0) + ' contracts with data' } } },
+              scales: { x: { grid: { display: false }, border: { display: false }, title: { display: true, text: 'weeks before repossession', color: '#9CA3AF', font: { size: 10 } }, ticks: { font: CC_FONT, color: '#6B7280' } },
+                y: { beginAtZero: true, grid: { color: 'rgba(120,120,140,.10)' }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } } } } });
+          // watchlist: contratos ATIVOS com a última semana completa < 50% da média das 3 anteriores
+          const watch = [];
+          AR.filter((r) => !r.fim).forEach((r) => {
+            const s = KS.placas[r.placa]; if (!s) return;
+            const iLast = KS.weeks.length - 2;                    // última semana COMPLETA
+            if (iLast < 3) return;
+            const last = s[iLast]; if (last == null) return;
+            const prev = [s[iLast - 1], s[iLast - 2], s[iLast - 3]].filter((v) => v != null);
+            if (prev.length < 2) return;
+            const base = prev.reduce((a, b) => a + b, 0) / prev.length;
+            if (base >= 300 && last < base * .5) watch.push({ placa: r.placa, nome: r.nome, base: Math.round(base), last, drop: Math.round((1 - last / base) * 100) });
+          });
+          watch.sort((a, b) => b.drop - a.drop);
+          if (statsEl) statsEl.innerHTML =
+            (watch.length ? `<table><thead><tr><th>Watchlist — active contracts with a sharp usage drop</th><th>3-week avg</th><th>last week</th><th>drop</th></tr></thead><tbody>` +
+              watch.slice(0, 10).map((w) => `<tr><td><b>${escH(w.placa)}</b> · ${escH((w.nome || '?').split(' ').slice(0, 2).join(' '))}</td><td>${ccNum(w.base)} km</td><td>${ccNum(w.last)} km</td><td class="sig" style="color:#B91C1C">−${w.drop}%</td></tr>`).join('') +
+              `</tbody></table>` : '') +
+            read((watch.length ? `<b>${watch.length}</b> active contract${watch.length === 1 ? '' : 's'} dropped below half of their own 3-week pace last week — the same pattern the red line shows before repossessions.` : 'No active contract shows a sharp usage drop in the last full week.') +
+              ' Reference pace from ' + (aCnt ? ccNum(ref) : '—') + ' km/wk across active plates.');
+          return;
+        }
         return;
       }
       if (costsSel === 'Repair cost') {
@@ -5755,14 +6132,20 @@
         const evsIn = RD.evs.filter((e) => scIso(e.fim));
         const costIn = RD.cases.filter((c2) => scIso(c2.d)).reduce((s, c2) => s + c2.guincho + c2.recup, 0) / RD.fx;
         const nRec = evsIn.length;
-        const avgDur = RD.evs.length ? RD.evs.reduce((s, e) => s + e.durM, 0) / RD.evs.length : null;
-        const started = (((OCN.ue || {}).vinculos) || []).length;
-        const rate = started ? (RD.evs.length / started) * 100 : null;
+        // vida ESPERADA do contrato por Kaplan-Meier: evento = contrato encerrado (recuperação OU
+        // devolução OU perda; troca de carro censura), contratos VIGENTES entram como censura —
+        // são eles que puxam a expectativa para cima. RMST até os 12 meses do contrato.
+        const AR = recAnalysisData();
+        const kmLife = AR.length ? kmSurvival(AR.map((r) => ({ t: r.durM, ev: r.ended ? 1 : 0 })), 12) : null;
+        // ritmo de recuperação ajustado por EXPOSIÇÃO: recuperações por 100 contrato·meses —
+        // melhor que a % simples, que pune uma base cheia de contratos recém-começados
+        const expoM = AR.reduce((s, r) => s + r.durM, 0);
+        const pace = expoM > 0 ? (RD.evs.length / expoM) * 100 : null;
         document.getElementById('costsHero').innerHTML = '<div class="costs-cards">' +
-          card('Total recovery cost · ' + perName(mSel), money(costIn), 'towing + recovery costs of repossessed cars', true) +
+          card('Total recovery cost · ' + perName(mSel), money(costIn), 'Only true repossessions (event type in the judicial base). The COGS line "Recovery cost" is bigger because it also carries towing/recovery costs of RETURNS and total losses, plus the forecast for the months ahead in the full-year view.', true) +
           card('Avg per repossession', nRec ? money(costIn / nRec) : '—', nRec + ' repossession' + (nRec === 1 ? '' : 's') + ' in ' + perName(mSel)) +
-          card('Avg contract life until repossession', avgDur != null ? avgDur.toFixed(1).replace('.', ',') + ' months' : '—', 'how long a defaulting contract lasts — the paper says 12 months') +
-          card('Repossession rate', rate != null ? rate.toFixed(1).replace('.', ',') + '%' : '—', RD.evs.length + ' of ' + started + ' contracts started ended in repossession') +
+          card('Expected contract life', kmLife ? kmLife.rmst.toFixed(1).replace('.', ',') + ' months' : '—', 'Kaplan-Meier over ALL contracts: endings (repossession, return, total loss) are events and ongoing contracts count as censored — they pull the expectancy UP. Restricted to the 12 contract months; car swaps are censored, not endings.') +
+          card('Repossession pace', pace != null ? pace.toFixed(1).replace('.', ',') + ' /100 c·mo' : '—', RD.evs.length + ' repossessions over ' + ccNum(expoM) + ' contract·months of exposure — repossessions per 100 contract·months. Fairer than a raw %, which punishes a base full of young contracts.') +
           '</div>';
         document.querySelectorAll('#costsHero .cc-card-help').forEach((b) => { b.onclick = () => { const h = cardHelps[+b.dataset.ch]; if (h) costsInfoOpen(h.t, h.d); }; });
       } else
@@ -5857,12 +6240,22 @@
             { label: 'Towing', data: cut12(gM.map((v) => Math.round(v * K))), backgroundColor: costsTint(C, .5), stack: 's', maxBarThickness: 40, borderRadius: 2 },
             { label: 'Recovery', data: cut12(rM.map((v) => Math.round(v * K))), backgroundColor: C, stack: 's', maxBarThickness: 40, borderRadius: 2 },
           ] },
-          options: { responsive: true, maintainAspectRatio: false,
+          // total do mês acima da pilha
+          plugins: [{ id: 'compTot', afterDatasetsDraw(ch) {
+            const { ctx } = ch; const tots = {}, top = {};
+            ch.data.datasets.forEach((ds, di) => { const meta = ch.getDatasetMeta(di);
+              meta.data.forEach((el, i2) => { const v = ds.data[i2]; if (!v) return; tots[i2] = (tots[i2] || 0) + v; top[i2] = Math.min(top[i2] == null ? Infinity : top[i2], el.y); }); });
+            ctx.save(); ctx.font = '800 10.5px ' + getComputedStyle(document.body).fontFamily; ctx.fillStyle = '#374151'; ctx.textAlign = 'center';
+            Object.keys(tots).forEach((i2) => { if (tots[i2] > 0) ctx.fillText(ccK(tots[i2]), ch.getDatasetMeta(0).data[i2].x, top[i2] - 5); });
+            ctx.restore();
+          } }],
+          options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 18 } },
             plugins: { legend: { labels: CC_LEG },
-              datalabels: { display: (c2) => { const el = c2.chart.getDatasetMeta(c2.datasetIndex).data[c2.dataIndex]; return c2.dataset.data[c2.dataIndex] > 0 && el && Math.abs(el.base - el.y) > 11; }, color: '#fff', font: { size: 9, weight: 400 }, formatter: ccK, clamp: true },
+              // número SEMPRE visível dentro da fatia (sem depender do hover)
+              datalabels: { display: (c2) => c2.dataset.data[c2.dataIndex] > 0, color: '#fff', font: { size: 9, weight: 400 }, formatter: ccK, clamp: true },
               tooltip: { displayColors: true, callbacks: { label: (c2) => c2.dataset.label + ': ' + cs + ' ' + ccNum(c2.parsed.y) } } },
             scales: { x: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280' } },
-              y: { stacked: true, grid: { display: false }, border: { display: false }, beginAtZero: true, ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } } } } });
+              y: { stacked: true, grid: { display: false }, border: { display: false }, beginAtZero: true, grace: '8%', ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } } } } });
       } else if (BYFLEET[costsSel]) {
         if (ageBox) ageBox.style.display = '';
         document.getElementById('ccAgeT').textContent = 'Cost by fleet';

@@ -765,6 +765,15 @@ html { scrollbar-gutter: stable; }
 .ue-sublabel { padding-left: 22px !important; position: relative; }
 .ue-sublabel::before { content: "└"; position: absolute; left: 10px; color: var(--text-3); font-size: 11px; }
 .ue-sublabel em { display: block; font-style: normal; font-size: 9.5px; color: var(--text-3); margin-top: 1px; }
+.ue-kmtag { display: block; font-size: 9px; font-weight: 700; color: var(--text-3); margin-top: 1px; }
+/* botão de premissas + km na barra do contrato */
+.ue-sliders-wrap { margin-top: 8px; }
+.ue-assump-btn span { font-size: 9px; opacity: .8; }
+.ue-assump-btn.on { border-color: var(--accent); color: var(--accent); }
+.ue-contract-track { position: relative; }
+.ue-contract { padding-top: 16px; }
+.ue-contract-km { position: absolute; top: -17px; transform: translateX(-50%); font-size: 10px; font-weight: 800; color: var(--accent); white-space: nowrap; }
+.ue-contract-kmend { left: auto !important; right: 0; transform: none; color: var(--text-2); }
 .ue-editable { cursor: pointer; }
 .ue-editable:hover { background: var(--purple-soft); }
 .ue-main { display: block; font-weight: 700; line-height: 1.25; }

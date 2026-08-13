@@ -7190,6 +7190,65 @@
       if (!plateView) for (let p = 0; p <= PMAX; p++) { maintRealRS[p] /= activeCarsAt(p); maintProjRS[p] /= activeCarsAt(p); }
       maintReady = true;
     }
+    // ---- ritmo de multas POR PLACA: frequência × severidade, com credibilidade ----
+    // FREQUÊNCIA (multas/dia) é da PLACA, medida só no VÍNCULO ATUAL — trocou o motorista, a
+    // história do anterior sai da conta — e misturada com a da frota por credibilidade
+    // (w = dias/(dias+91): placa com ~3 meses de motorista pesa 50% pela própria história).
+    // SEVERIDADE (valor médio por multa) é da FROTA: uma gravíssima isolada numa placa não
+    // pode contaminar a projeção dela inteira. O prêmio cobrado continua POR PLACA, pela
+    // versão de contrato do vínculo atual (10% v1/v2, 20% v3+).
+    let _plateFines = null;
+    function finesRateByPlate() {
+      if (_plateFines) return _plateFines;
+      const MS = 86400000, K_DAYS = 91;
+      const cut = new Date(hoje.getTime() - FINES_LAG_D * MS);
+      const base = (U.multasBase || {}).placas || {};
+      const desc = (U.multasBase || {}).descontoMedio || 0.8;
+      const grossOf = (x) => (x.bruto > 0 ? x.bruto : (x.liq > 0 ? x.liq / desc : (x.v || 0) / 1.05 / desc));
+      const netOf = (x) => (x.liq > 0 ? x.liq : (x.v || 0) / 1.05) * 1.05;
+      const curV = {};   // vínculo ATUAL (mais recente) de cada placa
+      (U.vinculos || []).forEach((v) => { const c = curV[v.placa]; if (!c || v.ini > c.ini) curV[v.placa] = v; });
+      const per = {}; let poolCnt = 0, poolDays = 0, poolG = 0, poolN = 0;
+      (U.fleets || []).forEach((f) => {
+        if (!f.inicio) return;
+        let cnt = 0, g = 0, nv = 0;
+        const cars = Math.max(1, f.cars || (f.placas || []).length || 1);
+        const days = Math.max(0, (cut - new Date(f.inicio + 'T12:00:00')) / MS) * cars;
+        (f.placas || []).forEach((pl) => (base[pl] || []).forEach((x) => {
+          if (!x.inf || new Date(x.inf + 'T12:00:00') > cut) return;
+          cnt++; g += grossOf(x); nv += netOf(x);
+        }));
+        per[f.id] = { cnt, days, g, nv };
+        poolCnt += cnt; poolDays += days; poolG += g; poolN += nv;
+      });
+      const poolFreq = poolDays ? poolCnt / poolDays : 0;
+      const poolValG = poolCnt ? poolG / poolCnt : 0, poolValN = poolCnt ? poolN / poolCnt : 0;
+      const out = {};
+      (U.fleets || []).forEach((f) => {
+        if (!f.inicio || !per[f.id]) return;
+        const fd = per[f.id];
+        const wF = fd.days / (fd.days + FINES_CRED_K * 30.44);            // frota × pool (mesmo K do resto)
+        const freqFleet = wF * (fd.days ? fd.cnt / fd.days : poolFreq) + (1 - wF) * poolFreq;
+        const valG = fd.cnt >= 5 ? fd.g / fd.cnt : poolValG;              // severidade estável da frota
+        const valN = fd.cnt >= 5 ? fd.nv / fd.cnt : poolValN;
+        (f.placas || []).forEach((pl) => {
+          const v = curV[pl];
+          const ini2 = v ? new Date(v.ini + 'T12:00:00') : new Date(f.inicio + 'T12:00:00');
+          const days = Math.max(0, (cut - ini2) / MS);
+          let own = 0;
+          (base[pl] || []).forEach((x) => {
+            if (!x.inf) return;
+            const t = new Date(x.inf + 'T12:00:00');
+            if (t > cut || t < ini2) return;                              // só o MOTORISTA atual
+            own++;
+          });
+          const w = days / (days + K_DAYS);
+          out[pl] = { freq: w * (days ? own / days : freqFleet) + (1 - w) * freqFleet, valG, valN, own, days: Math.round(days) };
+        });
+      });
+      _plateFines = out;
+      return out;
+    }
     // Multas de trânsito — RECEITA (o que cobramos do cliente). Espelha a linha de despesa:
     //  - multa já PAGA -> realizada no mês do pagamento;
     //  - multa em ABERTO -> recebível projetado em (infração + prazo médio de recebimento),
@@ -7246,10 +7305,16 @@
       // precisava de um fator de escala; com o bruto o prêmio entra uma vez só, explicitamente.
       // ritmo de infrações NOVAS: janela madura + credibilidade (ver finesRatesByFleet). Antes era
       // brutoTot / dias corridos, que conta os ~27 dias finais cujas multas ainda não chegaram.
-      const premioHoje = avgByVersion(f, VER_PREMIO, 0.10);
-      const carsNow = plateView ? 1 : Math.max(1, f.cars || (f.placas || []).length || 1);
-      const FR = finesRatesByFleet()[f.id];
-      const perDay = (FR ? FR.gross * carsNow : brutoTot / Math.max(1, (hoje - ini) / MS)) * (1 + premioHoje) * taxa;
+      // ritmo POR PLACA (frequência do vínculo atual × severidade da frota × prêmio da versão
+      // do contrato de cada placa) — a soma vira o R$/dia da frota; placa isolada usa só o dela
+      const PR = finesRateByPlate();
+      let perDay = plates.reduce((s, pl) => { const r = PR[pl]; return s + (r ? r.freq * r.valG * (1 + premioDe(pl)) : 0); }, 0) * taxa;
+      if (!(perDay > 0)) {   // fallback: frota sem placa mapeada no ritmo novo
+        const premioHoje = avgByVersion(f, VER_PREMIO, 0.10);
+        const carsNow = plateView ? 1 : Math.max(1, f.cars || (f.placas || []).length || 1);
+        const FR = finesRatesByFleet()[f.id];
+        perDay = (FR ? FR.gross * carsNow : brutoTot / Math.max(1, (hoje - ini) / MS)) * (1 + premioHoje) * taxa;
+      }
       // IBNR (incurred but not reported): a notificação da multa demora ~27 dias para chegar, então
       // as infrações dos últimos FINES_LAG_D dias NÃO estão na base ainda. Contar "infrações novas"
       // só a partir de HOJE abria um buraco justamente no mês que recebe essa janela — era a queda
@@ -7315,9 +7380,14 @@
       // ritmo histórico de multas (R$/dia) para projetar as infrações que ainda vão acontecer —
       // mesma correção de maturação/credibilidade da linha de entrada, para os dois lados falarem
       // do mesmo universo de infrações
-      const carsOut = plateView ? 1 : Math.max(1, f.cars || (f.placas || []).length || 1);
-      const FRo = finesRatesByFleet()[f.id];
-      const perDay = FRo ? FRo.net * carsOut : total / Math.max(1, (hoje - curIni) / MS);
+      // mesmo ritmo POR PLACA da linha de entrada, no valor LÍQUIDO+5% que sai para a LM
+      const PRo = finesRateByPlate();
+      let perDay = plates.reduce((s, pl) => { const r = PRo[pl]; return s + (r ? r.freq * r.valN : 0); }, 0);
+      if (!(perDay > 0)) {
+        const carsOut = plateView ? 1 : Math.max(1, f.cars || (f.placas || []).length || 1);
+        const FRo = finesRatesByFleet()[f.id];
+        perDay = FRo ? FRo.net * carsOut : total / Math.max(1, (hoje - curIni) / MS);
+      }
       // mesmo IBNR da linha de entrada: a janela imatura (últimos FINES_LAG_D dias) ainda está
       // chegando na base, então é projetada e o que já chegou dela é descontado
       const cutMatO = new Date(hoje.getTime() - FINES_LAG_D * MS);
@@ -7750,6 +7820,7 @@
     // (all-mode, visão agregada, câmbio...), mede-se a PARTICIPAÇÃO de cada peça nos dados de
     // contexto e reparte-se o valor da própria célula — assim as sub-linhas sempre fecham no total.
     let partsOpen = false;
+    let slidersOpen = false;   // premissas (FX, inadimplência, atraso, termination) recolhidas por padrão
     const PART_LABEL = { pastilhas: 'Brake pads', disco: 'Brake discs', pneus: 'Tyres' };
     function partsShares(period) {
       const acc = {};
@@ -8302,12 +8373,28 @@
           ticks += `<span class="ue-contract-tick" style="left:${at.toFixed(2)}%"><i></i><b>${MESES[cur.getMonth()]}</b></span>`;
           cur.setMonth(cur.getMonth() + 1);
         }
+        // km ATUAL acima da posição de hoje e km ESPERADO no fim das 52 semanas (ritmo médio
+        // até aqui projetado). Frota = MÉDIA das placas com odômetro confiável (aggregate usa a
+        // mesma média — somar odômetro de 50 carros não diz nada); placa isolada = o dela.
+        const kmTags = (() => {
+          const frP = (U.frota || {}).placas || {};
+          const list = plateView ? [plateView] : (f.placas || []);
+          let s = 0, n = 0;
+          list.forEach((pl) => { const d = frP[pl]; if (d && d.ok && d.odo > 0) { s += d.odo; n++; } });
+          if (!n) return '';
+          const avg = s / n;
+          const dias = Math.max(1, (hoje - ini) / 86400000);
+          const exp = (avg / dias) * (totalMs / 86400000);
+          const fmtK = (v) => (v >= 9500 ? (Math.round(v / 100) / 10).toLocaleString('pt-BR') + 'k' : Math.round(v).toLocaleString('pt-BR')) + ' km';
+          return `<span class="ue-contract-km" style="left:${Math.max(3, Math.min(94, pct)).toFixed(1)}%" title="current odometer${plateView ? '' : ' — fleet average'}">${fmtK(avg)}</span>` +
+                 `<span class="ue-contract-km ue-contract-kmend" title="expected at the end of the 52 weeks, at today's pace">${fmtK(exp)}</span>`;
+        })();
         contractBar =
           `<div class="ue-contract">` +
             `<span class="ue-contract-date">${fmtDate(f.inicio)}</span>` +
             `<div class="ue-contract-track" title="${Math.floor(wkNow)} of ${Math.round(totalWeeks)} weeks elapsed">` +
               `<div class="ue-contract-fill${done ? ' done' : ''}" style="width:${pct.toFixed(1)}%"></div>` +
-              ticks +
+              ticks + kmTags +
               `<span class="ue-contract-lbl">week ${Math.min(Math.floor(wkNow), Math.round(totalWeeks))} of ${Math.round(totalWeeks)} · ${Math.round(pct)}%</span>` +
             `</div>` +
             `<span class="ue-contract-date">${fmtDate(endIso)}</span>` +
@@ -8344,14 +8431,22 @@
           `</div>` +
         `</div>` +
         (cleanView ? '' : contractBar) +
+        // premissas RECOLHIDAS por padrão: os 4 sliders só aparecem ao clicar no botão
         (cleanView ? '' :
-        `<div class="ue-sliders">` +
-          slider('ueCotacao', 'future FX (R$/US$)', 3, 8, 0.05, cotacao) +
-          // por PAGAMENTO: a faixa útil é de poucos %, então passo de 0,1 (o histórico dá ~1,1%)
-          slider('ueInad', 'delinquency rate (%)', 0, 20, 0.1, inadimplencia, inadHint()) +
-          slider('ueLate', 'late-payment rate (%)', 0, 100, 1, latePct) +
-          slider('ueTermPct', 'termination fee recovery (%)', 0, 100, 1, termPct) +
+        `<div class="ue-sliders-wrap">` +
+          `<button type="button" class="ue-tool-btn ue-assump-btn${slidersOpen ? ' on' : ''}" id="ueSlidersBtn">🎚 Assumptions <span>${slidersOpen ? '▴' : '▾'}</span></button>` +
+          (slidersOpen ? `<div class="ue-sliders">` +
+            slider('ueCotacao', 'future FX (R$/US$)', 3, 8, 0.05, cotacao) +
+            // por PAGAMENTO: a faixa útil é de poucos %, então passo de 0,1 (o histórico dá ~1,1%)
+            slider('ueInad', 'delinquency rate (%)', 0, 20, 0.1, inadimplencia, inadHint()) +
+            slider('ueLate', 'late-payment rate (%)', 0, 100, 1, latePct) +
+            slider('ueTermPct', 'termination fee recovery (%)', 0, 100, 1, termPct) +
+          `</div>` : '') +
         `</div>`);
+      // o painel de premissas vive no HEAD (renderizado por loadFleet) — re-renderizar só a
+      // tabela não abria nada; loadFleet(true) é o mesmo caminho do Clean view/projeção
+      const sldBtn = document.getElementById('ueSlidersBtn');
+      if (sldBtn) sldBtn.addEventListener('click', () => { slidersOpen = !slidersOpen; loadFleet(true); });
       const infoBtn = document.getElementById('ueInfo');
       if (infoBtn) infoBtn.addEventListener('click', openInfoModal);
       const partsBtn = document.getElementById('ueParts');
@@ -8480,6 +8575,26 @@
         html += '</tr>';
         if (isParts && partsOpen) {
           const items = Object.keys(PART_LABEL).filter((k) => (allMode ? partCfg : partCfgCur)[k]);
+          // na visão POR PLACA, cada troca realizada ganha o km ESTIMADO em que aconteceu
+          // (ritmo da placa × dias até o evento — a API de ocorrências não traz o odômetro do dia)
+          const swapKmOf = (() => {
+            if (!plateView || !curIni) return () => null;
+            const evs = (((U.reposicao || {}).placas) || {})[plateView] || [];
+            const dFr = (((U.frota || {}).placas) || {})[plateView];
+            const dias = Math.max(1, (hoje - curIni) / 86400000);
+            const kmDia = dFr && dFr.ok && dFr.odo > 0 ? dFr.odo / dias : 0;
+            if (!kmDia) return () => null;
+            return (it, p) => {
+              const hit = evs.find((ev) => {
+                if (!ev.itens.includes(it)) return false;
+                const mo = Math.max(1, Math.ceil(((new Date(ev.d + 'T12:00:00') - curIni) / 86400000) / (SEMANAS_MES * 7)));
+                return Math.min(mo, PMAX) === p;
+              });
+              if (!hit) return null;
+              const km = kmDia * Math.max(0, (new Date(hit.d + 'T12:00:00') - curIni) / 86400000);
+              return (Math.round(km / 100) / 10).toLocaleString('pt-BR') + 'k km';
+            };
+          })();
           items.forEach((it) => {
             const cfg = (allMode ? partCfg : partCfgCur)[it] || {};
             html += `<tr class="ue-row ue-outflow ue-leaf ue-subrow"><td class="ue-rowlabel ue-sublabel">${PART_LABEL[it] || it}` +
@@ -8489,9 +8604,11 @@
               const e = partsRowSplit(it, p);
               const r = e ? Math.round(e.real) : 0, pj = e ? Math.round(e.proj) : 0;
               sumTot += r + pj;
+              const kmTag = r ? swapKmOf(it, p) : null;
               html += `<td class="ue-cell">${(!r && !pj) ? '<span class="ue-main ue-empty">-</span>'
                 : (cleanView ? `<span class="ue-main ue-${r && pj ? 'mix' : (r ? 'real' : 'proj')}">${ueFmt(r + pj)}</span>`
-                  : (r ? `<span class="ue-main ue-real">${ueFmt(r)}</span>` : '') + (pj ? `<span class="ue-main ue-proj">${ueFmt(pj)}</span>` : ''))}</td>`;
+                  : (r ? `<span class="ue-main ue-real">${ueFmt(r)}</span>` : '') + (pj ? `<span class="ue-main ue-proj">${ueFmt(pj)}</span>` : ''))
+                }${kmTag ? `<span class="ue-kmtag" title="estimated odometer at the swap">~${kmTag}</span>` : ''}</td>`;
             }
             html += `<td class="ue-cell ue-totalcol"><span class="ue-main ue-real">${ueFmt(sumTot)}</span></td></tr>`;
           });

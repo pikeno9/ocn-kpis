@@ -5337,6 +5337,7 @@
         expBtn.onclick = () => { costsLeftBig = !costsLeftBig; renderCosts(); };
       }
       box.classList.toggle('expanded', alwaysBig || (costsLeftBig && canExpand));
+      box.classList.toggle('rec', alwaysBig);   // painel do Recovery: largura cheia mas altura menor
       // a área de resultados estatísticos só existe no painel do Recovery
       const st0 = document.getElementById('cclStats');
       if (st0 && costsSel !== 'Recovery cost') { st0.style.display = 'none'; st0.innerHTML = ''; }
@@ -6180,15 +6181,14 @@
         // são eles que puxam a expectativa para cima. RMST até os 12 meses do contrato.
         const AR = recAnalysisData();
         const kmLife = AR.length ? kmSurvival(AR.map((r) => ({ t: r.durM, ev: r.ended ? 1 : 0 })), 12) : null;
-        // ritmo de recuperação ajustado por EXPOSIÇÃO: recuperações por 100 contrato·meses —
-        // melhor que a % simples, que pune uma base cheia de contratos recém-começados
-        const expoM = AR.reduce((s, r) => s + r.durM, 0);
-        const pace = expoM > 0 ? (RD.evs.length / expoM) * 100 : null;
+        // custo médio do GUINCHO quando ele é acionado (nem toda recuperação usa guincho)
+        const gUsed = RD.evs.filter((e) => e.guincho > 0);
+        const avgTow = gUsed.length ? gUsed.reduce((s, e) => s + e.guincho, 0) / gUsed.length : null;
         document.getElementById('costsHero').innerHTML = '<div class="costs-cards">' +
           card('Total recovery cost · ' + perName(mSel), money(costIn), 'Same number as the COGS line in "Where it sits in COGS": towing + recovery costs of EVERY judicial event (repossessions, returns and total losses), plus the forecast for the months ahead in the full-year view. True repossessions alone cost ' + money(costRecOnly) + ' in the period.', true) +
           card('Avg per repossession', nRec ? money(costRecOnly / nRec) : '—', nRec + ' repossession' + (nRec === 1 ? '' : 's') + ' · ' + perName(mSel)) +
           card('Expected contract life', kmLife ? kmLife.rmst.toFixed(1).replace('.', ',') + ' months' : '—', 'Kaplan-Meier over ALL contracts: endings (repossession, return, total loss) are events and ongoing contracts count as censored — they pull the expectancy UP. Restricted to the 12 contract months; car swaps are censored, not endings.') +
-          card('Repossession pace', pace != null ? pace.toFixed(1).replace('.', ',') + ' /100 c·mo' : '—', RD.evs.length + ' repossessions over ' + ccNum(expoM) + ' contract·months of exposure — repossessions per 100 contract·months. Fairer than a raw %, which punishes a base full of young contracts.') +
+          card('Avg towing cost (when used)', avgTow != null ? money(avgTow) : '—', gUsed.length + '/' + RD.evs.length + ' repossessions used towing') +
           '</div>';
         document.querySelectorAll('#costsHero .cc-card-help').forEach((b) => { b.onclick = () => { const h = cardHelps[+b.dataset.ch]; if (h) costsInfoOpen(h.t, h.d); }; });
       } else
@@ -6226,15 +6226,29 @@
           if (m < 0 || m >= FIN_MONTHS) return;
           if (e.recup > 0) zBoth[m]++; else if (e.guincho > 0) zTow[m]++; else zNone[m]++;
         });
+        // projeção nos meses à frente (ano cheio): mesmo ritmo por carro ativo do gráfico de custos
+        const recProjN = (() => {
+          if (mSel != null || RF.curM < 0) return null;
+          const recReal = RD3.evs.filter((e) => String(e.fim).slice(0, 4) === String(finYear) && parseInt(String(e.fim).slice(5, 7), 10) - 1 <= RF.curM);
+          const carMReal = act.slice(0, RF.curM + 1).reduce((a, b) => a + b, 0);
+          if (!recReal.length || carMReal <= 0) return null;
+          const rate = recReal.length / carMReal;
+          const n = new Array(FIN_MONTHS).fill(null);
+          for (let m = RF.curM + 1; m < FIN_MONTHS; m++) n[m] = Math.round(rate * act[m] * 10) / 10;
+          return n;
+        })();
         const cntDL = { display: (c2) => c2.dataset.data[c2.dataIndex] > 0, color: '#fff', font: { size: 9, weight: 400 }, formatter: (v) => v, clamp: true };
         mk('ccMain', { type: 'bar', data: { labels: MONL, datasets: [
             { label: 'towing + recovery costs', data: cut12(zBoth), backgroundColor: C, stack: 's', maxBarThickness: 34, borderRadius: 2, datalabels: cntDL },
             { label: 'towing only', data: cut12(zTow), backgroundColor: costsTint(C, .55), stack: 's', maxBarThickness: 34, borderRadius: 2, datalabels: cntDL },
             { label: 'no cost so far', data: cut12(zNone), backgroundColor: '#D1D5DB', stack: 's', maxBarThickness: 34, borderRadius: 2, datalabels: Object.assign({}, cntDL, { color: '#374151' }) },
-          ] },
+          ].concat(recProjN ? [
+            { label: 'forecast', data: cut12(recProjN), backgroundColor: costsStripe(C), borderColor: costsTint(C, .55), borderWidth: 1, stack: 's', maxBarThickness: 34, borderRadius: 2,
+              datalabels: Object.assign({}, cntDL, { color: '#374151', formatter: (v) => String(v).replace('.', ',') }) },
+          ] : []) },
           options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
             plugins: { legend: { labels: CC_LEG },
-              tooltip: { callbacks: { label: (c2) => c2.dataset.label + ': ' + c2.parsed.y + (c2.parsed.y === 1 ? ' car' : ' cars') } } },
+              tooltip: { callbacks: { label: (c2) => c2.dataset.label + ': ' + String(c2.parsed.y).replace('.', ',') + (c2.parsed.y === 1 ? ' car' : ' cars') } } },
             scales: { x: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280' } },
               y: { stacked: true, grid: { display: false }, border: { display: false }, beginAtZero: true, ticks: { font: CC_FONT, color: '#6B7280', precision: 0 } } } } });
       } else {
@@ -6269,7 +6283,7 @@
         if (ageBox) ageBox.style.display = '';
         if (inds) { inds.innerHTML = ''; inds.style.display = 'none'; }
         document.getElementById('ccAgeT').textContent = 'Recovery cost composition';
-        costsAgeHelp2 = { t: 'Recovery cost composition', d: 'The realized recovery spend of each month, split into its two components: TOWING (getting the car physically back) and RECOVERY (the legal/operational cost of taking it). Only true repossessions enter here — the judicial base also carries returns and total losses, which are filtered out by the event type column.' };
+        costsAgeHelp2 = { t: 'Recovery cost composition', d: 'The realized recovery spend of each month, split into its two components: TOWING (getting the car physically back) and RECOVERY (the legal/operational cost of taking it). Only true repossessions enter here — the judicial base also carries returns and total losses, which are filtered out by the event type column. In the full-year view the HATCHED bars are the FORECAST: the historical repossession rate PER ACTIVE CAR (few repossessions early in the year just mirror the small fleet) × each month\'s active fleet × the average cost per repossession, split by component.' };
         const RD2 = recoveryData();
         const hojeIso3 = (OCN.ue && OCN.ue.hoje) || new Date().toISOString().slice(0, 10);
         const gM = new Array(FIN_MONTHS).fill(0), rM = new Array(FIN_MONTHS).fill(0);
@@ -6279,10 +6293,29 @@
           const m = parseInt(String(iso).slice(5, 7), 10) - 1;
           if (m >= 0 && m < FIN_MONTHS) { gM[m] += c2.guincho / RD2.fx; rM[m] += c2.recup / RD2.fx; }
         });
+        // ---- PROJEÇÃO (só no ano cheio): ritmo histórico POR CARRO ATIVO × frota de cada mês ----
+        // Poucas recuperações no 1º semestre ≠ ritmo baixo: havia poucos carros. A taxa é
+        // recuperações ÷ carro-meses realizados; cada mês futuro espera taxa × carros ativos,
+        // com o custo médio por recuperação separado em guincho e recuperação.
+        const recProj = (() => {
+          if (mSel != null || RF.curM < 0) return null;
+          const recReal = RD2.evs.filter((e) => String(e.fim).slice(0, 4) === String(finYear) && parseInt(String(e.fim).slice(5, 7), 10) - 1 <= RF.curM);
+          const carMReal = act.slice(0, RF.curM + 1).reduce((a, b) => a + b, 0);
+          if (!recReal.length || carMReal <= 0) return null;
+          const rate = recReal.length / carMReal;
+          const avgG = recReal.reduce((s, e) => s + e.guincho, 0) / recReal.length;   // USD por recuperação
+          const avgR = recReal.reduce((s, e) => s + e.recup, 0) / recReal.length;
+          const n = new Array(FIN_MONTHS).fill(null), g = new Array(FIN_MONTHS).fill(null), r = new Array(FIN_MONTHS).fill(null);
+          for (let m = RF.curM + 1; m < FIN_MONTHS; m++) { n[m] = rate * act[m]; g[m] = n[m] * avgG; r[m] = n[m] * avgR; }
+          return { n, g, r, rate, avgG, avgR };
+        })();
         mk('ccAge', { type: 'bar', data: { labels: MONL, datasets: [
-            { label: 'Towing', data: cut12(gM.map((v) => Math.round(v * K))), backgroundColor: costsTint(C, .5), stack: 's', maxBarThickness: 40, borderRadius: 2 },
-            { label: 'Recovery', data: cut12(rM.map((v) => Math.round(v * K))), backgroundColor: C, stack: 's', maxBarThickness: 40, borderRadius: 2 },
-          ] },
+            { label: 'Towing', data: cut12(gM.map((v, m) => (RF.curM >= 0 && m > RF.curM ? null : Math.round(v * K)))), backgroundColor: costsTint(C, .5), stack: 's', maxBarThickness: 40, borderRadius: 2 },
+            { label: 'Recovery', data: cut12(rM.map((v, m) => (RF.curM >= 0 && m > RF.curM ? null : Math.round(v * K)))), backgroundColor: C, stack: 's', maxBarThickness: 40, borderRadius: 2 },
+          ].concat(recProj ? [
+            { label: 'Towing (forecast)', data: cut12(recProj.g.map((v) => (v == null ? null : Math.round(v * K)))), backgroundColor: costsStripe('#6B7280'), borderColor: costsTint('#6B7280', .5), borderWidth: 1, stack: 's', maxBarThickness: 40, borderRadius: 2, datalabels: { display: false } },
+            { label: 'Recovery (forecast)', data: cut12(recProj.r.map((v) => (v == null ? null : Math.round(v * K)))), backgroundColor: costsStripe(C), borderColor: costsTint(C, .55), borderWidth: 1, stack: 's', maxBarThickness: 40, borderRadius: 2, datalabels: { display: false } },
+          ] : []) },
           // total do mês acima da pilha
           plugins: [{ id: 'compTot', afterDatasetsDraw(ch) {
             const { ctx } = ch; const tots = {}, top = {};

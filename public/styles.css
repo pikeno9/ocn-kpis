@@ -589,6 +589,7 @@ html { scrollbar-gutter: stable; }
 .ccl-expand.on, .ccl-expand:hover { border-color: var(--accent); color: var(--accent); }
 #ccLeftBox.expanded { grid-column: 1 / -1; }
 #ccLeftBox.expanded .cc-cv { height: 560px; }
+#ccLeftBox.rec .cc-cv { height: 400px; }   /* painel de análises do Recovery: 560px ficava alto demais */
 /* resultados das análises estatísticas (Recovery): tabelas compactas + linha de leitura */
 .ccl-stats { margin-top: 12px; }
 .ccl-stats table { width: 100%; border-collapse: collapse; font-size: 11.5px; }

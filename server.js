@@ -47,6 +47,8 @@ async function refresh(force) {
     data.ue = ue.build(ueSheets, sheets.importData, sheets.clientes, refDate());
     try { data.ue.pagamentos = await cobrancas.fetchPagamentos(); }
     catch (e) { console.error('[cobrancas] falhou:', e.message); data.ue.pagamentos = null; }
+    try { data.ue.extras = await cobrancas.fetchExtras(); }
+    catch (e) { console.error('[extras] falhou:', e.message); data.ue.extras = null; }
     try { data.ue.frota = await frota.fetchFrota(); }
     catch (e) { console.error('[frota] falhou:', e.message); data.ue.frota = null; }
     try { data.ue.revisoes = await revisoes.fetchRevisoes(); }

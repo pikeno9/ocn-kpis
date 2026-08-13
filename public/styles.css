@@ -775,8 +775,13 @@ html { scrollbar-gutter: stable; }
 .ue-contract-km { position: absolute; top: -17px; transform: translateX(-50%); font-size: 10px; font-weight: 800; color: var(--accent); white-space: nowrap; }
 .ue-contract-kmend { left: auto !important; right: 0; transform: none; color: var(--text-2); }
 /* linha do tempo por MOTORISTA (placa isolada): um segmento colorido por vínculo */
-.ue-driver-seg { position: absolute; top: 0; bottom: 0; border-radius: 3px; display: flex; align-items: center; justify-content: center; overflow: hidden; box-shadow: inset -1px 0 0 rgba(255,255,255,.65); }
-.ue-driver-seg b { font-size: 9px; font-weight: 800; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.35); white-space: nowrap; }
+.ue-driver-seg { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; border-right: 1.5px solid #fff; cursor: default; }
+.ue-driver-seg:first-child { border-radius: 3px 0 0 3px; }
+.ue-driver-seg b { font-size: 9px; font-weight: 800; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.45); white-space: nowrap; }
+.ue-driver-tip { position: absolute; z-index: 60; width: 160px; background: #111827; color: #fff; border-radius: 9px; padding: 8px 11px; font-size: 11px; line-height: 1.45; box-shadow: 0 6px 20px rgba(0,0,0,.25); pointer-events: none; }
+.ue-driver-tip b { display: block; font-size: 12px; }
+.ue-driver-tip span { display: block; color: #D1D5DB; font-size: 10px; }
+.ue-driver-tip i { display: block; font-style: normal; font-weight: 700; color: #A5B4FC; margin-top: 2px; }
 .ue-km-change { color: #B45309; }
 .ue-km-change::after { content: ""; position: absolute; left: 50%; top: 15px; width: 1.5px; height: 6px; background: #B45309; }
 .ue-track-drivers .ue-contract-lbl { background: rgba(255,255,255,.88); border-radius: 6px; padding: 1px 7px; }

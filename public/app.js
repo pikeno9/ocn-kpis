@@ -7197,6 +7197,27 @@
     // SEVERIDADE (valor médio por multa) é da FROTA: uma gravíssima isolada numa placa não
     // pode contaminar a projeção dela inteira. O prêmio cobrado continua POR PLACA, pela
     // versão de contrato do vínculo atual (10% v1/v2, 20% v3+).
+    // ---- extras (recebimentos avulsos do painel) mapeados para PLACA via vínculo ----
+    // O endpoint /api/v1/extras traz cliente + valor + data do pagamento; a placa vem do
+    // vínculo daquele cliente cujo período contém a data (fallback: o vínculo mais recente).
+    let _extrasByPlate = null;
+    function extrasByPlate() {
+      if (_extrasByPlate) return _extrasByPlate;
+      const out = {};
+      const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+      const byNome = {};
+      (U.vinculos || []).forEach((v) => { const k = norm(v.nome); if (k) (byNome[k] = byNome[k] || []).push(v); });
+      const hojeIso = U.hoje || new Date().toISOString().slice(0, 10);
+      ((U.extras || {}).itens || []).forEach((x) => {
+        const vs = byNome[norm(x.cliente)] || [];
+        if (!vs.length) return;
+        const d = x.d || hojeIso;
+        const v = vs.find((vv) => d >= vv.ini && d <= (vv.fim || hojeIso)) || vs[vs.length - 1];
+        (out[v.placa] = out[v.placa] || []).push({ d, v: x.v });
+      });
+      _extrasByPlate = out;
+      return out;
+    }
     let _plateFines = null;
     function finesRateByPlate() {
       if (_plateFines) return _plateFines;
@@ -7506,8 +7527,11 @@
             const cfg = partCfgCur[it]; if (!cfg) return;
             const minTab = PART_MIN[it] || {};
             const min = minTab[model] != null ? minTab[model] : minTab.padrao;
+            // tag OFICIAL da API vence quando existir (natural = nós pagamos; atípica = cliente
+            // paga, sem custo no UE); sem a tag, a heurística de km replica a regra do buscador
             let natural = true;
-            if (kmEv != null && min != null) {
+            if (ev.natural != null) natural = ev.natural;
+            else if (kmEv != null && min != null) {
               const desde = lastKm[it] != null ? kmEv - lastKm[it] : kmEv;
               natural = desde >= min;
             }
@@ -7634,6 +7658,22 @@
       if (line === 'Traffic fines') {
         if (period === 0 || !finesReady) return period === 0 ? { rs: 0, perActive: true } : null;
         return { rs: finesRealRS[period] || 0, rsProj: (finesProjRS[period] || 0) * plateCut(period), perActive: true };
+      }
+      // Recebimentos AVULSOS do painel (Others): realizado no mês do pagamento; sem projeção —
+      // são valores pontuais (custos extras repassados, avulsos), não um ritmo recorrente
+      if (line === 'Others') {
+        if (!U.extras || !curIni) return null;
+        if (period === 0) return { rs: 0, perActive: true };
+        const mapX = extrasByPlate();
+        let s = 0;
+        const listX = plateView ? [plateView] : ctxPlates;
+        listX.forEach((pl) => (mapX[pl] || []).forEach((x) => {
+          let mo = Math.ceil(((new Date(x.d + 'T12:00:00') - curIni) / 86400000) / (SEMANAS_MES * 7));
+          mo = Math.min(Math.max(mo, 1), PMAX);
+          if (mo === period) s += x.v;
+        }));
+        const div = plateView ? 1 : Math.max(1, activeCarsAt(period));
+        return { rs: s / div, perActive: true };
       }
       // Multas (saída): o que pagamos à LM — realizado (já venceu) + projetado (a vencer/estimado)
       if (line === 'Traffic fines (out)') {
@@ -8265,7 +8305,26 @@
     // Na visão POR PLACA a barra vira a LINHA DO TEMPO do carro: um segmento colorido por
     // MOTORISTA (vínculo), com o km/semana médio dele dentro e, nas trocas de motorista, o
     // odômetro estimado daquele momento acima da barra. Visão de frota segue a barra simples.
-    const DRIVER_PAL = ['#5A00F8', '#0EA5E9', '#F59E0B', '#DB2777', '#059669', '#7C3AED', '#DC2626'];
+    // tons FECHADOS (600-800): os anteriores lavavam na barra fina e não davam contraste
+    const DRIVER_PAL = ['#4C1D95', '#0E7490', '#B45309', '#BE185D', '#047857', '#6D28D9', '#B91C1C'];
+    const escHU = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    // caixinha de motorista: um tooltip flutuante único, por DELEGAÇÃO (a barra re-renderiza
+    // ao trocar de placa e listeners por segmento se perderiam)
+    (() => {
+      const tip = document.createElement('div');
+      tip.className = 'ue-driver-tip'; tip.hidden = true;
+      document.body.appendChild(tip);
+      document.addEventListener('mouseover', (ev) => {
+        const seg = ev.target.closest && ev.target.closest('.ue-driver-seg');
+        if (!seg) { tip.hidden = true; return; }
+        tip.innerHTML = `<b>${seg.dataset.nome}</b><span>${seg.dataset.per}</span>` +
+          (seg.dataset.kw ? `<i>${seg.dataset.kw}</i>` : '');
+        tip.hidden = false;
+        const r = seg.getBoundingClientRect();
+        tip.style.left = Math.max(8, Math.min(window.innerWidth - 180, r.left + r.width / 2 - 80)) + 'px';
+        tip.style.top = (r.top + window.scrollY - tip.offsetHeight - 10) + 'px';
+      });
+    })();
     function contractBarHtml(f) {
       const ini = f.inicio ? new Date(f.inicio + 'T12:00:00') : null;
       if (!ini || allMode || cleanView) return '';
@@ -8330,8 +8389,9 @@
             const kw = kmWkOf(v.ini, v.fim && v.fim < hojeIso2 ? v.fim : hojeIso2);
             const nome = (v.nome || '?').split(' ').slice(0, 2).join(' ');
             const lbl = kw != null && (b - a) >= 11 ? `<b>${fmtK(kw)}/wk</b>` : '';
+            // caixinha própria no hover (tooltip nativo demora e não destaca o NOME)
             return `<div class="ue-driver-seg" style="left:${a.toFixed(1)}%;width:${(b - a).toFixed(1)}%;background:${col}" ` +
-              `title="${nome} · ${v.ini} → ${v.fim || 'today'}${kw != null ? ' · ' + Math.round(kw).toLocaleString('pt-BR') + ' km/week' : ''}">${lbl}</div>`;
+              `data-nome="${escHU(v.nome || '?')}" data-per="${v.ini} → ${v.fim || 'today'}" data-kw="${kw != null ? Math.round(kw).toLocaleString('pt-BR') + ' km/week' : ''}">${lbl}</div>`;
           }).join('');
           // odômetro no MOMENTO de cada troca de motorista (a partir do 2º vínculo)
           changeTags = vs.slice(1).map((v) => {
@@ -8567,6 +8627,9 @@
         : [...baseLines.slice(0, subIdx + 1),
            { label: 'Late-payment interest', group: 'inflow', values: [] },
            { label: 'Traffic fines', group: 'inflow', values: [] },
+           // recebimentos AVULSOS do painel (custos extras da aba Adicionais etc.) — a linha
+           // só existe quando o endpoint /api/v1/extras devolve itens
+           ...(U.extras && U.extras.itens && U.extras.itens.length ? [{ label: 'Others', group: 'inflow', values: [] }] : []),
            { label: 'Termination fee', group: 'inflow', values: [] },
            ...baseLines.slice(subIdx + 1)];
       // saídas extras no fim do bloco de outflow: multas (repasse), recuperação/reparo (import_jud)
@@ -8635,9 +8698,11 @@
           const items = Object.keys(PART_LABEL).filter((k) => (allMode ? partCfg : partCfgCur)[k]);
           // km da troca na célula (visão POR PLACA): realizada usa o km estimado no dia do
           // evento; PROJETADA usa o alvo = última troca + intervalo (registrados no computeParts)
+          // a tag de km aparece pra QUALQUER troca realizada — natural OU atípica (a atípica só
+          // não carrega custo, porque quem paga é o cliente)
           const swapKmOf = (it, p, kind) => {
             if (!plateView) return null;
-            const hit = partsSwaps.find((sw) => sw.it === it && sw.mo === p && sw.kind === kind && (kind !== 'real' || sw.natural));
+            const hit = partsSwaps.find((sw) => sw.it === it && sw.mo === p && sw.kind === kind);
             if (!hit || hit.km == null) return null;
             return (Math.round(hit.km / 100) / 10).toLocaleString('pt-BR') + 'k';
           };
@@ -8650,7 +8715,8 @@
               const e = partsRowSplit(it, p);
               const r = e ? Math.round(e.real) : 0, pj = e ? Math.round(e.proj) : 0;
               sumTot += r + pj;
-              const kmTag = r ? swapKmOf(it, p, 'real') : (pj ? swapKmOf(it, p, 'proj') : null);
+              // troca ATÍPICA: célula sem custo mas COM a tag de km (a troca aconteceu)
+              const kmTag = swapKmOf(it, p, 'real') || (pj ? swapKmOf(it, p, 'proj') : null);
               html += `<td class="ue-cell">${(!r && !pj) ? '<span class="ue-main ue-empty">-</span>'
                 : (cleanView ? `<span class="ue-main ue-${r && pj ? 'mix' : (r ? 'real' : 'proj')}">${ueFmt(r + pj)}</span>`
                   : (r ? `<span class="ue-main ue-real">${ueFmt(r)}</span>` : '') + (pj ? `<span class="ue-main ue-proj">${ueFmt(pj)}</span>` : ''))

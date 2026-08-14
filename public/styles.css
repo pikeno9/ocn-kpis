@@ -751,7 +751,11 @@ html { scrollbar-gutter: stable; }
    dos segmentos escuros da visão por placa — agora nasce escura e fecha no roxo da marca */
 .ue-contract-fill { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, #2E1065 0%, var(--accent) 100%); border-radius: 999px; transition: width .25s; }
 .ue-contract-fill.done { background: #16a34a; }
-.ue-contract-lbl { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 700; color: var(--text); mix-blend-mode: luminosity; letter-spacing: .02em; }
+/* `inset: 0` = este rótulo cobre a barra INTEIRA. Por isso ele nunca pode ter fundo próprio
+   (pintaria um véu sobre os segmentos) nem capturar o mouse (roubaria o hover dos motoristas):
+   o fundo vive no <i> interno, que só envolve o texto. */
+.ue-contract-lbl { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 700; color: var(--text); mix-blend-mode: luminosity; letter-spacing: .02em; pointer-events: none; }
+.ue-contract-lbl i { font-style: normal; }
 #uetControls { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
 .uet-ctrl { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--text-2); }
 .uet-ctrl label { font-weight: 600; }
@@ -789,7 +793,12 @@ html { scrollbar-gutter: stable; }
 .ue-driver-tip i { display: block; font-style: normal; font-weight: 700; color: #A5B4FC; margin-top: 2px; }
 .ue-km-change { color: #B45309; }
 .ue-km-change::after { content: ""; position: absolute; left: 50%; top: 15px; width: 1.5px; height: 6px; background: #B45309; }
-.ue-track-drivers .ue-contract-lbl { background: rgba(255,255,255,.88); border-radius: 6px; padding: 1px 7px; }
+/* na visão por motorista a pílula branca fica SÓ atrás do texto (antes o fundo estava no
+   contêiner de inset:0 e lavava a barra toda) e o blend sai do caminho das cores escuras */
+.ue-track-drivers .ue-contract-lbl { mix-blend-mode: normal; }
+.ue-track-drivers .ue-contract-lbl i { background: rgba(255,255,255,.92); border-radius: 6px; padding: 1px 8px; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+/* as tags de km ficam ACIMA da barra — não podem roubar o mouse dos segmentos */
+.ue-contract-km, .ue-contract-tick { pointer-events: none; }
 .ue-editable { cursor: pointer; }
 .ue-editable:hover { background: var(--purple-soft); }
 .ue-main { display: block; font-weight: 700; line-height: 1.25; }

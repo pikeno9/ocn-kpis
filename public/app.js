@@ -8412,7 +8412,7 @@
           `<span class="ue-contract-date">${fmtDate(f.inicio)}</span>` +
           `<div class="ue-contract-track${plateView ? ' ue-track-drivers' : ''}" title="${Math.floor(wkNow)} of ${Math.round(totalWeeks)} weeks elapsed">` +
             fill + ticks + kmTags + changeTags +
-            `<span class="ue-contract-lbl">week ${Math.min(Math.floor(wkNow), Math.round(totalWeeks))} of ${Math.round(totalWeeks)} · ${Math.round(pct)}%</span>` +
+            `<span class="ue-contract-lbl"><i>week ${Math.min(Math.floor(wkNow), Math.round(totalWeeks))} of ${Math.round(totalWeeks)} · ${Math.round(pct)}%</i></span>` +
           `</div>` +
           `<span class="ue-contract-date">${fmtDate(endIso)}</span>` +
         `</div>`;

@@ -765,6 +765,8 @@ html { scrollbar-gutter: stable; }
 .ue-sublabel { padding-left: 22px !important; position: relative; }
 .ue-sublabel::before { content: "└"; position: absolute; left: 10px; color: var(--text-3); font-size: 11px; }
 .ue-sublabel em { display: block; font-style: normal; font-size: 9.5px; color: var(--text-3); margin-top: 1px; }
+/* aviso enquanto os dados do Finance carregam (Costs/Unit abrem antes dos dados chegarem) */
+.fin-loading { padding: 26px 4px; font-size: 12.5px; font-weight: 600; color: var(--text-2); }
 .ue-kmtag { display: block; font-size: 9px; font-weight: 700; color: var(--text-3); margin-top: 1px; }
 /* botão de premissas + km na barra do contrato */
 .ue-sliders-wrap { margin-top: 8px; }

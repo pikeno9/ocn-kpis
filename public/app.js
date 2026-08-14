@@ -2180,6 +2180,15 @@
   function initFinance() {
     if (finReady) return;
     finReady = true;
+    // Dashboard/Costs/Unit só renderizam no CLIQUE da sub-aba, e esse listener só é ligado no fim
+    // do carregamento assíncrono lá embaixo. Quem clicasse antes disso (comum em produção, onde as
+    // chamadas demoram) abria um painel VAZIO e ele ficava vazio até clicar de novo — parecia que
+    // "o site não atualizou". Enquanto carrega, cada painel avisa que está carregando; ao terminar,
+    // a sub-aba que estiver aberta é renderizada sozinha (ver `renderAbaAtiva` no fim do init).
+    ['costsCtl', 'unitCtl'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el && !el.innerHTML) el.innerHTML = '<div class="fin-loading">Loading finance data…</div>';
+    });
     // abas de 3º nível (uma por linha de despesa) dentro de SG&A e CAC & Marketing
     document.querySelectorAll('#sgaTabs .sub3-tab').forEach((b) => b.addEventListener('click', () => { sgaTab = b.dataset.t3; renderAdmin(); }));
     document.querySelectorAll('#cacTabs .sub3-tab').forEach((b) => b.addEventListener('click', () => { cacTab = b.dataset.t3; renderCac(); }));
@@ -6609,6 +6618,14 @@
       if (costsTab) costsTab.addEventListener('click', () => setTimeout(renderCosts, 60));
       const unitTab = document.querySelector('.sub-tab[data-sub="finunit"]');
       if (unitTab) unitTab.addEventListener('click', () => setTimeout(renderUnit, 60));
+      // os dados chegaram: se o usuário já estiver com Dashboard/Costs/Unit aberto (clicou enquanto
+      // carregava, antes dos listeners acima existirem), renderiza agora — senão o painel ficava
+      // vazio até um segundo clique
+      const abertaAgora = document.querySelector('#sec-finance .sub-tab.active');
+      const subAberta = abertaAgora && abertaAgora.dataset.sub;
+      if (subAberta === 'findash') renderDash();
+      else if (subAberta === 'fincosts') renderCosts();
+      else if (subAberta === 'finunit') renderUnit();
     })();
   }
 

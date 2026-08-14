@@ -25,6 +25,46 @@
     titleMarginBottom: 7, boxPadding: 5, caretSize: 7, caretPadding: 6,
     usePointStyle: true, boxWidth: 8, boxHeight: 8, multiKeyBackground: 'transparent',
   });
+  // ---- MODO ESCURO: a classe no <html> já foi posta pelo snippet inline do index (antes do 1º
+  // paint). Aqui trocamos os defaults do Chart.js e registramos um remapeador de "tinta": os ~90
+  // gráficos usam cinzas escuros chapados para textos/labels, e reescrevê-los um a um seria
+  // interminável — o plugin troca essas cores por equivalentes claras na criação de cada gráfico.
+  // Alternar o tema recarrega a página, então todo gráfico já nasce no tema certo.
+  const DARK = document.documentElement.classList.contains('dark');
+  if (DARK) {
+    Chart.defaults.color = '#A6ADBB';
+    Chart.defaults.borderColor = 'rgba(255,255,255,.07)';
+    Object.assign(Chart.defaults.plugins.tooltip, {
+      backgroundColor: 'rgba(30,31,38,.98)',
+      titleColor: '#F3F4F6', bodyColor: '#C2C7D1', footerColor: '#A78BFA',
+      borderColor: 'rgba(255,255,255,.12)',
+    });
+    const INK = {
+      '#282728': '#EDEEF2', '#1d1d1b': '#EDEEF2', '#111827': '#EDEEF2', '#0f172a': '#E5E7EB',
+      '#374151': '#D3D7DE', '#4B5563': '#C6CBD4', '#4b5563': '#C6CBD4',
+      '#6B7280': '#A6ADBB', '#6b7280': '#A6ADBB', '#1E293B': '#DDE1E8', '#1e293b': '#DDE1E8',
+    };
+    const remap = (o, depth) => {
+      if (!o || typeof o !== 'object' || depth > 9) return;
+      for (const k of Object.keys(o)) {
+        const v = o[k];
+        if (typeof v === 'string' && INK[v] && /color/i.test(k)) o[k] = INK[v];
+        else if (v && typeof v === 'object') remap(v, depth + 1);
+      }
+    };
+    Chart.register({
+      id: 'ocnDarkInk',
+      beforeInit(c) {
+        // andar pelo CONFIG cru (objeto plano), nunca pelo c.options — o proxy de resolução do
+        // Chart.js dispara opções scriptable durante a enumeração e quebra antes do init
+        try {
+          const cfg = c.config || {};
+          remap(cfg.options, 0);
+          ((cfg.data || {}).datasets || []).forEach((ds) => { if (ds && ds.datalabels) remap(ds.datalabels, 0); });
+        } catch (e) { /* tema nunca pode derrubar um gráfico */ }
+      },
+    });
+  }
 
   // Busca dados ao vivo da API; em falha, usa o snapshot fallback (data.js)
   (async function boot() {
@@ -44,10 +84,21 @@
   })();
 
   function start(OCN) {
-  const NAVY = OCN.corEsperado;
+  // no escuro a cor "esperado" (quase preta) some no fundo — vira um cinza claro equivalente
+  const NAVY = DARK ? '#D6D9E0' : OCN.corEsperado;
   // mostra a data da última atualização no header
   const hl = document.getElementById('hojeLabel');
   if (hl && OCN.atualizadoEm) hl.textContent = OCN.atualizadoEm;
+  // botão de modo escuro: troca a preferência e recarrega (os gráficos renascem no tema novo)
+  const themeBtn = document.getElementById('btnTheme');
+  if (themeBtn) {
+    themeBtn.innerHTML = DARK ? '<i class="ti ti-sun"></i>' : '<i class="ti ti-moon"></i>';
+    themeBtn.title = DARK ? 'Switch to light mode' : 'Switch to dark mode';
+    themeBtn.addEventListener('click', () => {
+      try { localStorage.setItem('ocn_theme', DARK ? 'light' : 'dark'); } catch (e) { /* sem storage */ }
+      location.reload();
+    });
+  }
   // usuário logado + botão Sair
   const meta = OCN._meta || {};
   // esconde sub-abas restritas ao papel — o servidor manda meta.hiddenSubs (admin recebe []).
@@ -2224,7 +2275,24 @@
     } catch (e) { /* segue sem InDrive */ }
     return indriveData;
   }
-  const indriveOn = () => indriveData.value > 0 && indriveData.batches.length > 0;
+  // a promoção agora é intrínseca (tabela ID_BONUS abaixo) — o botão iD liga/desliga o efeito,
+  // mas a existência dela não depende mais do painel de levas
+  const indriveOn = () => true;
+  // ---- Recebimento REAL da inDrive por placa (promoção de ativação): 1x por placa, nunca se
+  // repete, sempre no M0 do UE. Dois tickets (R$3.600 / R$7.500) conforme a adesão — tabela
+  // conferida com o financeiro em 14/08/2026. Substitui o "valor único × placas da leva" do painel
+  // iD, que aplicava o mesmo valor para todo mundo e datava pelo mês da leva.
+  const ID_BONUS = {
+    TYZ2G60: 3600, TYZ2F05: 3600, UDO6G53: 7500, TYZ0G73: 7500, TYZ2C54: 7500, TYZ2G61: 7500,
+    QST8D65: 7500, QSR1C43: 7500, QSO2A31: 7500, QSW6D91: 7500, TYZ0I45: 7500, TYZ2C68: 7500,
+    QST4F79: 7500, QSU3I98: 7500, TYZ2F16: 7500, TZI2I72: 7500, TYZ0I50: 3600, TYZ2G57: 7500,
+    GJP3D82: 7500, TYZ2D40: 3600, TYZ2D26: 7500, QSP5D27: 7500, TYZ0I41: 7500, TYZ0I57: 7500,
+    QSW2I65: 7500, TYZ2D31: 7500, QSQ0B74: 7500, TYZ2D24: 3600, TYZ2C56: 7500, QSQ4J91: 7500,
+    UDF4H98: 7500, TYZ2D46: 7500, TYZ2D38: 7500, UDC6G32: 7500, TYZ2D32: 7500, QSQ7B13: 7500,
+    EZY2B42: 7500, TYZ2G56: 7500, TYZ2G55: 7500, TLB8A14: 7500, TYZ2C62: 7500, QSV8H10: 7500,
+    GDV3F82: 7500, QSW4A66: 7500, GHY5I61: 7500, TYZ2G64: 3600, TJE4J05: 7500, TJH1F43: 7500,
+    TYZ2D25: 7500, TYZ2G63: 3600, TYZ0I54: 3600, TYZ2D36: 3600, UDG5A66: 7500,
+  };
   // TIR (IRR) dos fluxos M0..Mn — taxa POR PERÍODO (o "mês" de 4,333 semanas do UE).
   // O fluxo do UE não é convencional (troca de sinal mais de uma vez: M0 negativo, meses positivos,
   // M13 com compra/venda do veículo), então bracketar direto nas pontas falha. Varremos o VPL numa
@@ -2919,16 +2987,19 @@
         }
         actualsThrough = curM;
       }
-      // ---- InDrive: benefício por placa, em levas com data. Entra no Initial Fee do mês da leva.
-      // Fica FORA do orçado (é um evento concreto, não fazia parte da projeção original) e sai da
-      // conta quando o botão "InDrive" do P&L está desligado.
+      // ---- InDrive: recebimento REAL por placa (tabela ID_BONUS, 1x por placa, no M0 do UE) —
+      // no calendário do P&L cai no mês de entrega da frota da placa. Fica FORA do orçado (é um
+      // evento concreto) e sai da conta quando o botão "InDrive" do P&L está desligado.
       let indriveTot = 0;
-      if (!opts.noIndrive && !opts.budget && indriveOn()) {
-        indriveData.batches.forEach((b) => {
-          if (String(b.date).slice(0, 4) !== String(finYear)) return;
-          const m = parseInt(String(b.date).slice(5, 7), 10) - 1;
+      if (!opts.noIndrive && !opts.budget) {
+        (((OCN.ue || {}).fleets) || []).forEach((ff) => {
+          if (!ff.inicio || String(ff.inicio).slice(0, 4) !== String(finYear)) return;
+          const m = parseInt(String(ff.inicio).slice(5, 7), 10) - 1;
           if (!(m >= 0 && m < FIN_MONTHS)) return;
-          const v = ((b.plates || []).length * indriveData.value) / fx;
+          let v = 0;
+          (ff.placas || []).forEach((pl) => { v += ID_BONUS[pl] || 0; });
+          if (!v) return;
+          v /= fx;
           rev['InDrive bonus'][m] += v;
           indriveTot += v;
         });
@@ -3467,8 +3538,8 @@
             d: 'Total charged on early terminations (import_jud, column K minus fines/tolls) × the recovery % slider of the UE. Lands at contract end (M13 of each cohort).' },
           { t: 'Vehicle sell', src: '✎ box', upd: 'manual',
             d: 'Sale at 103% of the purchase price, at M13 of each cohort. Federal tax hits only the margin over the purchase (sell − purchase), since both land in the same month for a given plate.' },
-          { t: 'InDrive bonus', src: 'iD panel', upd: 'manual',
-            d: 'Value per plate on the month of each batch date — the iD button on the P&L bar removes it from the whole statement.' },
+          { t: 'InDrive bonus', src: 'fixed per-plate table', upd: 'auto',
+            d: 'Real amount received per plate that joined the activation promo (R$3.600 or R$7.500, one time each), on the delivery month of the plate\'s fleet — the iD button on the P&L bar removes it from the whole statement.' },
           { t: 'Security deposit refund', src: 'Derived from the deposit', upd: 'manual',
             d: 'The sub-rental deposit going back at M13, corrected by the % p.a. field. The "No deposit" button removes deposit AND refund together — they are two sides of the same coin.' },
         ]},
@@ -7397,21 +7468,23 @@
       return Math.max(1, Math.round(frac * (ctxCars || 1)));
     }
     // InDrive: R$ TOTAL que cai no período `p` do UE, contando só as placas do contexto (frota ou
-    // placa selecionada). A data da leva vira mês do UE pelo mesmo eixo de 4,333 semanas das demais
-    // linhas; leva anterior ao início da frota cai no M0 e leva depois do M13 fica de fora.
+    // placa selecionada). O recebimento é 1x por placa, pela tabela real (ID_BONUS), SEMPRE no M0 —
+    // não mais "valor único × placas da leva" datado pelo mês de cada leva.
     function indriveRS(p) {
-      if (idrOff || !indriveOn() || !curIni) return 0;
-      const set = plateView ? new Set([plateView]) : new Set(ctxPlates);
-      if (!set.size) return 0;
+      if (idrOff || p !== 0) return 0;
+      const plates = plateView ? [plateView] : ctxPlates;
       let tot = 0;
-      indriveData.batches.forEach((b) => {
-        const d = new Date(b.date + 'T12:00:00');
-        let mo = Math.ceil(((d - curIni) / 86400000) / (SEMANAS_MES * 7));
-        if (mo < 0) mo = 0;
-        if (mo > PMAX || mo !== p) return;
-        let n = 0; (b.plates || []).forEach((pl) => { if (set.has(pl)) n++; });
-        tot += n * indriveData.value;
-      });
+      plates.forEach((pl) => { tot += ID_BONUS[pl] || 0; });
+      return tot;
+    }
+    // Desconto na semanalidade dado às placas que aderiram à promoção (aba import_baseID, col M por
+    // placa da col E, só desconto CREDITADO) — dedução de receita, lançada junto do bônus no M0.
+    function indriveDescRS(p) {
+      if (idrOff || p !== 0) return 0;
+      const desc = ((U.idBase || {}).descontos) || {};
+      const plates = plateView ? [plateView] : ctxPlates;
+      let tot = 0;
+      plates.forEach((pl) => { tot += desc[pl] || 0; });
       return tot;
     }
     // Maintenance por dados reais: REALIZADO = revisões concluídas (API da frota: última revisão com data;
@@ -8038,16 +8111,23 @@
         const rp = par('__refund_pct__') > 0 ? par('__refund_pct__') / 100 : refundPct; // caixinha da linha vence o global
         return { rs: (secDepMag() > 0 && period === PMAX) ? secDepMag() * (1 + rp) : 0 }; // devolução corrigida, no M13
       }
-      if (line === 'Vehicle Purchase' && par('__vehicle__') > 0) return { rs: period === PMAX ? -par('__vehicle__') : 0 };
+      // Compra/venda no M13: perda total NÃO compra nem vende (o carro já saiu da frota) — a placa
+      // perdida zera na visão individual (plateCut) e sai da conta agregada (perActive: o M13
+      // multiplica pelos carros ATIVOS, sem os sinistrados)
+      if (line === 'Vehicle Purchase' && par('__vehicle__') > 0) return { rs: period === PMAX ? -par('__vehicle__') * plateCut(period) : 0, perActive: true };
       // a antiga linha "Initial Fee / Vehicle Sell" virou DUAS: a venda do carro (103% da compra,
       // no M13) e o bônus InDrive (levas por placa, no mês de cada leva)
       if (line === 'Vehicle Sell' && par('__vehicle__') > 0) {
-        return { rs: period === PMAX ? par('__vehicle__') * 1.03 : 0 };
+        return { rs: period === PMAX ? par('__vehicle__') * 1.03 * plateCut(period) : 0, perActive: true };
       }
       if (line === 'InDrive bonus') {
         const idr = indriveRS(period) / (plateView ? 1 : (ctxCars || 1));
         if (idr) return { rs: idr };
-        if (indriveOn()) return { rs: 0 };
+        return { rs: 0 };
+      }
+      if (line === 'InDrive discount') {
+        const dd = indriveDescRS(period) / (plateView ? 1 : (ctxCars || 1));
+        return { rs: -dd };
       }
       // demais linhas (Subscription, Maintenance...): sem cálculo automático — só orçado + entradas manuais
       const orc = orcVal(line, period);
@@ -8385,8 +8465,10 @@
             d: 'The penalty charged whenever a driver gives the car back before the 12 months are over — and that happens in two ways, repossession or voluntary hand-back. REALIZED is what the import_jud sheet already carries (total charge minus fines and tolls). PROJECTED no longer extrapolates a flat R$/day of history: it comes from the SAME early-exit events that drive the recovery and repair lines. Every repossession the model books adds the measured average penalty of a repossession case, and every voluntary return adds the average of a return case — the return figure is net of incidence, since only 2 out of 3 returns were actually charged a penalty. The whole amount lands at contract end, in M13, scaled by the recovery % slider, which is where you say how much of what is charged actually gets collected.' },
           { t: 'Vehicle Sell', src: '✎ box', upd: 'man',
             d: 'Sale at 103% of the purchase price, at M13.' },
-          { t: 'InDrive bonus', src: 'iD panel', upd: 'mix',
-            d: 'Value per plate × the plates of each batch, on the month of the batch date.' },
+          { t: 'InDrive bonus', src: 'fixed per-plate table', upd: 'auto',
+            d: 'What inDrive actually paid us for each plate that joined the activation promo — R$3.600 or R$7.500 depending on the deal, ONE time per plate, never repeating. Booked at M0. The iD button removes the whole promo effect (bonus and discount) from the UE.' },
+          { t: 'InDrive discount', src: 'import_baseID (col E/M)', upd: 'auto',
+            d: 'The other side of the promo: the discount we credited on the weekly fee of the drivers who joined (column M of import_baseID, only rows with the discount actually credited). Shown as a revenue DEDUCTION at M0, next to the bonus it pairs with.' },
           { t: 'Security Deposit Refund', src: 'Derived from the deposit', upd: 'man',
             d: 'The deposit coming back at M13, corrected by the % p.a. field. Deposit and refund are two sides of the same coin — the P&L’s "No deposit" view removes both together.' },
         ]},
@@ -8526,7 +8608,7 @@
         box.innerHTML =
           `<div class="idr-head"><span class="idr-mark idr-mark-lg">iD</span>` +
             `<div><div class="ue-modal-title" style="margin:0">InDrive benefit</div>` +
-            `<div class="ue-modal-sub" style="margin:2px 0 0">Revenue we receive per plate, delivered in batches. It lands on the <b>InDrive bonus</b> line, on the month of each batch date.</div></div></div>` +
+            `<div class="ue-modal-sub" style="margin:2px 0 0">Batch history (informational). The <b>InDrive bonus</b> line now uses the REAL amount received per plate (R$3.600 or R$7.500, one time each), booked at M0 — editing here no longer changes the UE.</div></div></div>` +
           `<div class="idr-topline">` +
             `<label class="idr-field"><span>Benefit per plate</span><span class="idr-inwrap"><b>R$</b>` +
               `<input id="idrValue" type="text" inputmode="decimal" value="${draft.value ? String(draft.value).replace('.', ',') : ''}" placeholder="0,00"></span></label>` +
@@ -8917,7 +8999,8 @@
       // injeta a linha de juros de atraso logo após Subscription (entra no Total Inflow; principal fica na Subscription)
       // a linha combinada da planilha vira duas na tela (venda + InDrive); o orçado dela fica na venda
       const baseLines = orc.lines.flatMap((l) => (l.label === 'Initial Fee / Vehicle Sell'
-        ? [{ label: 'Vehicle Sell', group: 'inflow', values: [] }, { label: 'InDrive bonus', group: 'inflow', values: [] }]
+        ? [{ label: 'Vehicle Sell', group: 'inflow', values: [] }, { label: 'InDrive bonus', group: 'inflow', values: [] },
+           { label: 'InDrive discount', group: 'inflow', values: [] }]   // dedução de receita da promoção
         : [l]));
       const subIdx = baseLines.findIndex((l) => l.label === 'Subscription');
       let lines = subIdx < 0 ? baseLines

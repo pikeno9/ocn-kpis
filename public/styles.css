@@ -1607,3 +1607,54 @@ html { scrollbar-gutter: stable; }
 .fin-curbar { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; }
 .fin-curnote { font-size: 10.5px; color: var(--text-2); }
 .dash-cur { margin-left: 10px; align-self: center; background: var(--surface); }
+
+/* ===================== MODO ESCURO =====================
+   A classe `dark` vive no <html> (posta por um snippet inline no <head>, antes do 1º paint).
+   As variáveis fazem o grosso do trabalho; abaixo, só os pontos com cor chapada que não passam
+   por variável. O header (gradiente roxo) fica exatamente como no claro, a pedido do usuário. */
+html.dark {
+  --bg: #14151A;
+  --surface: #1E1F26;
+  --surface-2: #262833;
+  --text: #E7E8EC;
+  --text-2: #A2A8B4;
+  --text-3: #7C828F;
+  --border: #2C2D37;
+  --border-2: #3A3C49;
+  --purple-soft: #2A2145;
+}
+/* botão de tema no header (mesma família do Freeze) */
+.app-theme-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #fff; width: 32px; height: 32px; border-radius: 999px; font-size: 14px;
+  cursor: pointer; background: #ffffff1f; border: 1px solid #ffffff40; font-family: inherit;
+  transition: background .15s;
+}
+.app-theme-btn:hover { background: #ffffff33; }
+/* brancos chapados que precisam virar superfície escura */
+html.dark .ue-field input, html.dark .ue-modal, html.dark #uetTable .uet-in, html.dark .ue-kbtn,
+html.dark .idr-inwrap, html.dark .umd-color input, html.dark .umd-keep,
+html.dark .app-prof-pop { background: var(--surface); }
+html.dark .idr-ta { background: var(--surface-2); }
+/* chips/realces roxinhos claros -> tons escuros equivalentes */
+html.dark .ue-sl-hint:hover, html.dark .pnl-vp-o.on, html.dark .dash-pk-o.on { background: #2A2145; }
+html.dark .pnl-vp-btn.scen .pnl-vp-ic, html.dark .pnl-vp-ic.scen, html.dark .pnl-scenchip { background: #2A2145; color: #C4B5FD; }
+html.dark .pnl-vp-btn.frozen .pnl-vp-ic, html.dark .pnl-vp-ic.frozen { background: var(--surface-2); color: var(--text-2); }
+html.dark .pi-tl-seg.past { background: #2A2145; color: #C4B5FD; }
+html.dark .pi-tl-seg.now { background: linear-gradient(90deg, #2A2145, #332A52); color: #D6C8FF; }
+html.dark .pi-tl-seg.fut { background: #241E3A; color: #B9A6F5; border-color: #4C3B85; }
+html.dark .pnl-sim { background: linear-gradient(180deg, #232030, var(--surface)); }
+/* textos em roxo-profundo (quase preto) -> lilás legível */
+html.dark .util-filter-tag button:hover, html.dark .rh-table td.util-plate-col,
+html.dark .org-node .org-name { color: #C4B5FD; }
+/* vermelhos/avisos com fundo clarinho */
+html.dark .umd-del, html.dark .umd-danger.armed { background: #3A2026; }
+/* tabelas: cabeçalho invertido (fundo = --text) fica claro demais no escuro; coluna Total idem */
+html.dark .ue-table thead th, html.dark .ue-table thead .ue-rowlabel, html.dark .rh-table thead th { background: #3A3C49; }
+html.dark .ue-cell.ue-totalcol, html.dark #pnlTable tbody tr.pnl-qty td.ue-totalcol { background: #2B2D38; }
+html.dark .fc-day.fc-has { background: #2A2145; }
+html.dark .ue-totalInflow td, html.dark .ue-totalOutflow td { background: #30323E; }
+html.dark .ue-net td { background: #33285A; }
+html.dark .ue-acc td { background: #3C2F6B; }
+html.dark .ue-net td.ue-totalcol { background: #3C2F6B; }
+html.dark .ue-acc td.ue-totalcol { background: #46387C; }

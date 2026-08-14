@@ -14,6 +14,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Lexend+Deca:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.47.0/iconfont/tabler-icons.min.css" />
   <link rel="stylesheet" href="styles.css" />
+  <!-- modo escuro ANTES do primeiro paint (evita o flash branco); o app.js lê a mesma chave -->
+  <script>try { if (localStorage.getItem('ocn_theme') === 'dark') document.documentElement.classList.add('dark'); } catch (e) {}</script>
 </head>
 <body>
   <!-- ===================== LOADING ===================== -->
@@ -37,6 +39,7 @@
     </nav>
     <div class="app-user">
       <div class="header-meta">updated <span id="hojeLabel">—</span></div>
+      <button class="app-theme-btn" id="btnTheme" title="Toggle dark mode"><i class="ti ti-moon"></i></button>
       <button class="app-freeze-btn" id="btnFreeze" style="display:none" title="Pause/resume automatic data updates"><i class="ti ti-snowflake"></i> <span id="btnFreezeLabel">Freeze</span></button>
       <!-- perfil no padrão do Portal OCN: avatar + nome + papel + menu -->
       <div class="app-prof" id="appProf">

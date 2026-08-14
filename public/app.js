@@ -1939,6 +1939,137 @@
   const FINES_LAG_D = 27;   // p90 medido do atraso infração -> e-mail
   const FINES_CRED_K = 50;  // carro-meses em que o ritmo próprio pesa 50%
   let _finesRates = null;
+  // ===================== MODELO DE RECUPERAÇÃO (recovery + repair projetados) =====================
+  // Medido em 14/08/2026 sobre 23 recuperações: elas são um evento do CONTRATO, não do carro, e são
+  // PRECOCES — 2,0% no M0, 6,0% no M1, 6,3% no M2 e NENHUMA depois do M3 (58 contratos já passaram
+  // dessa idade). Quem atravessa os ~3 primeiros meses pagando, segue pagando. E o ciclo se
+  // realimenta: 22 dos 23 carros foram realugados em mediana 4 dias, e o contrato NOVO volta para a
+  // faixa de risco. Por isso a projeção não é um R$/dia da frota: é uma cadeia de Markov por carro,
+  // sobre a IDADE DO CONTRATO, com o custo de recuperação e o de reparo lançados juntos (78% das
+  // recuperações geram reparo).
+  let _recModel = null;
+  function recoveryModel() {
+    if (_recModel) return _recModel;
+    const U = OCN.ue || {}, MS = 86400000;
+    const hoje = new Date(((U.hoje) || new Date().toISOString().slice(0, 10)) + 'T12:00:00');
+    const V = U.vinculos || [];
+    const JB = ((U.judBase || {}).placas) || {};
+    const AMAX = 15;                                   // idades M0..M14 (contrato de 12 + cauda)
+    const HAZ_FLOOR = 0.005;                           // "nunca aconteceu em 58 casos" ≠ "impossível"
+    // ---- (a) curva de risco por idade do CONTRATO ----
+    const expo = new Array(AMAX).fill(0), evt = new Array(AMAX).fill(0);
+    const recs = [];
+    V.forEach((v) => {
+      const ini = new Date(v.ini + 'T12:00:00');
+      const fim = v.fim ? new Date(v.fim + 'T12:00:00') : hoje;
+      const idade = Math.max(0, (fim - ini) / MS / 30.44);
+      const isRec = !!(v.fim && /recupera/i.test(v.motivo || ''));
+      for (let a = 0; a < AMAX; a++) if (idade >= a) expo[a]++;
+      if (isRec) { evt[Math.min(AMAX - 1, Math.floor(idade))]++; recs.push(v); }
+    });
+    // idade com pouca exposição não vira estatística — cai no piso
+    const hazard = expo.map((e, a) => (e >= 8 ? Math.max(HAZ_FLOOR, evt[a] / e) : HAZ_FLOOR));
+    // ---- (c) custo do evento: recuperação + reparo, medidos nos casos reais ----
+    let nR = 0, sR = 0, nP = 0, sP = 0;
+    recs.forEach((v) => {
+      const cs = (JB[v.placa] || []).filter((c) => /recupera/i.test(c.tipo || ''));
+      const g = cs.reduce((s, c) => s + (c.guincho || 0) + (c.recup || 0), 0);
+      const rp = cs.reduce((s, c) => s + (c.repair || 0), 0);
+      if (g > 0) { nR++; sR += g; }
+      if (rp > 0) { nP++; sP += rp; }
+    });
+    const costRec = nR ? sR / nR : 0;                  // R$ por recuperação
+    const costRep = nP ? sP / nP : 0;                  // R$ por reparo (quando há)
+    const pRep = recs.length ? nP / recs.length : 0;   // ~78% das recuperações geram reparo
+    // ---- (b) multiplicador por PERFIL do motorista, a partir dos sinais já medidos ----
+    // 2ª cobrança atrasada/não paga (o mais forte: 32,1% × 8,0%), multas/mês (OR 2,46) e km/semana
+    // (0,80 por +100 km). Tudo normalizado para que a média da carteira dê 1 — assim o TOTAL segue
+    // ancorado na taxa observada e o perfil só redistribui o risco entre motoristas.
+    const PAY = ((U.pagamentos || {}).placas) || {};
+    const MB = ((U.multasBase || {}).placas) || {};
+    const UT = {}; ((((OCN.utilization) || {}).plates) || []).forEach((r) => { UT[r.plate] = r.kmWeek; });
+    const dadosDe = (v) => {
+      const end = v.fim || U.hoje;
+      const durM = Math.max(.25, (new Date(end + 'T12:00:00') - new Date(v.ini + 'T12:00:00')) / MS / 30.44);
+      let fines = 0;
+      (MB[v.placa] || []).forEach((x) => { const d = x.inf || x.email || x.venc; if (d && d >= v.ini && d <= end) fines++; });
+      const semanas = (PAY[v.placa] || []).filter((s) => s.v && s.v >= v.ini && s.v <= end).sort((a, b) => (a.v < b.v ? -1 : 1));
+      const durW = (new Date(end + 'T12:00:00') - new Date(v.ini + 'T12:00:00')) / MS / 7;
+      let late2 = null;
+      if (durW >= 3) { const w2 = semanas[1]; late2 = !w2 ? true : (w2.a === 1); }
+      return { finesPM: fines / durM, km: UT[v.placa] != null ? UT[v.placa] : null, late2 };
+    };
+    // taxas medidas do sinal da 2ª semana (só contratos com a 2ª semana já vencida)
+    let nLate = 0, rLate = 0, nOk = 0, rOk = 0, sFines = 0, nFines = 0, sKm = 0, nKm = 0;
+    V.forEach((v) => {
+      const dd = dadosDe(v);
+      const isRec = !!(v.fim && /recupera/i.test(v.motivo || ''));
+      if (dd.late2 != null) { if (dd.late2) { nLate++; if (isRec) rLate++; } else { nOk++; if (isRec) rOk++; } }
+      sFines += dd.finesPM; nFines++;
+      if (dd.km != null) { sKm += dd.km; nKm++; }
+    });
+    const baseRate = V.length ? recs.length / V.length : 0;
+    const taxaLate = nLate ? rLate / nLate : baseRate, taxaOk = nOk ? rOk / nOk : baseRate;
+    const mFines = nFines ? sFines / nFines : 0, mKm = nKm ? sKm / nKm : 0;
+    const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
+    const fatorBruto = (v) => {
+      const dd = dadosDe(v);
+      let m = 1;
+      if (dd.late2 != null && baseRate > 0) m *= clamp((dd.late2 ? taxaLate : taxaOk) / baseRate, .2, 5);
+      m *= clamp(Math.pow(2.46, dd.finesPM - mFines), .4, 3);                    // multas/mês
+      if (dd.km != null) m *= clamp(Math.pow(0.80, (dd.km - mKm) / 100), .5, 2); // km/semana
+      return clamp(m, .2, 6);
+    };
+    // contrato ATIVO de cada placa + normalização (média ponderada da carteira = 1)
+    const ativos = {};
+    V.forEach((v) => { if (!v.fim) { const c = ativos[v.placa]; if (!c || v.ini > c.ini) ativos[v.placa] = v; } });
+    const brutos = {}; let sB = 0, nB = 0;
+    Object.entries(ativos).forEach(([pl, v]) => { const b = fatorBruto(v); brutos[pl] = b; sB += b; nB++; });
+    const mediaB = nB ? sB / nB : 1;
+    const fator = {}; Object.entries(brutos).forEach(([pl, b]) => { fator[pl] = mediaB > 0 ? b / mediaB : 1; });
+    // ---- (d) simulação semanal com REALIMENTAÇÃO (recuperou → novo contrato no M0) ----
+    // Devolve, para um conjunto de placas, as recuperações esperadas por semana a partir de hoje.
+    const WK = 52 * 7 * MS;
+    function esperadasPorSemana(plates, nSemanas) {
+      const hz = hazard.map((h) => 1 - Math.pow(1 - Math.min(.95, h), 1 / (52 / 12)));  // mensal -> semanal
+      const out = new Array(nSemanas).fill(0);
+      plates.forEach((pl) => {
+        const v = ativos[pl];
+        if (!v) return;                                   // carro sem contrato ativo não gera evento
+        const r = fator[pl] != null ? fator[pl] : 1;
+        let cur = 1;                                       // massa do contrato ATUAL (com perfil r)
+        let ageCur = Math.max(0, (hoje - new Date(v.ini + 'T12:00:00')) / MS / 7);
+        const nw = new Array(60).fill(0);                  // contratos REINICIADOS (perfil médio = 1)
+        for (let s = 0; s < nSemanas; s++) {
+          const aCur = Math.min(AMAX - 1, Math.floor(ageCur / (52 / 12)));
+          const recCur = cur * hz[aCur] * r;
+          let recNew = 0;
+          for (let a = 0; a < nw.length; a++) {
+            if (!nw[a]) continue;
+            recNew += nw[a] * hz[Math.min(AMAX - 1, Math.floor(a / (52 / 12)))];
+          }
+          const rec = recCur + recNew;
+          out[s] += rec;
+          // avança as idades; quem foi recuperado (ou fechou 52 semanas) reinicia no M0
+          cur -= recCur; ageCur += 1;
+          let fechou = 0;
+          if (ageCur >= 52) { fechou += cur; cur = 0; }
+          for (let a = nw.length - 1; a > 0; a--) {
+            const h = hz[Math.min(AMAX - 1, Math.floor((a - 1) / (52 / 12)))];
+            nw[a] = nw[a - 1] * (1 - h);
+          }
+          nw[0] = 0;
+          fechou += nw[nw.length - 1]; nw[nw.length - 1] = 0;
+          nw[0] += rec + fechou;                           // re-locação (mediana de 4 dias ≈ imediata)
+        }
+      });
+      return out;
+    }
+    _recModel = { hazard, expo, evt, costRec, costRep, pRep, nRecs: recs.length, baseRate,
+      taxaLate, taxaOk, nLate, nOk, fator, ativos, esperadasPorSemana,
+      custoEvento: costRec + pRep * costRep };
+    return _recModel;
+  }
   function finesRatesByFleet() {
     if (_finesRates) return _finesRates;
     const U = OCN.ue || {};
@@ -3256,7 +3387,7 @@
           { t: 'Subrental · Insurance · GPS · Prep · Sticker', src: 'UE boxes per fleet', upd: 'manual',
             d: 'The real per-fleet boxes of the Unit Economics, each on its own schedule — sub-rental always on the 26th (12 installments from the month after delivery), insurance split in N installments, GPS at M0 + monthly, preparation and sticker at M0.' },
           { t: 'Recovery · Repair cost', src: 'import_jud', upd: 'auto',
-            d: 'Towing + recovery on one line, damages + cleaning + others on the other, by event date. Tera’s projection borrows Fleet 1’s history while its own numbers mature.' },
+            d: 'REALIZED comes from the import_jud sheet by event date: towing + recovery on one line, damages + cleaning + others on the other. PROJECTED does NOT use a flat rate — repossession is an event of the CONTRACT, not of the car. Measured on the 23 real cases: the risk is 2,0% in the contract month M0, 6,0% in M1, 6,3% in M2 and zero from M3 on (58 contracts already passed that age with no case), median 1,6 month. So each active car walks its own driver risk curve week by week, weighted by that driver profile — a late 2nd weekly payment took 32% of contracts to repossession against 8% of the punctual ones, each extra fine per month multiplies the odds by 2,46, more km/week lowers them — all normalised so the fleet average still reproduces the observed rate. Whoever is repossessed returns at M0 with a NEW driver (22 of 23 cars were re-rented in a median of 4 days), which feeds the cycle. Every expected event books BOTH costs at once: the average repossession cost and, in 78% of the cases, the average repair cost — because in real life one follows the other.' },
           { t: 'Part Replacement', src: 'Fleet site + ⚙ Parts panel', upd: 'auto',
             d: 'Real events from the fleet site (natural wear only — atypical damage is charged to the client). Future replacements come from each plate’s km pace against the intervals and costs set in the ⚙ Parts panel.' },
         ]},
@@ -4673,14 +4804,24 @@
           if (prof) ['Maintenance', 'Part Replacement'].forEach((k) => {
             const pr = prof[k]; if (pr && pr[p]) add(k, m, Math.abs(pr[p]) * c);
           });
-          // Recovery/Repair: projeção pelo perfil MEDIDO de incidência por idade (quando o custo
-          // realmente bate na vida do carro), não pelo espalhado uniforme do perfil de referência
-          [['Recovery cost', 'recovery'], ['Repair cost', 'repair']].forEach(([k, fld]) => {
-            const JP2 = judAgeProfile(fld);
-            if (JP2.ok) { if (JP2.per[p]) add(k, m, JP2.per[p] * c); }
-            else if (prof && prof[k] && prof[k][p]) add(k, m, Math.abs(prof[k][p]) * c);
-          });
           add('Traffic fines (out)', m, (FRf.net || 0) * new Date(finYear, m + 1, 0).getDate() * c);
+        }
+        // Recovery/Repair: modelo por idade do CONTRATO (recoveryModel) — cada carro corre a curva
+        // de risco do seu motorista, o evento lança os dois custos juntos e quem é recuperado
+        // reinicia no M0 com motorista novo. Substituiu o perfil por idade do CARRO, que estava
+        // estruturalmente errado: o risco é do contrato, não do veículo.
+        if (curM >= 0 && curM < FIN_MONTHS - 1) {
+          const RMf = recoveryModel();
+          const semanasF = RMf.esperadasPorSemana(plates, 80);
+          semanasF.forEach((qtd, s) => {
+            if (!qtd) return;
+            const d = new Date(hojeD.getTime() + s * 7 * MS);
+            if (d.getFullYear() !== finYear) return;
+            const m2 = d.getMonth();
+            if (m2 <= curM) return;                    // mês já realizado não recebe projeção
+            add('Recovery cost', m2, qtd * RMf.costRec);
+            add('Repair cost', m2, qtd * RMf.pRep * RMf.costRep);
+          });
         }
         // ---- RECEITA da frota por mês (base do "share of revenue") ----
         // Mesma régua do custo: realizado das placas até hoje, projeção só destas frotas depois.
@@ -6247,14 +6388,24 @@
           if (e.recup > 0) zBoth[m]++; else if (e.guincho > 0) zTow[m]++; else zNone[m]++;
         });
         // projeção nos meses à frente (ano cheio): mesmo ritmo por carro ativo do gráfico de custos
+        // nº de recuperações esperadas por mês — mesmo modelo por idade do contrato do gráfico de custo
         const recProjN = (() => {
           if (mSel != null || RF.curM < 0) return null;
-          const recReal = RD3.evs.filter((e) => String(e.fim).slice(0, 4) === String(finYear) && parseInt(String(e.fim).slice(5, 7), 10) - 1 <= RF.curM);
-          const carMReal = act.slice(0, RF.curM + 1).reduce((a, b) => a + b, 0);
-          if (!recReal.length || carMReal <= 0) return null;
-          const rate = recReal.length / carMReal;
+          const RMn = recoveryModel();
+          const plates3 = rfFleets.reduce((acc, f2) => {
+            const meta = (((OCN.ue || {}).fleets) || []).find((x) => x.id === f2.id);
+            return acc.concat((meta && meta.placas) || []);
+          }, []);
+          const hojeD3 = new Date(((OCN.ue || {}).hoje || new Date().toISOString().slice(0, 10)) + 'T12:00:00');
           const n = new Array(FIN_MONTHS).fill(null);
-          for (let m = RF.curM + 1; m < FIN_MONTHS; m++) n[m] = Math.round(rate * act[m] * 10) / 10;
+          RMn.esperadasPorSemana(plates3, 80).forEach((qtd, s) => {
+            if (!qtd) return;
+            const d = new Date(hojeD3.getTime() + s * 7 * 86400000);
+            if (d.getFullYear() !== finYear) return;
+            const m2 = d.getMonth();
+            if (m2 <= RF.curM) return;
+            n[m2] = Math.round(((n[m2] || 0) + qtd) * 10) / 10;
+          });
           return n;
         })();
         const cntDL = { display: (c2) => c2.dataset.data[c2.dataIndex] > 0, color: '#fff', font: { size: 9, weight: 400 }, formatter: (v) => v, clamp: true };
@@ -6303,7 +6454,7 @@
         if (ageBox) ageBox.style.display = '';
         if (inds) { inds.innerHTML = ''; inds.style.display = 'none'; }
         document.getElementById('ccAgeT').textContent = 'Recovery cost composition';
-        costsAgeHelp2 = { t: 'Recovery cost composition', d: 'The realized recovery spend of each month, split into its two components: TOWING (getting the car physically back) and RECOVERY (the legal/operational cost of taking it). Only true repossessions enter here — the judicial base also carries returns and total losses, which are filtered out by the event type column. In the full-year view the HATCHED bars are the FORECAST: the historical repossession rate PER ACTIVE CAR (few repossessions early in the year just mirror the small fleet) × each month\'s active fleet × the average cost per repossession, split by component.' };
+        costsAgeHelp2 = { t: 'Recovery cost composition', d: 'The realized recovery spend of each month, split into its two components: TOWING (getting the car physically back) and RECOVERY (the legal/operational cost of taking it). Only true repossessions enter here — the judicial base also carries returns and total losses, which are filtered out by the event type column. In the full-year view the HATCHED bars are the FORECAST — and it is NOT a flat rate. Repossession is an event of the CONTRACT, not of the car: measured over the 23 real cases, the risk is 2,0% in the contract\'s month 0, 6,0% in M1, 6,3% in M2 and ZERO from M3 on (58 contracts have already passed that age untouched) — whoever survives the first three months paying keeps paying. So every active car walks its own driver\'s risk curve, week by week, weighted by that driver\'s profile: a late 2nd weekly payment took 32% of contracts to repossession against 8% of the punctual ones, each extra fine per month multiplies the odds by 2,46 and more km/week lowers them — all normalised so the fleet average still reproduces the observed rate. Whoever is repossessed comes back at M0 with a NEW driver (22 of the 23 cars were re-rented in a median of 4 days), which feeds the cycle forward. Each expected event books the average repossession cost, split into towing and recovery in the historical proportion.' };
         const RD2 = recoveryData();
         const hojeIso3 = (OCN.ue && OCN.ue.hoje) || new Date().toISOString().slice(0, 10);
         const gM = new Array(FIN_MONTHS).fill(0), rM = new Array(FIN_MONTHS).fill(0);
@@ -6317,17 +6468,35 @@
         // Poucas recuperações no 1º semestre ≠ ritmo baixo: havia poucos carros. A taxa é
         // recuperações ÷ carro-meses realizados; cada mês futuro espera taxa × carros ativos,
         // com o custo médio por recuperação separado em guincho e recuperação.
+        // projeção pelo MODELO por idade do contrato (mesma fonte do UE): recuperações esperadas
+        // por mês, repartidas em guincho × custo de recuperação na proporção medida
         const recProj = (() => {
           if (mSel != null || RF.curM < 0) return null;
-          const recReal = RD2.evs.filter((e) => String(e.fim).slice(0, 4) === String(finYear) && parseInt(String(e.fim).slice(5, 7), 10) - 1 <= RF.curM);
-          const carMReal = act.slice(0, RF.curM + 1).reduce((a, b) => a + b, 0);
-          if (!recReal.length || carMReal <= 0) return null;
-          const rate = recReal.length / carMReal;
-          const avgG = recReal.reduce((s, e) => s + e.guincho, 0) / recReal.length;   // USD por recuperação
-          const avgR = recReal.reduce((s, e) => s + e.recup, 0) / recReal.length;
+          const RMc = recoveryModel();
+          const plates2 = rfFleets.reduce((acc, f2) => {
+            const meta = (((OCN.ue || {}).fleets) || []).find((x) => x.id === f2.id);
+            return acc.concat((meta && meta.placas) || []);
+          }, []);
+          const sem = RMc.esperadasPorSemana(plates2, 80);
+          const fx2 = finPar('__fin_fx__') || 5.5;
+          const hojeD2 = new Date(((OCN.ue || {}).hoje || new Date().toISOString().slice(0, 10)) + 'T12:00:00');
+          // fatia guincho × recuperação dentro do custo do evento, medida no histórico
+          let sg = 0, sr = 0;
+          RD2.evs.forEach((e) => { sg += e.guincho; sr += e.recup; });
+          const fG = (sg + sr) > 0 ? sg / (sg + sr) : .3;
           const n = new Array(FIN_MONTHS).fill(null), g = new Array(FIN_MONTHS).fill(null), r = new Array(FIN_MONTHS).fill(null);
-          for (let m = RF.curM + 1; m < FIN_MONTHS; m++) { n[m] = rate * act[m]; g[m] = n[m] * avgG; r[m] = n[m] * avgR; }
-          return { n, g, r, rate, avgG, avgR };
+          sem.forEach((qtd, s) => {
+            if (!qtd) return;
+            const d = new Date(hojeD2.getTime() + s * 7 * 86400000);
+            if (d.getFullYear() !== finYear) return;
+            const m2 = d.getMonth();
+            if (m2 <= RF.curM) return;
+            n[m2] = (n[m2] || 0) + qtd;
+            const custo = qtd * RMc.costRec / fx2;     // USD
+            g[m2] = (g[m2] || 0) + custo * fG;
+            r[m2] = (r[m2] || 0) + custo * (1 - fG);
+          });
+          return { n, g, r };
         })();
         mk('ccAge', { type: 'bar', data: { labels: MONL, datasets: [
             { label: 'Towing', data: cut12(gM.map((v, m) => (RF.curM >= 0 && m > RF.curM ? null : Math.round(v * K)))), backgroundColor: costsTint(C, .5), stack: 's', maxBarThickness: 40, borderRadius: 2 },
@@ -7465,17 +7634,27 @@
         if (realized) { judRecRealRS[mo] += c.recovery; judRepRealRS[mo] += c.repair; }
         else { judRecProjRS[mo] += c.recovery; judRepProjRS[mo] += c.repair; }
       }));
-      // casos futuros: ritmo histórico R$/dia até o fim do contrato (M1..M12; rescisões não param hoje)
+      // casos futuros de RECUPERAÇÃO/REPARO: modelo por idade do CONTRATO (ver recoveryModel) —
+      // cada carro corre a curva de risco do seu motorista atual, o evento lança recuperação e
+      // reparo juntos, e quem é recuperado volta ao M0 com um motorista novo. Nada de R$/dia flat.
+      const RM = recoveryModel();
+      const nSem = Math.ceil((PMAX + 1) * SEMANAS_MES) + 2;
+      const semanas = RM.esperadasPorSemana(plates, nSem);
+      semanas.forEach((qtd, s) => {
+        if (!qtd) return;
+        const quando = new Date(hoje.getTime() + s * 7 * MS);
+        const p = Math.min(Math.max(moOf(quando), 1), PMAX);
+        judRecProjRS[p] += qtd * RM.costRec;
+        judRepProjRS[p] += qtd * RM.pRep * RM.costRep;
+      });
+      // a rescisão continua no ritmo histórico (é cobrança, não custo de evento)
       const dias = Math.max(1, (hoje - curIni) / MS);
-      const recDay = totRec / dias, repDay = totRep / dias, termDay = totTerm / dias;
+      const termDay = totTerm / dias;
       let futureDays = 0;
       for (let p = 1; p <= U.periods; p++) {
         const winStart = new Date(curIni.getTime() + (p - 1) * SEMANAS_MES * 7 * MS);
         const winEnd = new Date(curIni.getTime() + p * SEMANAS_MES * 7 * MS);
-        const novos = Math.max(0, (winEnd - Math.max(winStart, hoje)) / MS);
-        judRecProjRS[p] += novos * recDay;
-        judRepProjRS[p] += novos * repDay;
-        futureDays += novos;
+        futureDays += Math.max(0, (winEnd - Math.max(winStart, hoje)) / MS);
       }
       // rescisão: conhecidos + acúmulo futuro, tudo no M13, escalado pelo slider de recebimento
       judTermRS = (totTerm + futureDays * termDay) * (termPct / 100);
@@ -8115,7 +8294,7 @@
           { t: 'Traffic fines (outflow)', src: 'multas_consolidado', upd: 'auto',
             d: 'What we pay LM: the NET fine (column O, about 80% of the gross) × 1.05, on our due date. The margin of the fines business comes from this asymmetry — we charge over the gross and pay over the net, roughly 26% on the current numbers.' },
           { t: 'Recovery / Repair cost', src: 'import_jud', upd: 'auto',
-            d: 'Sheet import_jud by event date: towing and recovery on one line, damages, cleaning and others on the other.' },
+            d: 'REALIZED comes from the import_jud sheet by event date: towing + recovery on one line, damages + cleaning + others on the other. PROJECTED does NOT use a flat rate — repossession is an event of the CONTRACT, not of the car. Measured on the 23 real cases: the risk is 2,0% in the contract month M0, 6,0% in M1, 6,3% in M2 and zero from M3 on (58 contracts already passed that age with no case), median 1,6 month. So each active car walks its own driver risk curve week by week, weighted by that driver profile — a late 2nd weekly payment took 32% of contracts to repossession against 8% of the punctual ones, each extra fine per month multiplies the odds by 2,46, more km/week lowers them — all normalised so the fleet average still reproduces the observed rate. Whoever is repossessed returns at M0 with a NEW driver (22 of 23 cars were re-rented in a median of 4 days), which feeds the cycle. Every expected event books BOTH costs at once: the average repossession cost and, in 78% of the cases, the average repair cost — because in real life one follows the other.' },
           { t: 'Part Replacement', src: 'Fleet events + ⚙ Parts panel', upd: 'mix',
             d: 'Realized from the fleet site events, counting natural wear only (atypical damage is charged to the client). Projected from each plate’s km pace against the intervals and costs set in the ⚙ Parts panel.' },
           { t: 'Insurance · GPS · Deposit · Vehicle Purchase', src: '✎ boxes', upd: 'man',

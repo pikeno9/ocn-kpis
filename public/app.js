@@ -7218,57 +7218,83 @@
       _extrasByPlate = out;
       return out;
     }
-    let _plateFines = null;
-    function finesRateByPlate() {
-      if (_plateFines) return _plateFines;
-      const MS = 86400000, K_DAYS = 91;
-      const cut = new Date(hoje.getTime() - FINES_LAG_D * MS);
+    // ---- PERFIL de multas por MOTORISTA → projeção por EVENTOS discretos ----
+    // A regra (pedido de 13/08): quem NUNCA multou no vínculo atual NÃO projeta multa; quem
+    // multa tem um INTERVALO próprio (dias de vínculo ÷ multas) e a próxima multa esperada cai
+    // em (última multa + intervalo) — evento a evento, nada de média achatada. O VALOR usa a
+    // MEDIANA das multas do próprio motorista (a base carrega a gravidade real; mediana não
+    // deixa uma gravíssima puxar tudo). Contrato com MENOS DE 1 MÊS ainda não tem história:
+    // usa o ritmo e o valor típico da FROTA. Paid = liq × 1,05 (taxa LM); charged = bruto ×
+    // (1 + prêmio da versão do contrato da placa).
+    let _fineProfiles = null;
+    function plateFineProfiles() {
+      if (_fineProfiles) return _fineProfiles;
+      const MS = 86400000;
+      const cut = new Date(hoje.getTime() - FINES_LAG_D * MS);   // multas dos últimos ~27d ainda não chegaram
       const base = (U.multasBase || {}).placas || {};
       const desc = (U.multasBase || {}).descontoMedio || 0.8;
-      const grossOf = (x) => (x.bruto > 0 ? x.bruto : (x.liq > 0 ? x.liq / desc : (x.v || 0) / 1.05 / desc));
-      const netOf = (x) => (x.liq > 0 ? x.liq : (x.v || 0) / 1.05) * 1.05;
+      const liqDe = (x) => (x.liq > 0 ? x.liq : (x.v || 0) / 1.05);
+      const brutoDe = (x) => (x.bruto > 0 ? x.bruto : (x.liq > 0 ? x.liq / desc : (x.v || 0) / 1.05 / desc));
+      const median = (a) => { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
       const curV = {};   // vínculo ATUAL (mais recente) de cada placa
       (U.vinculos || []).forEach((v) => { const c = curV[v.placa]; if (!c || v.ini > c.ini) curV[v.placa] = v; });
-      const per = {}; let poolCnt = 0, poolDays = 0, poolG = 0, poolN = 0;
+      // ritmo/valor típico por FROTA (fallback dos contratos jovens) + pool geral
+      const fleetOfPl = {}, fleetStat = {};
+      let poolCnt = 0, poolDays = 0; const poolLiq = [], poolBruto = [];
       (U.fleets || []).forEach((f) => {
         if (!f.inicio) return;
-        let cnt = 0, g = 0, nv = 0;
         const cars = Math.max(1, f.cars || (f.placas || []).length || 1);
-        const days = Math.max(0, (cut - new Date(f.inicio + 'T12:00:00')) / MS) * cars;
-        (f.placas || []).forEach((pl) => (base[pl] || []).forEach((x) => {
+        const days = Math.max(1, (cut - new Date(f.inicio + 'T12:00:00')) / MS) * cars;
+        let cnt = 0; const liqs = [], brutos = [];
+        (f.placas || []).forEach((pl) => { fleetOfPl[pl] = f.id; (base[pl] || []).forEach((x) => {
           if (!x.inf || new Date(x.inf + 'T12:00:00') > cut) return;
-          cnt++; g += grossOf(x); nv += netOf(x);
-        }));
-        per[f.id] = { cnt, days, g, nv };
-        poolCnt += cnt; poolDays += days; poolG += g; poolN += nv;
+          cnt++; liqs.push(liqDe(x)); brutos.push(brutoDe(x));
+        }); });
+        fleetStat[f.id] = { interval: cnt > 0 ? days / cnt : null, liq: median(liqs), bruto: median(brutos), n: cnt };
+        poolCnt += cnt; poolDays += days; poolLiq.push(...liqs); poolBruto.push(...brutos);
       });
-      const poolFreq = poolDays ? poolCnt / poolDays : 0;
-      const poolValG = poolCnt ? poolG / poolCnt : 0, poolValN = poolCnt ? poolN / poolCnt : 0;
+      const pool = { interval: poolCnt > 0 ? poolDays / poolCnt : null, liq: median(poolLiq), bruto: median(poolBruto) };
       const out = {};
-      (U.fleets || []).forEach((f) => {
-        if (!f.inicio || !per[f.id]) return;
-        const fd = per[f.id];
-        const wF = fd.days / (fd.days + FINES_CRED_K * 30.44);            // frota × pool (mesmo K do resto)
-        const freqFleet = wF * (fd.days ? fd.cnt / fd.days : poolFreq) + (1 - wF) * poolFreq;
-        const valG = fd.cnt >= 5 ? fd.g / fd.cnt : poolValG;              // severidade estável da frota
-        const valN = fd.cnt >= 5 ? fd.nv / fd.cnt : poolValN;
-        (f.placas || []).forEach((pl) => {
-          const v = curV[pl];
-          const ini2 = v ? new Date(v.ini + 'T12:00:00') : new Date(f.inicio + 'T12:00:00');
-          const days = Math.max(0, (cut - ini2) / MS);
-          let own = 0;
-          (base[pl] || []).forEach((x) => {
-            if (!x.inf) return;
-            const t = new Date(x.inf + 'T12:00:00');
-            if (t > cut || t < ini2) return;                              // só o MOTORISTA atual
-            own++;
-          });
-          const w = days / (days + K_DAYS);
-          out[pl] = { freq: w * (days ? own / days : freqFleet) + (1 - w) * freqFleet, valG, valN, own, days: Math.round(days) };
+      (U.fleets || []).forEach((f) => (f.placas || []).forEach((pl) => {
+        const v = curV[pl];
+        const ini2 = v ? new Date(v.ini + 'T12:00:00') : (f.inicio ? new Date(f.inicio + 'T12:00:00') : null);
+        if (!ini2) return;
+        const vidaDias = (hoje - ini2) / MS;
+        const own = []; let lastInf = null;
+        (base[pl] || []).forEach((x) => {
+          if (!x.inf) return;
+          const t = new Date(x.inf + 'T12:00:00');
+          if (t < ini2) return;                                  // só o MOTORISTA atual
+          own.push(x); if (!lastInf || t > lastInf) lastInf = t;
         });
-      });
-      _plateFines = out;
+        if (vidaDias < 30) {
+          // contrato jovem: perfil da FROTA (frota sem multa madura cai no pool)
+          const fs = (fleetStat[fleetOfPl[pl]] && fleetStat[fleetOfPl[pl]].n >= 5) ? fleetStat[fleetOfPl[pl]] : pool;
+          out[pl] = fs.interval ? { interval: fs.interval, liq: fs.liq, bruto: fs.bruto, lastInf: lastInf || ini2, mode: 'fleet' } : null;
+        } else if (!own.length) {
+          out[pl] = null;                                        // motorista limpo: SEM projeção de multa
+        } else {
+          // intervalo esperado = janela madura do vínculo ÷ multas maduras (se todas as multas
+          // são recentes demais para a janela madura, usa a vida inteira ÷ total)
+          const ownMat = own.filter((x) => new Date(x.inf + 'T12:00:00') <= cut);
+          const nRef = ownMat.length || own.length;
+          const diasRef = ownMat.length ? Math.max(7, (cut - ini2) / MS) : Math.max(7, vidaDias);
+          out[pl] = { interval: diasRef / nRef, liq: median(own.map(liqDe)), bruto: median(own.map(brutoDe)), lastInf: lastInf || ini2, mode: 'own' };
+        }
+      }));
+      _fineProfiles = out;
       return out;
+    }
+    // datas ESPERADAS das próximas infrações da placa: última multa + intervalo, evento a evento.
+    // Se a próxima "já passou" (janela em que a notificação ainda não chegou), cai HOJE.
+    function plateFineEvents(pl, untilDate) {
+      const p = plateFineProfiles()[pl];
+      if (!p || !(p.interval > 0)) return [];
+      const MS = 86400000, evs = [];
+      let t = new Date(p.lastInf.getTime() + p.interval * MS);
+      if (t < hoje) t = new Date(hoje.getTime());
+      for (let i = 0; i < 120 && t <= untilDate; i++) { evs.push(new Date(t)); t = new Date(t.getTime() + p.interval * MS); }
+      return evs;
     }
     // Multas de trânsito — RECEITA (o que cobramos do cliente). Espelha a linha de despesa:
     //  - multa já PAGA -> realizada no mês do pagamento;
@@ -7311,56 +7337,28 @@
       // (multas_consolidado é a base única — a mesma da linha de saída, então os dois lados falam
       // do mesmo universo de infrações).
       const base = (U.multasBase && U.multasBase.placas) || {};
-      let brutoTot = 0;
       plates.forEach((pl) => (base[pl] || []).forEach((x) => {
-        const b = brutoDe(x);
-        brutoTot += b;
         if (!x.inf) return;
         const quando = new Date(new Date(x.inf + 'T12:00:00').getTime() + lag * MS);
         if (quando <= hoje) return;                    // já dentro da janela realizada — vem da API acima
         const mo = Math.min(Math.max(moOf(quando), 1), PMAX);
-        finesProjRS[mo] += b * (1 + premioDe(pl)) * taxa;
+        finesProjRS[mo] += brutoDe(x) * (1 + premioDe(pl)) * taxa;
       }));
-      // infrações FUTURAS: ritmo histórico de valor BRUTO por dia × (1 + prêmio médio das placas
-      // desta frota hoje). Antes a base era o total já cobrado — que embute o prêmio antigo — e
-      // precisava de um fator de escala; com o bruto o prêmio entra uma vez só, explicitamente.
-      // ritmo de infrações NOVAS: janela madura + credibilidade (ver finesRatesByFleet). Antes era
-      // brutoTot / dias corridos, que conta os ~27 dias finais cujas multas ainda não chegaram.
-      // ritmo POR PLACA (frequência do vínculo atual × severidade da frota × prêmio da versão
-      // do contrato de cada placa) — a soma vira o R$/dia da frota; placa isolada usa só o dela
-      const PR = finesRateByPlate();
-      let perDay = plates.reduce((s, pl) => { const r = PR[pl]; return s + (r ? r.freq * r.valG * (1 + premioDe(pl)) : 0); }, 0) * taxa;
-      if (!(perDay > 0)) {   // fallback: frota sem placa mapeada no ritmo novo
-        const premioHoje = avgByVersion(f, VER_PREMIO, 0.10);
-        const carsNow = plateView ? 1 : Math.max(1, f.cars || (f.placas || []).length || 1);
-        const FR = finesRatesByFleet()[f.id];
-        perDay = (FR ? FR.gross * carsNow : brutoTot / Math.max(1, (hoje - ini) / MS)) * (1 + premioHoje) * taxa;
-      }
-      // IBNR (incurred but not reported): a notificação da multa demora ~27 dias para chegar, então
-      // as infrações dos últimos FINES_LAG_D dias NÃO estão na base ainda. Contar "infrações novas"
-      // só a partir de HOJE abria um buraco justamente no mês que recebe essa janela — era a queda
-      // do M6. Agora a projeção começa no CORTE DE MATURAÇÃO e desconta o que já chegou da janela
-      // imatura (as multas rápidas), para não contar duas vezes.
-      const cutMat = new Date(hoje.getTime() - FINES_LAG_D * MS);
-      const knownIn = (a, b) => {                       // já emitido com infração no intervalo [a,b)
-        let s = 0;
-        plates.forEach((pl) => (base[pl] || []).forEach((x) => {
-          if (!x.inf) return;
-          const t = new Date(x.inf + 'T12:00:00');
-          if (t >= a && t < b) s += brutoDe(x) * (1 + premioDe(pl)) * taxa;
-        }));
-        return s;
-      };
-      for (let p = 1; p <= PMAX; p++) {
-        const winStart = new Date(ini.getTime() + (p - 1) * SEMANAS_MES * 7 * MS);
-        const winEnd = new Date(ini.getTime() + p * SEMANAS_MES * 7 * MS);
-        const infIni = new Date(winStart.getTime() - lag * MS);
-        const infFim = new Date(winEnd.getTime() - lag * MS);
-        const from = new Date(Math.max(infIni.getTime(), cutMat.getTime()));
-        const dias = Math.max(0, (infFim - from) / MS);
-        if (!dias) continue;
-        finesProjRS[p] += Math.max(0, dias * perDay - knownIn(from, infFim));
-      }
+      // infrações FUTURAS por EVENTO, motorista a motorista (mesmos eventos da linha de saída):
+      // a receita da multa esperada cai em (infração esperada + prazo de recebimento), no valor
+      // BRUTO típico do motorista × (1 + prêmio da versão do contrato dele). Motorista limpo não
+      // gera evento; contrato < 1 mês usa o perfil da frota (regra em plateFineProfiles).
+      const untilIn = new Date(ini.getTime() + PMAX * SEMANAS_MES * 7 * MS);
+      const profs = plateFineProfiles();
+      plates.forEach((pl) => {
+        const prof = profs[pl]; if (!prof) return;
+        plateFineEvents(pl, untilIn).forEach((inf) => {
+          const receb = new Date(inf.getTime() + lag * MS);
+          const mo = moOf(receb);
+          if (mo > PMAX) return;
+          finesProjRS[Math.max(1, mo)] += prof.bruto * (1 + premioDe(pl)) * taxa;
+        });
+      });
       if (!plateView) for (let p = 0; p <= PMAX; p++) { finesRealRS[p] /= activeCarsAt(p); finesProjRS[p] /= activeCarsAt(p); }
       finesReady = true;
     }
@@ -7398,40 +7396,21 @@
         mo = Math.min(Math.max(mo, 1), PMAX);
         if (venceu) finesOutRealRS[mo] += x.v; else finesOutProjRS[mo] += x.v;
       }));
-      // ritmo histórico de multas (R$/dia) para projetar as infrações que ainda vão acontecer —
-      // mesma correção de maturação/credibilidade da linha de entrada, para os dois lados falarem
-      // do mesmo universo de infrações
-      // mesmo ritmo POR PLACA da linha de entrada, no valor LÍQUIDO+5% que sai para a LM
-      const PRo = finesRateByPlate();
-      let perDay = plates.reduce((s, pl) => { const r = PRo[pl]; return s + (r ? r.freq * r.valN : 0); }, 0);
-      if (!(perDay > 0)) {
-        const carsOut = plateView ? 1 : Math.max(1, f.cars || (f.placas || []).length || 1);
-        const FRo = finesRatesByFleet()[f.id];
-        perDay = FRo ? FRo.net * carsOut : total / Math.max(1, (hoje - curIni) / MS);
-      }
-      // mesmo IBNR da linha de entrada: a janela imatura (últimos FINES_LAG_D dias) ainda está
-      // chegando na base, então é projetada e o que já chegou dela é descontado
-      const cutMatO = new Date(hoje.getTime() - FINES_LAG_D * MS);
-      const knownOut = (a, b) => {
-        let s = 0;
-        plates.forEach((pl) => (base[pl] || []).forEach((x) => {
-          if (!x.inf) return;
-          const t = new Date(x.inf + 'T12:00:00');
-          if (t >= a && t < b) s += liqDe(x) * LM_FEE;
-        }));
-        return s;
-      };
-      for (let p = 1; p <= PMAX; p++) {
-        const winStart = new Date(curIni.getTime() + (p - 1) * SEMANAS_MES * 7 * MS);
-        const winEnd = new Date(curIni.getTime() + p * SEMANAS_MES * 7 * MS);
-        // pagamentos deste mês vêm de infrações ocorridas ~`prazo` dias antes; só conta o trecho futuro
-        const infIni = new Date(winStart.getTime() - prazo * MS);
-        const infFim = new Date(winEnd.getTime() - prazo * MS);
-        const from = new Date(Math.max(infIni.getTime(), cutMatO.getTime()));
-        const dias = Math.max(0, (infFim - from) / MS);
-        if (!dias) continue;
-        finesOutProjRS[p] += Math.max(0, dias * perDay - knownOut(from, infFim));
-      }
+      // infrações FUTURAS por EVENTO, motorista a motorista: cada multa esperada (última multa +
+      // intervalo próprio; motorista limpo não gera; contrato < 1 mês usa a frota) vira um
+      // desembolso em (infração esperada + prazo médio de pagamento), no valor LÍQUIDO típico do
+      // motorista × 1,05 da taxa administrativa da LM.
+      const untilOut = new Date(curIni.getTime() + PMAX * SEMANAS_MES * 7 * MS);
+      const profsO = plateFineProfiles();
+      plates.forEach((pl) => {
+        const prof = profsO[pl]; if (!prof) return;
+        plateFineEvents(pl, untilOut).forEach((inf) => {
+          const pgto = new Date(inf.getTime() + prazo * MS);
+          const mo = moOf(pgto);
+          if (mo > PMAX) return;
+          finesOutProjRS[Math.max(1, mo)] += prof.liq * LM_FEE;
+        });
+      });
       if (!plateView) for (let p = 0; p <= PMAX; p++) { finesOutRealRS[p] /= activeCarsAt(p); finesOutProjRS[p] /= activeCarsAt(p); }
       finesOutReady = true;
     }
@@ -8305,8 +8284,8 @@
     // Na visão POR PLACA a barra vira a LINHA DO TEMPO do carro: um segmento colorido por
     // MOTORISTA (vínculo), com o km/semana médio dele dentro e, nas trocas de motorista, o
     // odômetro estimado daquele momento acima da barra. Visão de frota segue a barra simples.
-    // tons FECHADOS (600-800): os anteriores lavavam na barra fina e não davam contraste
-    const DRIVER_PAL = ['#4C1D95', '#0E7490', '#B45309', '#BE185D', '#047857', '#6D28D9', '#B91C1C'];
+    // tons ESCUROS de verdade (900): na barra fina qualquer coisa média lava
+    const DRIVER_PAL = ['#2E1065', '#083344', '#7C2D12', '#831843', '#064E3B', '#4A044E', '#450A0A'];
     const escHU = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
     // caixinha de motorista: um tooltip flutuante único, por DELEGAÇÃO (a barra re-renderiza
     // ao trocar de placa e listeners por segmento se perderiam)
@@ -8317,7 +8296,9 @@
       document.addEventListener('mouseover', (ev) => {
         const seg = ev.target.closest && ev.target.closest('.ue-driver-seg');
         if (!seg) { tip.hidden = true; return; }
-        tip.innerHTML = `<b>${seg.dataset.nome}</b><span>${seg.dataset.per}</span>` +
+        tip.innerHTML = `<b>${seg.dataset.nome}</b>` +
+          (seg.dataset.ver ? `<em>${seg.dataset.ver}</em>` : '') +
+          `<span>${seg.dataset.per}</span>` +
           (seg.dataset.kw ? `<i>${seg.dataset.kw}</i>` : '');
         tip.hidden = false;
         const r = seg.getBoundingClientRect();
@@ -8391,7 +8372,7 @@
             const lbl = kw != null && (b - a) >= 11 ? `<b>${fmtK(kw)}/wk</b>` : '';
             // caixinha própria no hover (tooltip nativo demora e não destaca o NOME)
             return `<div class="ue-driver-seg" style="left:${a.toFixed(1)}%;width:${(b - a).toFixed(1)}%;background:${col}" ` +
-              `data-nome="${escHU(v.nome || '?')}" data-per="${v.ini} → ${v.fim || 'today'}" data-kw="${kw != null ? Math.round(kw).toLocaleString('pt-BR') + ' km/week' : ''}">${lbl}</div>`;
+              `data-nome="${escHU(v.nome || '?')}" data-ver="${v.versao ? 'contract v' + v.versao : ''}" data-per="${v.ini} → ${v.fim || 'today'}" data-kw="${kw != null ? Math.round(kw).toLocaleString('pt-BR') + ' km/week' : ''}">${lbl}</div>`;
           }).join('');
           // odômetro no MOMENTO de cada troca de motorista (a partir do 2º vínculo)
           changeTags = vs.slice(1).map((v) => {

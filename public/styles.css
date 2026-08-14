@@ -747,7 +747,9 @@ html { scrollbar-gutter: stable; }
 .ue-contract-tick { position: absolute; top: 0; bottom: 0; width: 0; pointer-events: none; }
 .ue-contract-tick i { position: absolute; top: 0; bottom: 0; left: 0; border-left: 1px dashed color-mix(in srgb, var(--text) 32%, transparent); }
 .ue-contract-tick b { position: absolute; top: 100%; left: 0; transform: translateX(-50%); margin-top: 3px; font-size: 9.5px; font-weight: 600; color: var(--text-2); white-space: nowrap; }
-.ue-contract-fill { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 70%, #fff) 0%, var(--accent) 100%); border-radius: 999px; transition: width .25s; }
+/* a barra da FROTA era um gradiente lavado (70% accent + branco) e parecia "versão antiga" ao lado
+   dos segmentos escuros da visão por placa — agora nasce escura e fecha no roxo da marca */
+.ue-contract-fill { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, #2E1065 0%, var(--accent) 100%); border-radius: 999px; transition: width .25s; }
 .ue-contract-fill.done { background: #16a34a; }
 .ue-contract-lbl { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 700; color: var(--text); mix-blend-mode: luminosity; letter-spacing: .02em; }
 #uetControls { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
@@ -785,6 +787,9 @@ html { scrollbar-gutter: stable; }
 .ue-driver-tip em { display: inline-block; font-style: normal; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; background: rgba(255,255,255,.16); border-radius: 4px; padding: 1px 6px; margin: 3px 0 2px; }
 .ue-driver-tip span { display: block; color: #D1D5DB; font-size: 10px; }
 .ue-driver-tip i { display: block; font-style: normal; font-weight: 700; color: #A5B4FC; margin-top: 2px; }
+/* dica na visão de frota: a linha do tempo por motorista só existe escolhendo uma placa */
+.ue-contract-hint { margin-top: 5px; font-size: 10.5px; color: var(--text-3); display: flex; align-items: center; gap: 5px; }
+.ue-contract-hint b { color: var(--accent); font-weight: 700; }
 .ue-km-change { color: #B45309; }
 .ue-km-change::after { content: ""; position: absolute; left: 50%; top: 15px; width: 1.5px; height: 6px; background: #B45309; }
 .ue-track-drivers .ue-contract-lbl { background: rgba(255,255,255,.88); border-radius: 6px; padding: 1px 7px; }

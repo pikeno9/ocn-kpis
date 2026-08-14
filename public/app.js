@@ -8406,7 +8406,10 @@
             `<span class="ue-contract-lbl">week ${Math.min(Math.floor(wkNow), Math.round(totalWeeks))} of ${Math.round(totalWeeks)} · ${Math.round(pct)}%</span>` +
           `</div>` +
           `<span class="ue-contract-date">${fmtDate(endIso)}</span>` +
-        `</div>`;
+        `</div>` +
+        // sem placa escolhida a barra é da FROTA inteira (50 motoristas) — a linha do tempo por
+        // motorista só faz sentido numa placa, e nada na tela dizia isso
+        (plateView ? '' : `<div class="ue-contract-hint">↓ pick a <b>plate</b> below to turn this bar into the car's driver timeline — who drove it, when, at what pace and on which contract version</div>`);
     }
     // painel de visões: Fleet (unitary) = por veículo · Fleet (aggregate) = soma de todas as placas · uma placa
     function renderPlates(f) {

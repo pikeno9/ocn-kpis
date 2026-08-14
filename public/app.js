@@ -4852,6 +4852,8 @@
     let costsLeftBig = false;     // gráfico da esquerda expandido (largura toda + mais alto)
     let costsOutliers = false;    // dispersões: destacar os pontos fora da curva (com rótulo)
     let costsCorrTab = 'logit';   // análise ativa do painel de recuperações (logit/km/model/surv/pay2/drop)
+    let costsPartTab = 'pastilhas';  // peça ativa na dispersão de reposição (ou 'why')
+    let costsPartOnly = false;       // dispersão: só as placas que já trocaram a peça
     let costsCasesOpen = false;   // tabela placa a placa começa recolhida (abre no botão)
     let costsMonthInit = false;   // a aba abre no MÊS VIGENTE; depois disso a escolha é do usuário
     // paleta das frotas: matizes bem separados no círculo cromático, para pilhas vizinhas nunca
@@ -5035,12 +5037,16 @@
         if (curM >= 0 && curM < FIN_MONTHS - 1) {
           const RMf = recoveryModel();
           const EVf = RMf.eventosPorSemana(plates, 80);
+          // A série do modelo começa HOJE, então as primeiras semanas caem no mês VIGENTE, que
+          // ainda não acabou: elas entram (realizado do mês + o que falta acontecer nele). Só os
+          // meses já FECHADOS ficam de fora — antes o corte era `<= curM` e o mês corrente
+          // aparecia sem nenhuma projeção, como se agosto já tivesse terminado.
           const joga = (arr, linha, custo) => arr.forEach((qtd, s) => {
             if (!qtd) return;
             const d = new Date(hojeD.getTime() + s * 7 * MS);
             if (d.getFullYear() !== finYear) return;
             const m2 = d.getMonth();
-            if (m2 <= curM) return;                    // mês já realizado não recebe projeção
+            if (m2 < curM) return;
             add(linha, m2, qtd * custo);
           });
           joga(EVf.rec, 'Recovery cost', RMf.costRec);
@@ -5684,6 +5690,89 @@
       });
       return rows;
     }
+    // ============ PEÇAS: base única de análise (memoizada) ============
+    // Uma linha por PLACA com o que a operação sabe hoje: km rodado, ritmo, multas, e a lista de
+    // trocas de cada peça com a data e o km estimado do evento. É a base dos cartões, da dispersão
+    // e dos testes — todos leem daqui para não divergirem entre si.
+    let _partsAn = null;
+    function partsAnalysis() {
+      if (_partsAn) return _partsAn;
+      const U = OCN.ue || {}, MS = 86400000;
+      const hoje = new Date(((U.hoje) || new Date().toISOString().slice(0, 10)) + 'T12:00:00');
+      const FRp = ((U.frota || {}).placas) || {};
+      const RPp = ((U.reposicao || {}).placas) || {};
+      const MB = ((U.multasBase || {}).placas) || {};
+      const KS = U.kmSemanal || null;
+      const PARTS = ['pastilhas', 'disco', 'pneus'];
+      const rows = [];
+      (U.fleets || []).forEach((f) => {
+        if (!f.inicio) return;
+        const ini = new Date(f.inicio + 'T12:00:00');
+        const dias = Math.max(1, (hoje - ini) / MS);
+        // ritmo da frota como recurso p/ placa sem odômetro confiável
+        let s = 0, n = 0;
+        (f.placas || []).forEach((pl) => { const x = FRp[pl]; if (x && x.ok && x.odo > 0) { s += x.odo; n++; } });
+        const kmDiaF = n ? (s / n) / dias : 0;
+        (f.placas || []).forEach((pl) => {
+          const x = FRp[pl];
+          const odo = x && x.ok && x.odo > 0 ? x.odo : (kmDiaF > 0 ? kmDiaF * dias : null);
+          const kmDia = x && x.ok && x.odo > 0 ? x.odo / dias : kmDiaF;
+          // km/semana medido pela série do site da frota (mais fiel que odômetro ÷ dias)
+          let kmWeek = null;
+          if (KS && KS.placas[pl]) { const v = KS.placas[pl].filter((q) => q != null); if (v.length >= 3) kmWeek = v.reduce((a, b) => a + b, 0) / v.length; }
+          if (kmWeek == null && kmDia > 0) kmWeek = kmDia * 7;
+          const trocas = {}; PARTS.forEach((k) => { trocas[k] = []; });
+          ((RPp[pl]) || []).slice().sort((a, b) => (a.d < b.d ? -1 : 1)).forEach((ev) => {
+            const diasEv = Math.max(0, (new Date(ev.d + 'T12:00:00') - ini) / MS);
+            (ev.itens || []).forEach((it) => { if (trocas[it]) trocas[it].push({ d: ev.d, km: kmDia > 0 ? kmDia * diasEv : null, dias: diasEv }); });
+          });
+          rows.push({ placa: pl, fleet: f.id, model: f.model, modelLabel: f.modelLabel || f.model,
+            ini: f.inicio, dias, odo, kmDia, kmWeek, fines: (MB[pl] || []).length, trocas });
+        });
+      });
+      // ---- km até a troca COM CENSURA (Kaplan-Meier em km) ----
+      // A média simples das trocas é enviesada: só enxerga quem trocou cedo. Quem ainda não trocou
+      // é informação (censura à direita) — "passou de X km sem trocar" é um dado, não um vazio.
+      const km = {};
+      PARTS.forEach((k) => {
+        const pts = [];
+        rows.forEach((r) => {
+          const t = r.trocas[k];
+          if (t.length && t[0].km != null) pts.push({ t: t[0].km, ev: 1 });
+          else if (r.odo != null && r.odo > 0) pts.push({ t: r.odo, ev: 0 });   // ainda não trocou
+        });
+        pts.sort((a, b) => a.t - b.t);
+        let surv = 1, atRisk = pts.length; const curva = [];
+        for (let i = 0; i < pts.length;) {
+          const t = pts[i].t; let dEv = 0, dTot = 0;
+          while (i < pts.length && pts[i].t === t) { if (pts[i].ev) dEv++; dTot++; i++; }
+          if (dEv && atRisk > 0) { surv *= (1 - dEv / atRisk); curva.push({ t, s: surv }); }
+          atRisk -= dTot;
+        }
+        const nEv = pts.filter((p) => p.ev).length;
+        const tMax = pts.length ? pts[pts.length - 1].t : 0;
+        // mediana (km em que metade dos carros já trocou) — null enquanto a curva não cruza 50%
+        const medPt = curva.find((c) => c.s <= .5);
+        // km MÉDIO restrito ao maior km observado (área sob a curva) — sempre existe, e é um
+        // piso honesto: com pouca maturidade ele fica perto do km máximo já rodado
+        let area = 0, prev = 0, sPrev = 1;
+        curva.forEach((c) => { area += sPrev * (c.t - prev); prev = c.t; sPrev = c.s; });
+        area += sPrev * (tMax - prev);
+        const brutos = [];
+        rows.forEach((r) => { const t = r.trocas[k]; if (t.length && t[0].km != null) brutos.push(t[0].km); });
+        const mediaBruta = brutos.length ? brutos.reduce((a, b) => a + b, 0) / brutos.length : null;
+        // tempo: dias médios até a troca (quem trocou) e dias médios de estrada (quem não trocou)
+        const dTroca = [], dSem = [];
+        rows.forEach((r) => { const t = r.trocas[k]; if (t.length) dTroca.push(t[0].dias); else dSem.push(r.dias); });
+        const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+        km[k] = { curva, nEv, nCens: pts.length - nEv, tMax, mediana: medPt ? medPt.t : null,
+          restrito: area, mediaBruta, diasTroca: mean(dTroca), diasSem: mean(dSem), nTroca: dTroca.length };
+      });
+      _partsAn = { rows, km, PARTS };
+      return _partsAn;
+    }
+    const PART_LBL = { pastilhas: 'Brake pads', disco: 'Discs', pneus: 'Tires' };
+    const PART_COLOR = { pastilhas: '#7C3AED', disco: '#0891B2', pneus: '#D97706' };
     function renderCostsLeft(C, H) {
       const { mk, K, cs, noDL } = H;
       const box = document.getElementById('ccLeftBox'), grid = document.getElementById('ccSmallGrid');
@@ -5725,7 +5814,7 @@
       box.classList.toggle('rec', alwaysBig);   // painel do Recovery: largura cheia mas altura menor
       // a área de resultados estatísticos só existe no painel do Recovery
       const st0 = document.getElementById('cclStats');
-      if (st0 && costsSel !== 'Recovery cost') { st0.style.display = 'none'; st0.innerHTML = ''; }
+      if (st0 && costsSel !== 'Recovery cost' && costsSel !== 'Part Replacement') { st0.style.display = 'none'; st0.innerHTML = ''; }
       const show = (on) => { box.style.display = on ? '' : 'none'; grid.style.gridTemplateColumns = on ? '' : '1fr'; };
       const fx = finPar('__fin_fx__') || 5.5;
       const fleetsMeta = ((OCN.ue || {}).fleets) || [];
@@ -6144,7 +6233,7 @@
         }
         // ---------- 6) QUEDA DE USO: km semanal antes da recuperação + watchlist ----------
         if (costsCorrTab === 'drop') {
-          costsLeftHelp = { t: 'Usage drop before repossession', d: 'The odometer history (fleet-site readings, ~3/day since April) turned into km per week. The line is the AVERAGE weekly km of repossessed contracts, aligned to the repossession week (week 0) — if it fades before zero, the car "disappears from normal use" before we take it. The dashed grey line is the average pace of active contracts, as the normal-use reference. The WATCHLIST below applies the same signal to ACTIVE contracts today: plates whose last full week ran under half of their previous 3-week average.' };
+          costsLeftHelp = { t: 'Usage drop before repossession', d: 'The odometer history (fleet-site readings, ~3/day since April) turned into km per week, aligned to the repossession week. IMPORTANT — the week of the repossession itself is NOT a predictor: we block the car when we take it, so the km collapse in that week is caused by us. It is plotted apart, as a grey diamond off the line, and never used as a signal. The red line covers only the weeks BEFORE we acted, and the question it answers is whether the car was already fading on its own: measured against the pace of the plates still running in the same calendar week, the difference one and two weeks earlier is real but far milder than the blocking artefact suggests — the test and its p-value are printed below. The dashed grey line is the average pace of active contracts, as the normal-use reference. The WATCHLIST applies the signal to ACTIVE contracts today: plates whose last COMPLETED week ran under half of their own previous 3-week average, so no blocked car can enter it.' };
           const KS = ((OCN.ue || {}).kmSemanal) || null;
           if (!KS || !KS.weeks || !KS.weeks.length) {
             mk('ccPerCar', { type: 'bar', data: { labels: [], datasets: [] }, options: {} });
@@ -6172,10 +6261,24 @@
             for (let i2 = Math.max(0, KS.weeks.length - 5); i2 < KS.weeks.length - 1; i2++) if (s[i2] != null) { aSum += s[i2]; aCnt++; } });
           const ref = aCnt ? Math.round(aSum / aCnt) : null;
           const labelsRel = Array.from({ length: REL + 1 }, (_, i2) => (i2 === REL ? 'week of repossession' : (REL - i2) + ' wk before'));
+          // A semana 0 é a semana em que NÓS bloqueamos o carro: a queda ali é consequência da
+          // recuperação, não sinal dela. Ela continua no gráfico como referência, mas fora da
+          // linha (ponto cinza tracejado) para não ser lida como previsão. O sinal utilizável é
+          // o das semanas ANTERIORES, e é ele que o teste abaixo mede.
+          const avgAntes = avgRel.slice(0, REL).concat([null]);
+          const avgSem0 = avgRel.map((v, i2) => (i2 >= REL - 1 ? v : null));
+          // −1 semana dos recuperados × última semana completa das placas ativas (Mann-Whitney)
+          const rec1 = [], atv1 = [];
+          AR.filter((r) => r.rec && r.fim).forEach((r) => { const s = KS.placas[r.placa]; if (!s) return; const i0 = wIdx(r.fim); if (i0 < 1) return; if (KS.weeks[i0 - 1] < r.ini) return; const v = s[i0 - 1]; if (v != null) rec1.push(v); });
+          activePl.forEach((pl) => { const s = KS.placas[pl]; if (!s) return; const v = s[KS.weeks.length - 2]; if (v != null) atv1.push(v); });
+          const mwDrop = (rec1.length >= 4 && atv1.length >= 4) ? mannWhitney(rec1, atv1) : null;
+          const medOf = (a) => { const z = [...a].sort((x, y) => x - y); return z.length ? z[Math.floor(z.length / 2)] : null; };
           mk('ccPerCar', { type: 'line', data: { labels: labelsRel, datasets: [
-              { label: 'avg km/week of repossessed contracts', data: avgRel, borderColor: '#DC2626', backgroundColor: 'rgba(220,38,38,.10)', fill: true, tension: .3, pointRadius: 4, pointBackgroundColor: '#DC2626', borderWidth: 2.5, spanGaps: true,
+              { label: 'avg km/week before repossession', data: avgAntes, borderColor: '#DC2626', backgroundColor: 'rgba(220,38,38,.10)', fill: true, tension: .3, pointRadius: 4, pointBackgroundColor: '#DC2626', borderWidth: 2.5, spanGaps: true,
                 // VALOR em cada ponto — a queda tem que ser legível sem hover
                 datalabels: { display: (c2) => c2.dataset.data[c2.dataIndex] != null, align: 'top', offset: 5, color: '#B91C1C', font: { size: 10, weight: 800 }, formatter: (v) => ccNum(v), clamp: true } },
+              { label: 'week we blocked the car (not a signal)', data: avgSem0, borderColor: '#9CA3AF', borderDash: [5, 4], backgroundColor: 'transparent', tension: 0, pointRadius: (c2) => (c2.dataIndex === REL ? 5 : 0), pointBackgroundColor: '#9CA3AF', pointStyle: 'rectRot', borderWidth: 1.5, spanGaps: true,
+                datalabels: { display: (c2) => c2.dataIndex === REL && c2.dataset.data[c2.dataIndex] != null, align: 'bottom', offset: 6, color: '#6B7280', font: { size: 10, weight: 800 }, formatter: (v) => ccNum(v), clamp: true } },
             ].concat(ref != null ? [{ label: `active contracts pace (${ccNum(ref)} km/wk)`, data: labelsRel.map(() => ref), borderColor: '#6B7280', borderDash: [6, 4], borderWidth: 1.5, pointRadius: 0, datalabels: { display: false } }] : []) },
             options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24 } },
               plugins: { legend: { labels: CC_LEG },
@@ -6198,12 +6301,17 @@
             if (base >= 300 && last < base * .5) watch.push({ placa: r.placa, nome: r.nome, ini: r.ini, base: Math.round(base), last, drop: Math.round((1 - last / base) * 100) });
           });
           watch.sort((a, b) => b.drop - a.drop);
+          const fmtP2 = (p) => (p == null || isNaN(p) ? '—' : (p < .001 ? '<0,001' : p.toFixed(3).replace('.', ',')));
           if (statsEl) statsEl.innerHTML =
             (watch.length ? `<table><thead><tr><th>Watchlist — active contracts with a sharp usage drop</th><th>since</th><th>3-week avg</th><th>last week</th><th>drop</th></tr></thead><tbody>` +
               watch.slice(0, 10).map((w) => `<tr><td><b>${escH(w.placa)}</b> · ${escH((w.nome || '?').split(' ').slice(0, 2).join(' '))}</td><td>${escH(w.ini)}</td><td>${ccNum(w.base)} km</td><td>${ccNum(w.last)} km</td><td class="sig" style="color:#B91C1C">−${w.drop}%</td></tr>`).join('') +
               `</tbody></table>` : '') +
-            read((watch.length ? `<b>${watch.length}</b> active contract${watch.length === 1 ? '' : 's'} dropped below half of their own 3-week pace last week — the same fading pattern the red line shows before repossessions.` : 'No active contract (with at least 4 in-contract weeks) shows a sharp usage drop in the last full week.') +
-              ' Only contracts at least 4 weeks old enter the list, with the baseline measured INSIDE the contract. Reference pace: ' + (aCnt ? ccNum(ref) : '—') + ' km/wk across active plates.');
+            read('<b>The collapse in the repossession week is our own doing</b> — we block the car when we take it, so that last point measures the blocking, not the driver. It is drawn apart (grey diamond) for exactly that reason. ' +
+              (mwDrop
+                ? `The question that matters is whether the fading starts BEFORE we act, and it does: one week before the repossession those cars ran a median of <b>${ccNum(medOf(rec1))} km</b> against <b>${ccNum(medOf(atv1))} km</b> of the active plates in the same week (Mann-Whitney p ${fmtP2(mwDrop.p)}${mwDrop.p < .05 ? ', significant' : ', not significant yet'}). `
+                : 'There is not enough odometer history yet to test the weeks before the repossession against the active fleet. ') +
+              (watch.length ? `<b>${watch.length}</b> active contract${watch.length === 1 ? '' : 's'} dropped below half of their own 3-week pace last week.` : 'No active contract (with at least 4 in-contract weeks) shows a sharp usage drop in the last full week.') +
+              ' The watchlist only reads COMPLETED weeks of cars still with us, so no blocking contaminates it. Reference pace: ' + (aCnt ? ccNum(ref) : '—') + ' km/wk across active plates.');
           return;
         }
         return;
@@ -6241,7 +6349,139 @@
               y: { beginAtZero: true, grace: '10%', border: { display: false }, grid: { color: 'rgba(120,120,140,.10)' }, ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } } } } });
         return;
       }
-      // GPS, Part Replacement, Car Preparation, Sticker: sem gráfico próprio — o mensal ocupa tudo
+      if (costsSel === 'Part Replacement') {
+        // ============ O QUE LEVA À TROCA DE PEÇAS — painel de análises ============
+        // Duas visões: a DISPERSÃO (km/semana × km rodado, destacando quem já trocou a peça
+        // escolhida) e os DRIVERS (o que separa quem troca cedo de quem não troca).
+        const PA = partsAnalysis();
+        if (!PA.rows.length) { show(false); return; }
+        show(true);
+        const statsEl = document.getElementById('cclStats');
+        if (statsEl) { statsEl.style.display = ''; statsEl.innerHTML = ''; }
+        box.classList.add('expanded'); box.classList.add('rec');
+        const fmtP = (p) => (p == null || isNaN(p) ? '—' : (p < .001 ? '<0,001' : p.toFixed(3).replace('.', ',')));
+        const read = (html) => `<div class="ccl-read">${html}</div>`;
+        const cfgP = { pastilhas: cpar('__part_pastilhas_km__', 15) * 1000, disco: cpar('__part_disco_km__', 30) * 1000, pneus: cpar('__part_pneus_km__', 50) * 1000 };
+        if (ctl) {
+          ctl.innerHTML = PA.PARTS.map((k) => `<button type="button" class="ccl-btn${costsPartTab === k ? ' on' : ''}" data-m="${k}" style="--c:${PART_COLOR[k]}"><span class="dot"></span>${escH(PART_LBL[k])}</button>`).join('') +
+            `<button type="button" class="ccl-btn${costsPartTab === 'why' ? ' on' : ''}" data-m="why" style="--c:${C}">What drives it</button>` +
+            `<button type="button" class="ccl-btn${costsPartOnly ? ' on' : ''}" data-only="1" style="--c:#DC2626"><span class="dot"></span>Changed only</button>`;
+          ctl.querySelectorAll('.ccl-btn').forEach((b) => b.addEventListener('click', () => {
+            if (b.dataset.only) costsPartOnly = !costsPartOnly; else costsPartTab = b.dataset.m;
+            renderCosts();
+          }));
+        }
+        // ---------- DISPERSÃO por peça ----------
+        if (costsPartTab !== 'why') {
+          const k = costsPartTab;
+          title(PART_LBL[k] + ' — who is wearing them out');
+          costsLeftHelp = { t: PART_LBL[k] + ' — usage vs wear', d: 'One dot per plate: how hard it is driven (km per week, horizontal) against how much it has already run (odometer, vertical). Colour = how many times this part has already been replaced on that car — grey has never been replaced, and the stronger colours are the 1st, 2nd and 3rd replacement. The dashed line is the ROLLING AVERAGE of the odometer across the km/week range: it shows that cars driven harder have naturally covered more ground, so the wear should follow the horizontal axis. The horizontal band marks the planned interval for this part (' + ccNum(cfgP[k]) + ' km) — dots above it that are still grey are cars that passed the planned mileage without a replacement. "Changed only" hides the cars that never had this part replaced.' };
+          const pts = PA.rows.filter((r) => r.kmWeek != null && r.odo != null && r.odo > 0)
+            .map((r) => ({ x: Math.round(r.kmWeek), y: Math.round(r.odo), n: r.trocas[k].length, plate: r.placa, fleet: r.fleet, fines: r.fines }))
+            .filter((p) => (costsPartOnly ? p.n > 0 : true));
+          const NCOL = ['#CBD5E1', PART_COLOR[k], '#B91C1C', '#7F1D1D'];
+          const grupos = [0, 1, 2, 3].map((n) => ({ n, arr: pts.filter((p) => (n === 3 ? p.n >= 3 : p.n === n)) })).filter((g) => g.arr.length);
+          // média móvel do odômetro ao longo do eixo de km/semana (janela de 250 km/sem)
+          const xs = pts.map((p) => p.x).sort((a, b) => a - b);
+          const mm = [];
+          if (xs.length >= 6) {
+            const lo = xs[0], hi = xs[xs.length - 1], step = Math.max(1, (hi - lo) / 24);
+            for (let x = lo; x <= hi + .001; x += step) {
+              const w = pts.filter((p) => Math.abs(p.x - x) <= 250);
+              if (w.length >= 3) mm.push({ x: Math.round(x), y: Math.round(w.reduce((s, p) => s + p.y, 0) / w.length) });
+            }
+          }
+          mk('ccPerCar', { data: { datasets: grupos.map((g) => ({
+                type: 'scatter', label: g.n === 0 ? 'never replaced' : (g.n === 3 ? '3+ replacements' : g.n + (g.n === 1 ? 'st' : 'nd') + ' replacement'),
+                data: g.arr, backgroundColor: NCOL[g.n], borderColor: '#fff', borderWidth: 1, pointRadius: g.n ? 6 : 4.5, pointHoverRadius: 8,
+                datalabels: { display: false } }))
+              .concat(mm.length ? [{ type: 'line', label: 'rolling average', data: mm, borderColor: '#374151', borderDash: [6, 4], borderWidth: 1.6, pointRadius: 0, fill: false, datalabels: { display: false } }] : []) },
+            plugins: [{ id: 'partBand', beforeDatasetsDraw(ch) {
+              const inter = cfgP[k]; if (!(inter > 0)) return;
+              const { ctx, chartArea: a } = ch, ys = ch.scales.y;
+              const y = ys.getPixelForValue(inter); if (!(y > a.top && y < a.bottom)) return;
+              ctx.save(); ctx.strokeStyle = costsTint(PART_COLOR[k], .8); ctx.setLineDash([4, 3]); ctx.lineWidth = 1.4;
+              ctx.beginPath(); ctx.moveTo(a.left, y); ctx.lineTo(a.right, y); ctx.stroke(); ctx.setLineDash([]);
+              ctx.font = '700 9px ' + ((Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif');
+              ctx.fillStyle = costsTint(PART_COLOR[k], .95); ctx.textAlign = 'right';
+              ctx.fillText('planned interval · ' + ccNum(inter) + ' km', a.right - 4, y - 5); ctx.restore(); } }],
+            options: { responsive: true, maintainAspectRatio: false,
+              plugins: { legend: { labels: CC_LEG },
+                tooltip: { displayColors: false, callbacks: { label: (c2) => { const p = c2.raw; return p.plate ? [p.plate + ' · Fleet ' + p.fleet, ccNum(p.y) + ' km · ' + ccNum(p.x) + ' km/week', (p.n ? p.n + ' replacement' + (p.n === 1 ? '' : 's') : 'never replaced') + ' · ' + p.fines + ' fines'] : ccNum(p.y) + ' km'; } } } },
+              // km/semana anda na casa dos milhares baixos: o abreviador daria "2k" para 1.500 e
+              // para 2.400 e o eixo saía com rótulos repetidos
+              scales: { x: { grid: { display: false }, border: { display: false }, title: { display: true, text: 'km per week', color: '#9CA3AF', font: { size: 10 } }, ticks: { font: CC_FONT, color: '#6B7280', callback: ccNum } },
+                y: { beginAtZero: true, grid: { color: 'rgba(120,120,140,.10)' }, border: { display: false }, title: { display: true, text: 'odometer (km)', color: '#9CA3AF', font: { size: 10 } }, ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } } } } });
+          if (statsEl) {
+            const s = PA.km[k];
+            const jaPassou = PA.rows.filter((r) => !r.trocas[k].length && r.odo != null && r.odo >= cfgP[k]);
+            statsEl.innerHTML =
+              `<table><thead><tr><th>${escH(PART_LBL[k])}</th><th>cars</th><th>km until the change</th><th>time</th></tr></thead><tbody>` +
+              `<tr><td>Already replaced</td><td><b>${s.nEv}</b></td><td>${s.mediaBruta != null ? ccNum(s.mediaBruta) + ' km (simple average)' : '—'}</td><td>${s.diasTroca != null ? (s.diasTroca / 30.44).toFixed(1).replace('.', ',') + ' months' : '—'}</td></tr>` +
+              `<tr><td>Still running</td><td><b>${s.nCens}</b></td><td>up to ${ccNum(s.tMax)} km so far</td><td>${s.diasSem != null ? (s.diasSem / 30.44).toFixed(1).replace('.', ',') + ' months' : '—'}</td></tr>` +
+              `<tr><td><b>Corrected for the cars that have not changed yet</b></td><td>${s.nEv + s.nCens}</td><td class="sig"><b>${s.mediana != null ? ccNum(s.mediana) + ' km' : '> ' + ccNum(s.tMax) + ' km'}</b></td><td>Kaplan-Meier</td></tr>` +
+              `</tbody></table>` +
+              read((s.nEv === 0
+                ? `No ${PART_LBL[k].toLowerCase()} replaced yet. The oldest car in the fleet is at <b>${ccNum(s.tMax)} km</b>, so all we can honestly say is that the real interval is ABOVE that — the plan assumes ${ccNum(cfgP[k])} km.`
+                : `The simple average of the ${s.nEv} replacements (<b>${ccNum(s.mediaBruta)} km</b>) is biased low: it only sees the cars that wore out EARLY, while ${s.nCens} cars are still running with the original part. Treating those as censored observations (Kaplan-Meier, the same method used for contract survival) puts the real mileage at <b>${s.mediana != null ? ccNum(s.mediana) + ' km' : 'above ' + ccNum(s.tMax) + ' km'}</b>.`) +
+                (jaPassou.length ? ` <b>${jaPassou.length}</b> car${jaPassou.length === 1 ? ' has' : 's have'} already passed the planned ${ccNum(cfgP[k])} km without a replacement.` : ''));
+          }
+          return;
+        }
+        // ---------- O QUE LEVA À TROCA ----------
+        title('What drives part replacement');
+        costsLeftHelp = { t: 'What drives part replacement', d: 'For each candidate variable, the cars that have already had a brake-pad replacement are compared against the cars that have not, using the Mann-Whitney U test (it compares distributions without assuming they are bell-shaped, which matters with a sample this size). The bars show the ratio between the two groups: above 1 means the replacing cars score higher on that variable. Mileage is deliberately excluded from the reading — a car that ran more obviously wears the pads faster, so it explains nothing new. The variable worth watching is FINES: it is not mechanical wear, it is driving style, and it can be acted upon.' };
+        // médias pequenas (multas por carro) precisam de casa decimal: "3 contra 2" esconde 3,3 × 1,6
+        const nSmall = (v) => (v == null ? '—' : (Math.abs(v) < 20 ? v.toFixed(1).replace('.', ',') : ccNum(v)));
+        const grupoA = PA.rows.filter((r) => r.trocas.pastilhas.length > 0);
+        const grupoB = PA.rows.filter((r) => !r.trocas.pastilhas.length);
+        const VARS = [
+          { k: 'fines', lb: 'Fines per car', get: (r) => r.fines },
+          { k: 'finesPK', lb: 'Fines per 10.000 km', get: (r) => (r.odo > 0 ? r.fines / (r.odo / 10000) : null) },
+          { k: 'kmWeek', lb: 'km per week', get: (r) => r.kmWeek },
+          { k: 'odo', lb: 'Odometer', get: (r) => r.odo },
+        ];
+        const resu = VARS.map((v) => {
+          const a = grupoA.map(v.get).filter((x) => x != null && isFinite(x));
+          const b = grupoB.map(v.get).filter((x) => x != null && isFinite(x));
+          if (a.length < 3 || b.length < 3) return null;
+          const mw = mannWhitney(a, b);
+          const mean = (z) => z.reduce((s, x) => s + x, 0) / z.length;
+          return { ...v, mA: mean(a), mB: mean(b), ratio: mean(b) > 0 ? mean(a) / mean(b) : null, p: mw ? mw.p : null, nA: a.length, nB: b.length };
+        }).filter(Boolean);
+        mk('ccPerCar', { type: 'bar', data: { labels: resu.map((r) => r.lb),
+            datasets: [{ data: resu.map((r) => Math.round((r.ratio || 0) * 100) / 100),
+              backgroundColor: resu.map((r) => (r.p != null && r.p < .05 ? (r.k === 'odo' || r.k === 'kmWeek' ? '#9CA3AF' : '#DC2626') : '#D1D5DB')), borderRadius: 5, maxBarThickness: 46 }] },
+          plugins: [{ id: 'oneRef', beforeDatasetsDraw(ch) { const { ctx, chartArea: a } = ch, ys = ch.scales.y;
+            const y1 = ys.getPixelForValue(1); if (!(y1 > a.top && y1 < a.bottom)) return; ctx.save(); ctx.strokeStyle = '#374151'; ctx.setLineDash([5, 4]);
+            ctx.beginPath(); ctx.moveTo(a.left, y1); ctx.lineTo(a.right, y1); ctx.stroke(); ctx.setLineDash([]);
+            ctx.font = '700 9px ' + ((Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif'); ctx.fillStyle = '#6B7280'; ctx.textAlign = 'left';
+            ctx.fillText('same as the cars that never replaced', a.left + 4, y1 - 5); ctx.restore(); } }],
+          options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 18 } },
+            plugins: { legend: { display: false },
+              datalabels: { anchor: 'end', align: 'top', offset: 1, color: '#374151', font: { size: 10.5, weight: 800 }, formatter: (v) => '×' + String(v).replace('.', ',') },
+              tooltip: { displayColors: false, callbacks: { label: (c2) => { const r = resu[c2.dataIndex]; return [`replaced: ${ccNum(r.mA)} · never: ${ccNum(r.mB)}`, `p ${fmtP(r.p)}`]; } } } },
+            scales: { x: { grid: { display: false }, border: { display: false }, ticks: { font: { size: 10.5, weight: 700 }, color: '#374151', maxRotation: 0 } },
+              y: { beginAtZero: true, grace: '14%', grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280' } } } } });
+        if (statsEl) {
+          const fines = resu.find((r) => r.k === 'fines');
+          const finesPK = resu.find((r) => r.k === 'finesPK');
+          statsEl.innerHTML =
+            `<table><thead><tr><th>Variable</th><th>replaced (${grupoA.length})</th><th>never replaced (${grupoB.length})</th><th>ratio</th><th>p-value</th></tr></thead><tbody>` +
+            resu.map((r) => `<tr><td>${escH(r.lb)}${r.k === 'odo' || r.k === 'kmWeek' ? ' <em>(mechanical)</em>' : ''}</td><td>${nSmall(r.mA)}</td><td>${nSmall(r.mB)}</td><td><b>×${(r.ratio || 0).toFixed(2).replace('.', ',')}</b></td><td class="${r.p != null && r.p < .05 ? 'sig' : 'nsig'}">${fmtP(r.p)}</td></tr>`).join('') +
+            `</tbody></table>` +
+            read(`Brake pads are the only part with enough replacements to test (${grupoA.length} cars against ${grupoB.length}). ` +
+              (fines && fines.p != null && fines.p < .05
+                ? `Cars that already needed new pads carry <b>×${fines.ratio.toFixed(2).replace('.', ',')}</b> the fines of the ones that did not (${nSmall(fines.mA)} against ${nSmall(fines.mB)} per car, p ${fmtP(fines.p)}). `
+                : `The fine count does not separate the two groups at p < 0,05 yet. `) +
+              (finesPK && finesPK.p != null && finesPK.p < .05
+                ? `And it is not just a side effect of driving more: normalised PER 10.000 KM the gap survives (×${finesPK.ratio.toFixed(2).replace('.', ',')}, p ${fmtP(finesPK.p)}) — the same driving that collects tickets is the driving that eats brake pads. `
+                : `Normalised per 10.000 km the gap does not clear p < 0,05, so with this sample the fines may still be riding on mileage alone. `) +
+              `Odometer and km/week are shown in grey on purpose: a car that ran more wears out sooner by definition, so they confirm the data is sane rather than explain anything.`);
+        }
+        return;
+      }
+      // GPS, Car Preparation, Sticker: sem gráfico próprio — o mensal ocupa tudo
       show(false);
     }
     function renderCosts() {
@@ -6541,6 +6781,17 @@
       // mesma regra do drill: a média por carro·mês é do início até hoje (ou projetada), nunca do
       // recorte do calendário — a pergunta "quanto custa um carro por mês" não muda com o filtro
       const AVL = costsAvgPerCarMonth(costsSel, RF, rfFleets);
+      // Linhas de EVENTO (multas, manutenção, recuperação, reparo, peças): a média por carro·mês
+      // sai da MESMA série que alimenta o gráfico "Cost by fleet" — custo do período ÷ carro-meses
+      // do período, das frotas de hoje. Antes vinha do perfil por idade das COORTES DO PLANO, que
+      // projeta entregas novas e uma mistura de modelos diferente da frota real: o cartão dizia 26
+      // por carro·mês enquanto as barras, somando a mesma linha, ficavam em 13.
+      const AVG_FROM_SERIES = { 'Traffic fines (out)': 1, 'Maintenance': 1, 'Recovery cost': 1, 'Repair cost': 1, 'Part Replacement': 1 };
+      if (AVG_FROM_SERIES[costsSel]) {
+        let cmScope = 0;
+        rfFleets.forEach((f2) => { for (let m = 0; m < FIN_MONTHS; m++) if (inScope(m)) cmScope += f2.cars[m] || 0; });
+        if (cmScope > 0) { AVL.v = fy / cmScope; AVL.param = false; AVL.proj = false; AVL.cm = cmScope; AVL.fromSeries = true; }
+      }
       // Recovery/Repair: a média que interessa é por CARRO RECUPERADO / por caso de reparo —
       // realizado ÷ realizado dentro do período — e não por carro ativo da frota inteira
       const realScope = (a) => a.reduce((s, v, m) => s + ((inScope(m) && (RF.curM < 0 || m <= RF.curM)) ? (v || 0) : 0), 0);
@@ -6576,6 +6827,66 @@
           card('Avg towing cost (when used)', avgTow != null ? money(avgTow) : '—', gUsed.length + '/' + RD.evs.length + ' repossessions used towing') +
           '</div>';
         document.querySelectorAll('#costsHero .cc-card-help').forEach((b) => { b.onclick = () => { const h = cardHelps[+b.dataset.ch]; if (h) costsInfoOpen(h.t, h.d); }; });
+      } else if (costsSel === 'Part Replacement') {
+        // ---- painel próprio das PEÇAS: custo, por carro, e o km de vida de cada peça ----
+        const PA = partsAnalysis();
+        const fxP = finPar('__fin_fx__') || 5.5;
+        // por carro: mesma engrenagem do UE (placa a placa), não o perfil teórico — o teórico
+        // usa o km/dia MÉDIO da frota de referência e o nº de trocas é uma função ESCADA, então
+        // arredondar uma vez na média não é o mesmo que somar o arredondamento de cada carro
+        const fleetsMetaP = ((OCN.ue || {}).fleets) || [];
+        const carsNow = rfFleets.reduce((a, f2) => { const meta = fleetsMetaP.find((x) => x.id === f2.id); return a + (meta ? (meta.cars || (meta.placas || []).length || 0) : 0); }, 0) || 1;
+        const partsCfgG = { pastilhas: { km: cpar('__part_pastilhas_km__', 15), rs: cpar('__part_pastilhas_rs__', 250) },
+          disco: { km: cpar('__part_disco_km__', 30), rs: cpar('__part_disco_rs__', 350) },
+          pneus: { km: cpar('__part_pneus_km__', 50), rs: cpar('__part_pneus_rs__', 700) } };
+        const scopeRows = PA.rows.filter((r) => rfFleets.some((f2) => f2.id === r.fleet));
+        // custo do contrato inteiro de cada placa: trocas já feitas + cruzamentos de km até o M13
+        let fullRS = 0; const projCount = { pastilhas: 0, disco: 0, pneus: 0 }, realCount = { pastilhas: 0, disco: 0, pneus: 0 };
+        scopeRows.forEach((r) => {
+          PA.PARTS.forEach((k) => {
+            const cfg = partsCfgG[k]; if (!cfg || !(cfg.rs > 0) || !(cfg.km > 0)) return;
+            realCount[k] += r.trocas[k].length;
+            fullRS += r.trocas[k].length * cfg.rs;
+            if (!(r.kmDia > 0)) return;
+            const base = r.trocas[k].length ? (r.trocas[k][r.trocas[k].length - 1].km || 0) : 0;
+            const kmContrato = r.kmDia * 365;                        // 12 meses de contrato
+            for (let j = 1; j <= 60; j++) {
+              const alvo = base + j * cfg.km * 1000;
+              if (alvo > kmContrato) break;
+              fullRS += cfg.rs; projCount[k]++;
+            }
+          });
+        });
+        const perFull = fullRS / carsNow;
+        const kmCard = (k) => {
+          const s = PA.km[k], cfg = partsCfgG[k];
+          const nT = s.nEv;
+          // sem nenhuma troca: só dá para dizer o piso — "ninguém trocou até X km"
+          const v = nT === 0 ? null : (s.mediana != null ? s.mediana : s.restrito);
+          const sub = nT === 0
+            ? 'no change yet · the oldest car is at ' + ccNum(s.tMax) + ' km · plan assumes ' + ccNum(cfg.km * 1000) + ' km'
+            : (s.mediana != null ? nT + ' change' + (nT === 1 ? '' : 's') + ' · ' + s.nCens + ' cars still running'
+              : 'lower bound · only ' + nT + ' change' + (nT === 1 ? '' : 's') + ' so far, curve has not reached 50%');
+          const tempo = nT > 0 && s.diasTroca != null
+            ? Math.round(s.diasTroca / 30.44 * 10) / 10 + ' months to the change · ' + Math.round((s.diasSem || 0) / 30.44 * 10) / 10 + ' months on the road for the rest'
+            : 'fleet averaging ' + Math.round((s.diasSem || 0) / 30.44 * 10) / 10 + ' months on the road';
+          return card(PART_LBL[k] + ' · km', v == null ? '> ' + ccK(s.tMax) : ccK(v), sub + ' — ' + tempo);
+        };
+        document.getElementById('costsHero').innerHTML = '<div class="costs-cards costs-cards-parts">' +
+          card(periodLbl, money(fy), (cogsFY ? (fy / cogsFY * 100).toFixed(1) : '0') + '% of COGS', true) +
+          card('Per car · month · ' + perName(mSel), AVL.v != null ? money(AVL.v) : '—', money(fy) + ' ÷ ' + ccNum(AVL.cm || 0) + ' car-months of the fleets in view') +
+          card('Per car · full contract', money(perFull / fxP), 'plate by plate: ' + Object.values(realCount).reduce((a, b) => a + b, 0) + ' changes done + ' + Object.values(projCount).reduce((a, b) => a + b, 0) + ' km crossings ahead, ÷ ' + carsNow + ' cars') +
+          PA.PARTS.map(kmCard).join('') +
+          '</div>' +
+          // contagem de trocas: realizadas no período e, no ano cheio, o total projetado
+          '<div class="parts-counts">' + PA.PARTS.map((k) => {
+            const done = realCount[k], proj = projCount[k];
+            const showProjN = mSel == null;                       // só no ano cheio
+            return `<span class="parts-chip" style="--c:${PART_COLOR[k]}"><span class="dot"></span>` +
+              `<b>${escH(PART_LBL[k])}</b>${showProjN ? (done + proj) + ' expected in the full contract' : done + ' done so far'}` +
+              (showProjN ? `<i>${done} already done</i>` : '') + `</span>`;
+          }).join('') + '</div>';
+        document.querySelectorAll('#costsHero .cc-card-help').forEach((b) => { b.onclick = () => { const h = cardHelps[+b.dataset.ch]; if (h) costsInfoOpen(h.t, h.d); }; });
       } else
       document.getElementById('costsHero').innerHTML = '<div class="costs-cards">' +
         card(periodLbl, money(fy), (cogsFY ? (fy / cogsFY * 100).toFixed(1) : '0') + '% of COGS', true) +
@@ -6583,9 +6894,11 @@
         (JF
           ? card(perCaseLbl, perCaseScope != null ? money(perCaseScope) : '—',
               evScope != null ? evScope + ' ' + evts.label + ' · realized cost ÷ realized cases in ' + perName(mSel) : 'no realized case yet')
-          : card('Per car · month' + (AVL.param ? ' (contracted)' : (AVL.proj ? ' (projected)' : ' (since inception)')), AVL.v != null ? money(AVL.v) : '—',
+          : card('Per car · month' + (AVL.param ? ' (contracted)' : (AVL.proj ? ' (projected)' : (AVL.fromSeries ? ' · ' + perName(mSel) : ' (since inception)'))), AVL.v != null ? money(AVL.v) : '—',
               AVL.param ? 'contracted rate, weighted by cars across ' + AVL.nFleets + ' fleets'
-                : (AVL.proj ? 'from the per-car profile — realized sample still short' : ccNum(AVL.cm) + ' car-months since each fleet started'))) +
+                : (AVL.proj ? 'from the per-car profile — realized sample still short'
+                  : (AVL.fromSeries ? money(fy) + ' ÷ ' + ccNum(AVL.cm) + ' car-months of the fleets in view — the same number the "Cost by fleet" bars average to'
+                    : ccNum(AVL.cm) + ' car-months since each fleet started')))) +
         (perOk ? card('Per car · full contract', money(perTot / (finPar('__fin_fx__') || 5.5)), JF ? 'measured M0–M13 incidence' : 'theoric M0–M13 profile') : '') +
         (JF && evScope != null
           ? card(evts.label + ' · ' + perName(mSel), String(evScope), JAG && JAG.com != null ? 'hits on average at M' + JAG.com.toFixed(1) + ' of a car\'s life' : 'cases in the period')
@@ -6627,7 +6940,9 @@
             const d = new Date(hojeD3.getTime() + s * 7 * 86400000);
             if (d.getFullYear() !== finYear) return;
             const m2 = d.getMonth();
-            if (m2 <= RF.curM) return;
+            // `< curM`, não `<= curM`: o mês vigente ainda tem dias pela frente e as primeiras
+            // semanas da série caem nele — a barra de agosto ficava sem previsão nenhuma
+            if (m2 < RF.curM) return;
             n[m2] = (n[m2] || 0) + qtd;
           });
           return n;
@@ -6714,7 +7029,9 @@
             const d = new Date(hojeD2.getTime() + s * 7 * 86400000);
             if (d.getFullYear() !== finYear) return;
             const m2 = d.getMonth();
-            if (m2 <= RF.curM) return;
+            // mesmo corte da linha de custo (`< curM`): o mês vigente ainda tem semanas pela
+            // frente. Com `<= curM` as barras deste gráfico não somavam o total do cartão.
+            if (m2 < RF.curM) return;
             n[m2] = (n[m2] || 0) + qtd;
             const custo = qtd * RMc.costRec / fx2;     // USD
             g[m2] = (g[m2] || 0) + custo * fG;
@@ -6748,7 +7065,7 @@
       } else if (BYFLEET[costsSel]) {
         if (ageBox) ageBox.style.display = '';
         document.getElementById('ccAgeT').textContent = 'Cost by fleet';
-        costsAgeHelp2 = { t: 'Which fleet generates it', d: 'The realized cost of this line in each fleet, divided by the fleet\'s accumulated car-months — so a big fleet does not look expensive just for being big. Bars are comparable: a taller bar means each car of that fleet generates more of this cost per month. Hover for the fleet\'s total and case count.' };
+        costsAgeHelp2 = { t: 'Which fleet generates it', d: 'The cost of this line in each fleet over the SELECTED PERIOD, divided by the fleet\'s car-months in that same period — so a big fleet does not look expensive just for being big. Bars are comparable: a taller bar means each car of that fleet generates more of this cost per month. In FULL YEAR the bars include the forecast for the months ahead (the same engine as the Unit Economics: the contract-age repossession model and each fleet\'s measured fine pace, applied to the fleets that exist today), which is why a fleet with no case yet can still show a bar. YEAR TO DATE and a single month show only what has been realized. Hover for the fleet\'s total, how much of it is already realized, and the case count.' };
         const fofP = {}; (((OCN.ue || {}).fleets) || []).forEach((f2) => (f2.placas || []).forEach((pl) => { fofP[pl] = f2.id; }));
         const cntByFleet = {};
         if (costsSel !== 'Traffic fines (out)') {
@@ -6759,20 +7076,36 @@
         } else {
           Object.entries((((OCN.ue || {}).multasBase) || {}).placas || {}).forEach(([pl, a]) => { cntByFleet[fofP[pl]] = (cntByFleet[fofP[pl]] || 0) + a.length; });
         }
+        // O período do calendário manda aqui como no resto da aba: em FULL YEAR as barras somam
+        // realizado + projeção (a mesma do UE — modelo de recuperação e ritmo de multas por carro
+        // das frotas de HOJE), e não só os meses já fechados. Antes o gráfico ficava preso ao
+        // realizado e contradizia o cartão "per car · month (projected)" logo acima.
         const rowsBF = RF.fleets.map((f2) => {
-          let c2 = 0, cm2 = 0;
-          for (let m = 0; m <= RF.curM; m++) { c2 += (f2.arr[costsSel] || [])[m] || 0; cm2 += f2.cars[m] || 0; }
-          return { id: f2.id, per: cm2 > 0 ? c2 / cm2 : 0, tot: c2, n: cntByFleet[f2.id] || 0 };
-        }).filter((r) => r.tot > 0 || r.n > 0);
+          let c2 = 0, cm2 = 0, real = 0;
+          for (let m = 0; m < FIN_MONTHS; m++) {
+            if (!inScope(m)) continue;
+            c2 += (f2.arr[costsSel] || [])[m] || 0; cm2 += f2.cars[m] || 0;
+            if (RF.curM < 0 || m <= RF.curM) real += (f2.arr[costsSel] || [])[m] || 0;
+          }
+          return { id: f2.id, per: cm2 > 0 ? c2 / cm2 : 0, tot: c2, real, cm: cm2, n: cntByFleet[f2.id] || 0 };
+          // toda frota com carros no período aparece, mesmo zerada: sumir da barra fazia parecer
+          // que faltava frota no gráfico quando na verdade ela ainda não gerou nenhum caso
+        }).filter((r) => r.cm > 0);
+        const bfProj = rowsBF.some((r) => r.tot - r.real > 0.5);
         // sem os chips de timing aqui: esconde a coluna deles pra barra ocupar a caixa inteira
         if (inds) { inds.innerHTML = ''; inds.style.display = 'none'; }
         // tons de ROXO em vez do arco-íris das frotas — a comparação é de altura, não de identidade
-        mk('ccAge', { type: 'bar', data: { labels: rowsBF.map((r) => 'Fleet ' + r.id),
+        mk('ccAge', { type: 'bar', data: { labels: rowsBF.map((r) => 'Fleet ' + r.id + (bfProj && r.real <= 0 ? ' *' : '')),
             datasets: [{ data: rowsBF.map((r) => Math.round(r.per * K)), backgroundColor: rowsBF.map((r, i2) => costsTint('#5A00F8', Math.max(.25, .95 - i2 * .13))), borderRadius: 4, maxBarThickness: 58 }] },
           options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 20 } },
             plugins: { legend: { display: false },
               datalabels: { anchor: 'end', align: 'top', offset: 1, color: '#374151', font: { size: 10.5, weight: 700 }, formatter: ccNum },
-              tooltip: { padding: 10, displayColors: false, callbacks: { label: (c2) => ccNum(c2.parsed.y) + ' per car · month', afterBody: (items) => { const r = rowsBF[items[0].dataIndex]; return money(r.tot) + ' realized' + (r.n ? ' · ' + r.n + (costsSel === 'Traffic fines (out)' ? ' fines' : ' cases') : ''); } } } },
+              tooltip: { padding: 10, displayColors: false, callbacks: { label: (c2) => ccNum(c2.parsed.y) + ' per car · month', afterBody: (items) => {
+                const r = rowsBF[items[0].dataIndex];
+                const proj = r.tot - r.real;
+                return money(r.tot) + ' in the period' + (proj > 0.5 ? ' (' + money(r.real) + ' realized + ' + money(proj) + ' forecast)' : ' realized')
+                  + (r.n ? ' · ' + r.n + (costsSel === 'Traffic fines (out)' ? ' fines' : ' cases') + ' so far' : '');
+              } } } },
             scales: CC_GRID } });
       } else {
         if (ageBox) ageBox.style.display = perOk ? '' : 'none';

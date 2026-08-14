@@ -709,8 +709,29 @@ app.post('/api/perfil/avatar/delete', async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
-app.get('*', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+// `index: false` — sem isso o express.static serviria public/index.html direto em "/", passando
+// por cima da rota abaixo (que é quem injeta a versão nos estáticos)
+app.use(express.static(path.join(__dirname, 'public'), { index: false }));
+// CACHE-BUSTING do front: o index.html sai com `?v=<hash do arquivo>` no app.js e no styles.css,
+// e ele próprio vai como no-store. Sem isso o navegador podia servir um app.js antigo mesmo depois
+// do deploy (aconteceu: os arquivos no servidor estavam corretos e a tela continuava velha) —
+// agora, mudou o arquivo, muda a URL, e o navegador é obrigado a buscar a versão nova.
+const crypto = require('crypto');
+const fs = require('fs');
+const assetVer = (file) => {
+  try { return crypto.createHash('sha1').update(fs.readFileSync(path.join(__dirname, 'public', file))).digest('hex').slice(0, 8); }
+  catch (e) { return String(Date.now()); }
+};
+let INDEX_HTML = null;
+function indexHtml() {
+  if (INDEX_HTML) return INDEX_HTML;
+  const raw = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
+  INDEX_HTML = raw
+    .replace('href="styles.css"', `href="styles.css?v=${assetVer('styles.css')}"`)
+    .replace('src="app.js"', `src="app.js?v=${assetVer('app.js')}"`);
+  return INDEX_HTML;
+}
+app.get('*', (_req, res) => res.set('Cache-Control', 'no-store').type('html').send(indexHtml()));
 
 app.listen(PORT, async () => {
   console.log(`OCN KPIs rodando na porta ${PORT}`);

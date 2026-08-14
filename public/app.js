@@ -4854,6 +4854,7 @@
     let costsCorrTab = 'logit';   // análise ativa do painel de recuperações (logit/km/model/surv/pay2/drop)
     let costsPartTab = 'pastilhas';  // peça ativa na dispersão de reposição (ou 'why')
     let costsPartOnly = false;       // dispersão: só as placas que já trocaram a peça
+    let costsPartAtSwap = false;     // dispersão: y = km NA TROCA (congela quem trocou) em vez do odômetro
     let costsCasesOpen = false;   // tabela placa a placa começa recolhida (abre no botão)
     let costsMonthInit = false;   // a aba abre no MÊS VIGENTE; depois disso a escolha é do usuário
     // paleta das frotas: matizes bem separados no círculo cromático, para pilhas vizinhas nunca
@@ -4959,6 +4960,9 @@
       const losses = U.losses || {};
       const moOf = (iso) => (iso && String(iso).slice(0, 4) === String(finYear)) ? parseInt(String(iso).slice(5, 7), 10) - 1 : null;
       const pc = { pastilhas: cpar('__part_pastilhas_rs__', 250), disco: cpar('__part_disco_rs__', 350), pneus: cpar('__part_pneus_rs__', 700) };
+      // fim do contrato por placa — data de recurso dos casos do import_jud que vêm sem data
+      const fimByPlate = {};
+      (U.vinculos || []).forEach((v) => { if (v.fim && (!fimByPlate[v.placa] || v.fim > fimByPlate[v.placa])) fimByPlate[v.placa] = v.fim; });
       const out = { fleets: [], curM };
       (U.fleets || []).forEach((f) => {
         if (!f.inicio) return;
@@ -5009,7 +5013,10 @@
           ((((U.revBase || {}).placas) || {})[pl] || []).forEach((r) => { if (r.valor && r.venc) add('Maintenance', moOf(r.venc), r.valor); });
           ((((U.multasBase || {}).placas) || {})[pl] || []).forEach((x) => { if (x.venc) add('Traffic fines (out)', moOf(x.venc), x.v); });
           ((((U.judBase || {}).placas) || {})[pl] || []).forEach((c) => {
-            const m = c.d ? moOf(c.d) : (curM >= 0 ? curM : null);
+            // caso sem data cai no mês em que o CONTRATO da placa foi encerrado (é quando o evento
+            // aconteceu); sem contrato encerrado, no mês vigente. Jogar tudo no mês vigente
+            // empilhava casos velhos em agosto e o custo do mês não batia com a contagem.
+            const m = c.d ? moOf(c.d) : (fimByPlate[pl] ? moOf(fimByPlate[pl]) : (curM >= 0 ? curM : null));
             add('Recovery cost', m, c.recovery || 0); add('Repair cost', m, c.repair || 0);
           });
           ((((U.reposicao || {}).placas) || {})[pl] || []).forEach((ev) => { (ev.itens || []).forEach((it) => { if (pc[it]) add('Part Replacement', moOf(ev.d), pc[it]); }); });
@@ -5492,13 +5499,21 @@
         looseCases.push({ pl, d: c.d, guincho: c.guincho || 0, recup: c.recup || 0 });
       }));
       const evs = [];
+      const fimOf = {};
       (U.vinculos || []).forEach((v) => {
         if (!v.fim || !/recupera/i.test(v.motivo || '')) return;
         const c = caseOf[v.placa] || { guincho: 0, recup: 0 };
+        // data do EVENTO por placa: quando o caso do import_jud vem sem data, é ela que diz em
+        // que mês a recuperação aconteceu
+        if (!fimOf[v.placa] || v.fim > fimOf[v.placa]) fimOf[v.placa] = v.fim;
         evs.push({ placa: v.placa, nome: v.nome, ini: v.ini, fim: v.fim,
           durM: Math.max(0, (new Date(v.fim + 'T12:00:00') - new Date(v.ini + 'T12:00:00')) / 86400000 / 30.44),
           guincho: c.guincho / fx, recup: c.recup / fx, tot: (c.guincho + c.recup) / fx });
       });
+      // Caso sem data própria herda a data de ENCERRAMENTO do contrato da placa. Antes ele caía no
+      // mês vigente, e por isso agosto aparecia com R$12k de custo realizado enquanto o gráfico de
+      // contagem mostrava só 2 recuperações com guincho no mês — eram casos velhos empilhados ali.
+      looseCases.forEach((c) => { if (!c.d) { c.d = fimOf[c.pl] || null; c.semData = true; } });
       return { evs, cases: looseCases, fx };
     }
     // ================= MOTOR ESTATÍSTICO (análises de recuperação) =================
@@ -6365,26 +6380,41 @@
         if (ctl) {
           ctl.innerHTML = PA.PARTS.map((k) => `<button type="button" class="ccl-btn${costsPartTab === k ? ' on' : ''}" data-m="${k}" style="--c:${PART_COLOR[k]}"><span class="dot"></span>${escH(PART_LBL[k])}</button>`).join('') +
             `<button type="button" class="ccl-btn${costsPartTab === 'why' ? ' on' : ''}" data-m="why" style="--c:${C}">What drives it</button>` +
-            `<button type="button" class="ccl-btn${costsPartOnly ? ' on' : ''}" data-only="1" style="--c:#DC2626"><span class="dot"></span>Changed only</button>`;
+            (costsPartTab === 'why' ? '' :
+              `<span class="ccl-sep"></span>` +
+              `<button type="button" class="ccl-btn${costsPartAtSwap ? ' on' : ''}" data-view="1" style="--c:#0F766E"><span class="dot"></span>km at replacement</button>` +
+              `<button type="button" class="ccl-btn${costsPartOnly ? ' on' : ''}" data-only="1" style="--c:#DC2626"><span class="dot"></span>Changed only</button>`);
           ctl.querySelectorAll('.ccl-btn').forEach((b) => b.addEventListener('click', () => {
-            if (b.dataset.only) costsPartOnly = !costsPartOnly; else costsPartTab = b.dataset.m;
+            if (b.dataset.only) costsPartOnly = !costsPartOnly;
+            else if (b.dataset.view) costsPartAtSwap = !costsPartAtSwap;
+            else costsPartTab = b.dataset.m;
             renderCosts();
           }));
         }
         // ---------- DISPERSÃO por peça ----------
         if (costsPartTab !== 'why') {
           const k = costsPartTab;
-          title(PART_LBL[k] + ' — who is wearing them out');
-          costsLeftHelp = { t: PART_LBL[k] + ' — usage vs wear', d: 'One dot per plate: how hard it is driven (km per week, horizontal) against how much it has already run (odometer, vertical). Colour = how many times this part has already been replaced on that car — grey has never been replaced, and the stronger colours are the 1st, 2nd and 3rd replacement. The dashed line is the ROLLING AVERAGE of the odometer across the km/week range: it shows that cars driven harder have naturally covered more ground, so the wear should follow the horizontal axis. The horizontal band marks the planned interval for this part (' + ccNum(cfgP[k]) + ' km) — dots above it that are still grey are cars that passed the planned mileage without a replacement. "Changed only" hides the cars that never had this part replaced.' };
-          const pts = PA.rows.filter((r) => r.kmWeek != null && r.odo != null && r.odo > 0)
-            .map((r) => ({ x: Math.round(r.kmWeek), y: Math.round(r.odo), n: r.trocas[k].length, plate: r.placa, fleet: r.fleet, fines: r.fines }))
-            .filter((p) => (costsPartOnly ? p.n > 0 : true));
+          title(PART_LBL[k] + (costsPartAtSwap ? ' — km at each replacement' : ' — who is wearing them out'));
+          costsLeftHelp = costsPartAtSwap
+            ? { t: PART_LBL[k] + ' — km at each replacement', d: 'The wear view. A car that has ALREADY had this part replaced freezes at the mileage it had on the day of the replacement — that dot stops climbing, because it is a finished observation: "this car needed new ' + PART_LBL[k].toLowerCase() + ' at that many km". A second replacement adds a SECOND dot for the same car, at the mileage of that second event, so a heavy user shows up twice at different heights. Cars that have never replaced the part are hollow and keep RISING with their odometer every week until they either replace it or leave the fleet — they are the censored observations, and every week they climb without replacing is evidence that the real interval is longer than the replacements alone suggest. That is exactly why the headline number above uses Kaplan-Meier instead of the plain average of the filled dots. The dashed line marks the planned interval (' + ccNum(cfgP[k]) + ' km): hollow dots above it are cars that passed the plan with the original part.' }
+            : { t: PART_LBL[k] + ' — usage vs wear', d: 'One dot per plate: how hard it is driven (km per week, horizontal) against how much it has already run (odometer, vertical). Colour = how many times this part has already been replaced on that car — grey has never been replaced, and the stronger colours are the 1st, 2nd and 3rd replacement. The dashed line is the ROLLING AVERAGE of the odometer across the km/week range: it shows that cars driven harder have naturally covered more ground, so the wear should follow the horizontal axis. The horizontal band marks the planned interval for this part (' + ccNum(cfgP[k]) + ' km) — dots above it that are still grey are cars that passed the planned mileage without a replacement. Switch to "km at replacement" to freeze each car at the mileage of its own replacement. "Changed only" hides the cars that never had this part replaced.' };
+          // visão NORMAL: um ponto por placa no odômetro de hoje.
+          // visão "km at replacement": um ponto por TROCA, congelado no km do evento; quem nunca
+          // trocou continua subindo no odômetro atual (ponto vazado = observação censurada).
+          const pts = [];
+          PA.rows.filter((r) => r.kmWeek != null && r.odo != null && r.odo > 0).forEach((r) => {
+            const nT = r.trocas[k].length;
+            const base = { x: Math.round(r.kmWeek), plate: r.placa, fleet: r.fleet, fines: r.fines };
+            if (!costsPartAtSwap) { if (costsPartOnly && !nT) return; pts.push({ ...base, y: Math.round(r.odo), n: nT }); return; }
+            if (nT) r.trocas[k].forEach((t, i2) => { if (t.km != null) pts.push({ ...base, y: Math.round(t.km), n: i2 + 1, at: t.d, still: false }); });
+            else if (!costsPartOnly) pts.push({ ...base, y: Math.round(r.odo), n: 0, still: true });
+          });
           const NCOL = ['#CBD5E1', PART_COLOR[k], '#B91C1C', '#7F1D1D'];
           const grupos = [0, 1, 2, 3].map((n) => ({ n, arr: pts.filter((p) => (n === 3 ? p.n >= 3 : p.n === n)) })).filter((g) => g.arr.length);
           // média móvel do odômetro ao longo do eixo de km/semana (janela de 250 km/sem)
           const xs = pts.map((p) => p.x).sort((a, b) => a - b);
           const mm = [];
-          if (xs.length >= 6) {
+          if (xs.length >= 6 && !costsPartAtSwap) {   // na visão do km da troca a média móvel mistura evento com censura
             const lo = xs[0], hi = xs[xs.length - 1], step = Math.max(1, (hi - lo) / 24);
             for (let x = lo; x <= hi + .001; x += step) {
               const w = pts.filter((p) => Math.abs(p.x - x) <= 250);
@@ -6392,8 +6422,13 @@
             }
           }
           mk('ccPerCar', { data: { datasets: grupos.map((g) => ({
-                type: 'scatter', label: g.n === 0 ? 'never replaced' : (g.n === 3 ? '3+ replacements' : g.n + (g.n === 1 ? 'st' : 'nd') + ' replacement'),
-                data: g.arr, backgroundColor: NCOL[g.n], borderColor: '#fff', borderWidth: 1, pointRadius: g.n ? 6 : 4.5, pointHoverRadius: 8,
+                type: 'scatter',
+                label: g.n === 0 ? (costsPartAtSwap ? 'still running · no replacement yet' : 'never replaced') : (g.n === 3 ? '3+ replacements' : g.n + (g.n === 1 ? 'st' : 'nd') + ' replacement'),
+                data: g.arr,
+                // na visão do km da troca, quem nunca trocou fica VAZADO: é observação em aberto
+                backgroundColor: (costsPartAtSwap && g.n === 0) ? 'transparent' : NCOL[g.n],
+                borderColor: (costsPartAtSwap && g.n === 0) ? '#94A3B8' : '#fff', borderWidth: (costsPartAtSwap && g.n === 0) ? 1.6 : 1,
+                pointRadius: g.n ? 6 : 4.5, pointHoverRadius: 8,
                 datalabels: { display: false } }))
               .concat(mm.length ? [{ type: 'line', label: 'rolling average', data: mm, borderColor: '#374151', borderDash: [6, 4], borderWidth: 1.6, pointRadius: 0, fill: false, datalabels: { display: false } }] : []) },
             plugins: [{ id: 'partBand', beforeDatasetsDraw(ch) {
@@ -6407,7 +6442,13 @@
               ctx.fillText('planned interval · ' + ccNum(inter) + ' km', a.right - 4, y - 5); ctx.restore(); } }],
             options: { responsive: true, maintainAspectRatio: false,
               plugins: { legend: { labels: CC_LEG },
-                tooltip: { displayColors: false, callbacks: { label: (c2) => { const p = c2.raw; return p.plate ? [p.plate + ' · Fleet ' + p.fleet, ccNum(p.y) + ' km · ' + ccNum(p.x) + ' km/week', (p.n ? p.n + ' replacement' + (p.n === 1 ? '' : 's') : 'never replaced') + ' · ' + p.fines + ' fines'] : ccNum(p.y) + ' km'; } } } },
+                tooltip: { displayColors: false, callbacks: { label: (c2) => { const p = c2.raw;
+                  if (!p.plate) return ccNum(p.y) + ' km';
+                  const l2 = costsPartAtSwap
+                    ? (p.still ? 'still on the original part at ' + ccNum(p.y) + ' km' : 'replacement #' + p.n + ' at ' + ccNum(p.y) + ' km' + (p.at ? ' · ' + p.at : ''))
+                    : ccNum(p.y) + ' km on the odometer';
+                  return [p.plate + ' · Fleet ' + p.fleet, l2, ccNum(p.x) + ' km/week · ' + p.fines + ' fines'];
+                } } } },
               // km/semana anda na casa dos milhares baixos: o abreviador daria "2k" para 1.500 e
               // para 2.400 e o eixo saía com rótulos repetidos
               scales: { x: { grid: { display: false }, border: { display: false }, title: { display: true, text: 'km per week', color: '#9CA3AF', font: { size: 10 } }, ticks: { font: CC_FONT, color: '#6B7280', callback: ccNum } },
@@ -6639,12 +6680,16 @@
       // Descrição LONGA (quebraria em 2+ linhas e desalinharia os cartões) vira um "?" no canto
       // que abre a explicação num modal — o cartão fica só com título + número.
       const cardHelps = [];
-      const card = (t, v, sub, strong) => {
+      // `shortSub` = linha curta que fica SEMPRE visível sob o número, mesmo quando a explicação
+      // longa vai para o "?" (sem isso, informação essencial — como o tempo médio até a troca —
+      // sumia inteira dentro do modal)
+      const card = (t, v, sub, strong, shortSub) => {
         const longSub = sub && sub.length > 34;
         let helpBtn = '';
         if (longSub) { cardHelps.push({ t, d: sub }); helpBtn = `<button type="button" class="costs-help cc-card-help" data-ch="${cardHelps.length - 1}">?</button>`; }
+        const visible = longSub ? (shortSub || '') : (sub || '');
         // o sub SEMPRE existe (nem que vazio): sem ele o número descia e desalinhava dos vizinhos
-        return `<div class="costs-card${strong ? ' cc-strong' : ''}" style="--cl:${C}">${helpBtn}<span>${escH(t)}</span><b>${v}</b><span class="sub">${longSub ? '&nbsp;' : escH(sub || '')}</span></div>`;
+        return `<div class="costs-card${strong ? ' cc-strong' : ''}" style="--cl:${C}">${helpBtn}<span>${escH(t)}</span><b>${v}</b><span class="sub">${visible ? escH(visible) : '&nbsp;'}</span></div>`;
       };
       const evFY = evts ? S(evts.z) : 0;
       const perEvent = (evts && evFY && evts.realUSD) ? evts.realUSD / evFY : null;
@@ -6799,6 +6844,29 @@
       const evCostScope = evts ? realScope(arr) : null;
       const perCaseScope = (evScope > 0 && evCostScope > 0) ? evCostScope / evScope : null;
       const perCaseLbl = costsSel === 'Recovery cost' ? 'Per recovered car' : 'Per repair case';
+      // eventos PROJETADOS dentro do período (só faz sentido no ano cheio, onde há futuro): o
+      // cartão de contagem ficava parado entre "full year" e "year to date" porque só somava
+      // caso realizado. Recuperação conta EV.rec; reparo conta os que vêm de recuperação + os
+      // que vêm de devolução — exatamente os mesmos eventos que geram o custo projetado.
+      const evProjScope = (() => {
+        if (!JF || mSel != null || RF.curM < 0 || RF.curM >= FIN_MONTHS - 1) return 0;
+        const RMe = recoveryModel();
+        const platesE = rfFleets.reduce((acc, f2) => {
+          const meta = (((OCN.ue || {}).fleets) || []).find((x) => x.id === f2.id);
+          return acc.concat((meta && meta.placas) || []);
+        }, []);
+        const EVe = RMe.eventosPorSemana(platesE, 80);
+        const hojeE = new Date(((OCN.ue || {}).hoje || new Date().toISOString().slice(0, 10)) + 'T12:00:00');
+        let n = 0;
+        const conta = (arr) => arr.forEach((qtd, s) => {
+          if (!qtd) return;
+          const d = new Date(hojeE.getTime() + s * 7 * 86400000);
+          if (d.getFullYear() !== finYear || d.getMonth() < RF.curM) return;
+          n += qtd;
+        });
+        if (JF === 'recovery') conta(EVe.rec); else { conta(EVe.rep); conta(EVe.repRet); }
+        return Math.round(n);
+      })();
       // ---- hero do RECOVERY: painel próprio (total, média por recuperação, vida média, taxa) ----
       if (costsSel === 'Recovery cost') {
         const RD = recoveryData();
@@ -6867,10 +6935,13 @@
             ? 'no change yet · the oldest car is at ' + ccNum(s.tMax) + ' km · plan assumes ' + ccNum(cfg.km * 1000) + ' km'
             : (s.mediana != null ? nT + ' change' + (nT === 1 ? '' : 's') + ' · ' + s.nCens + ' cars still running'
               : 'lower bound · only ' + nT + ' change' + (nT === 1 ? '' : 's') + ' so far, curve has not reached 50%');
+          const mo = (dias) => (dias == null ? '—' : (dias / 30.44).toFixed(1).replace('.', ',')) + ' months';
           const tempo = nT > 0 && s.diasTroca != null
-            ? Math.round(s.diasTroca / 30.44 * 10) / 10 + ' months to the change · ' + Math.round((s.diasSem || 0) / 30.44 * 10) / 10 + ' months on the road for the rest'
-            : 'fleet averaging ' + Math.round((s.diasSem || 0) / 30.44 * 10) / 10 + ' months on the road';
-          return card(PART_LBL[k] + ' · km', v == null ? '> ' + ccK(s.tMax) : ccK(v), sub + ' — ' + tempo);
+            ? mo(s.diasTroca) + ' to the change · ' + mo(s.diasSem) + ' on the road for the rest'
+            : 'fleet averaging ' + mo(s.diasSem) + ' on the road';
+          // linha curta SEMPRE visível: é o tempo médio, que é o que se olha junto do km
+          const curto = nT > 0 && s.diasTroca != null ? 'on average at M' + (s.diasTroca / 30.44).toFixed(1).replace('.', ',') : 'no change yet';
+          return card(PART_LBL[k] + ' · km', v == null ? '> ' + ccK(s.tMax) : ccK(v), sub + ' — ' + tempo, false, curto);
         };
         document.getElementById('costsHero').innerHTML = '<div class="costs-cards costs-cards-parts">' +
           card(periodLbl, money(fy), (cogsFY ? (fy / cogsFY * 100).toFixed(1) : '0') + '% of COGS', true) +
@@ -6901,7 +6972,11 @@
                     : ccNum(AVL.cm) + ' car-months since each fleet started')))) +
         (perOk ? card('Per car · full contract', money(perTot / (finPar('__fin_fx__') || 5.5)), JF ? 'measured M0–M13 incidence' : 'theoric M0–M13 profile') : '') +
         (JF && evScope != null
-          ? card(evts.label + ' · ' + perName(mSel), String(evScope), JAG && JAG.com != null ? 'hits on average at M' + JAG.com.toFixed(1) + ' of a car\'s life' : 'cases in the period')
+          // no ANO CHEIO a contagem também projeta: os eventos que o modelo espera daqui até
+          // dezembro (recuperações; nos reparos, os que vêm de recuperação e de devolução)
+          ? card(evts.label + ' · ' + perName(mSel), String(evScope + (evProjScope || 0)),
+              (evProjScope ? evScope + ' realized + ' + evProjScope + ' forecast to december. ' : '') +
+              (JAG && JAG.com != null ? 'Hits on average at M' + JAG.com.toFixed(1) + ' of a car\'s life' : 'cases in the period'))
           : (evts && evFY ? card(evts.label + ' (FY)', String(evFY), perEvent != null ? money(perEvent) + ' per event — realized only' : 'no realized cost yet') : '')) +
         '</div>';
       document.querySelectorAll('#costsHero .cc-card-help').forEach((b) => { b.onclick = () => { const h = cardHelps[+b.dataset.ch]; if (h) costsInfoOpen(h.t, h.d); }; });
@@ -6947,14 +7022,18 @@
           });
           return n;
         })();
-        const cntDL = { display: (c2) => c2.dataset.data[c2.dataIndex] > 0, color: '#fff', font: { size: 9, weight: 400 }, formatter: (v) => v, clamp: true };
+        // rótulo dentro da barra: 9px/400 sumia. Agora 12px/800 e, nas fatias claras (guincho,
+        // sem custo, previsão hachurada), tinta escura em vez de branco.
+        const cntDL = { display: (c2) => c2.dataset.data[c2.dataIndex] > 0, color: '#fff', font: { size: 12, weight: 800 }, formatter: (v) => v, clamp: true };
+        const cntDLdark = Object.assign({}, cntDL, { color: '#7C2D12' });
         mk('ccMain', { type: 'bar', data: { labels: MONL, datasets: [
             { label: 'towing + recovery costs', data: cut12(zBoth), backgroundColor: C, stack: 's', maxBarThickness: 34, borderRadius: 2, datalabels: cntDL },
-            { label: 'towing only', data: cut12(zTow), backgroundColor: costsTint(C, .55), stack: 's', maxBarThickness: 34, borderRadius: 2, datalabels: cntDL },
-            { label: 'no cost so far', data: cut12(zNone), backgroundColor: '#D1D5DB', stack: 's', maxBarThickness: 34, borderRadius: 2, datalabels: Object.assign({}, cntDL, { color: '#374151' }) },
+            { label: 'towing only', data: cut12(zTow), backgroundColor: costsTint(C, .55), stack: 's', maxBarThickness: 34, borderRadius: 2, datalabels: cntDLdark },
+            { label: 'no cost so far', data: cut12(zNone), backgroundColor: '#D1D5DB', stack: 's', maxBarThickness: 34, borderRadius: 2, datalabels: Object.assign({}, cntDL, { color: '#1F2937' }) },
           ].concat(recProjN ? [
             { label: 'forecast', data: cut12(recProjN), backgroundColor: costsStripe(C), borderColor: costsTint(C, .55), borderWidth: 1, stack: 's', maxBarThickness: 34, borderRadius: 2,
-              datalabels: Object.assign({}, cntDL, { color: '#374151', formatter: (v) => String(v).replace('.', ',') }) },
+              // a hachura é clara: número escuro com halo branco por baixo, senão some nas listras
+              datalabels: Object.assign({}, cntDLdark, { textStrokeColor: '#fff', textStrokeWidth: 3, formatter: (v) => String(v).replace('.', ',') }) },
           ] : []) },
           options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
             plugins: { legend: { labels: CC_LEG },
@@ -6998,7 +7077,7 @@
         const hojeIso3 = (OCN.ue && OCN.ue.hoje) || new Date().toISOString().slice(0, 10);
         const gM = new Array(FIN_MONTHS).fill(0), rM = new Array(FIN_MONTHS).fill(0);
         RD2.cases.forEach((c2) => {
-          const iso = c2.d || hojeIso3;
+          const iso = c2.d || hojeIso3;   // recoveryData já herdou o fim do contrato quando faltava
           if (String(iso).slice(0, 4) !== String(finYear)) return;
           const m = parseInt(String(iso).slice(5, 7), 10) - 1;
           if (m >= 0 && m < FIN_MONTHS) { gM[m] += c2.guincho / RD2.fx; rM[m] += c2.recup / RD2.fx; }
@@ -7058,7 +7137,10 @@
           options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 18 } },
             plugins: { legend: { labels: CC_LEG },
               // número SEMPRE visível dentro da fatia (sem depender do hover)
-              datalabels: { display: (c2) => c2.dataset.data[c2.dataIndex] > 0, color: '#fff', font: { size: 9, weight: 400 }, formatter: ccK, clamp: true },
+              // 9px/400 em branco não se lia dentro da fatia; agora 11,5px/800 e tinta escura na
+              // faixa clara do guincho (que é o tom 55% da cor da linha)
+              datalabels: { display: (c2) => c2.dataset.data[c2.dataIndex] > 0, font: { size: 11.5, weight: 800 }, formatter: ccK, clamp: true,
+                color: (c2) => (/Towing$/.test(c2.dataset.label || '') ? '#7C2D12' : '#fff') },
               tooltip: { displayColors: true, callbacks: { label: (c2) => c2.dataset.label + ': ' + cs + ' ' + ccNum(c2.parsed.y) } } },
             scales: { x: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280' } },
               y: { stacked: true, grid: { display: false }, border: { display: false }, beginAtZero: true, grace: '8%', ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } } } } });

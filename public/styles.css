@@ -1812,3 +1812,5 @@ html.dark .ue-track-drivers .ue-contract-lbl i { background: rgba(30,31,38,.92);
 .parts-chip b { color: var(--text); font-weight: 700; margin-right: 2px; }
 .parts-chip i { font-style: normal; color: var(--text-3); font-size: 10.5px; }
 .parts-chip i::before { content: '· '; }
+/* separador entre grupos de botões da barra de controle do painel */
+.ccl-sep { width: 1px; align-self: stretch; background: var(--border-2); margin: 0 3px; }

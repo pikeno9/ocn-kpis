@@ -8867,7 +8867,9 @@
         else { plateView = b.dataset.plate; viewAgg = false; }
         platesEl.querySelectorAll('.ue-plate-btn').forEach((x) => x.classList.toggle('active', x === b));
         const titleEl = document.querySelector('#ueHead .ue-fleet-title');
-        if (titleEl) titleEl.textContent = (allMode ? f.label : f.modelLabel) + (plateView ? ' · ' + plateView : (viewAgg ? ' · aggregate' : ''));
+        if (titleEl) titleEl.textContent = plateView ? plateView : (allMode ? f.label : f.modelLabel) + (viewAgg ? ' · aggregate' : '');
+        const modelEl = document.getElementById('ueTitleModel');
+        if (modelEl) modelEl.hidden = !plateView;
         // a BARRA muda com a placa (odômetro, esperado, segmentos por motorista) — re-renderiza o slot
         const bw = document.getElementById('ueBarWrap');
         if (bw) bw.innerHTML = contractBarHtml(f);
@@ -8979,9 +8981,12 @@
         `<div class="ue-headrow ue-headv2">` +
           `<div class="ue-fleet-head">` +
             (foto ? `<img class="ue-car-img" src="${foto}" alt="${f.modelLabel}"/>` : '') +
+            // placa selecionada = ELA é o destaque; o modelo desce para uma linha cinza (igual ao
+            // "Fleet 1" de cima). Sem placa, o destaque segue sendo o modelo (ou "All fleets").
             `<div class="ue-fleet-id">` +
               `<div class="ue-fleet-eyebrow">${allMode ? f.modelLabel : f.label}</div>` +
-              `<div class="ue-fleet-title">${allMode ? f.label : f.modelLabel}${plateView ? ' · ' + plateView : (viewAgg ? ' · aggregate' : '')}</div>` +
+              `<div class="ue-fleet-title" id="ueTitleBig">${plateView ? plateView : (allMode ? f.label : f.modelLabel) + (viewAgg ? ' · aggregate' : '')}</div>` +
+              `<div class="ue-fleet-model" id="ueTitleModel"${plateView ? '' : ' hidden'}>${allMode ? '' : f.modelLabel}</div>` +
             `</div>` +
           `</div>` +
           `<div class="ue-head-ctrls">${ctrlRows}</div>` +

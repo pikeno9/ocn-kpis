@@ -1025,7 +1025,7 @@ html { scrollbar-gutter: stable; }
 
 
 /* ---- ajustes de layout do cabeçalho do UE (foto menor, respiro entre barra e premissas) ---- */
-.ue-contract { margin: 26px 0 24px; }                 /* respira entre a linha de botões acima e os sliders abaixo */
+.ue-contract { margin: 8px 0 34px; }                 /* perto do painel de cima, longe da tabela */
 .ue-viewbar { margin: 0 0 10px; }                     /* Clean view entre a barra e as premissas */
 .ue-sliders { margin: 0 0 14px; }                     /* premissas coladas na tabela */
 .ue-fleets { margin-bottom: 10px; }
@@ -1757,3 +1757,19 @@ html.dark .ue-car-img { filter: drop-shadow(0 12px 22px rgba(0, 0, 0, .5)); }
 @media (max-width: 980px) { .ue-car-img { width: 170px; max-height: 96px; } .ue-actv2 { margin-left: 0; } .ue-row-right { justify-content: flex-start; } }
 /* pílula do rótulo central da barra (visão por placa): escurece junto do tema */
 html.dark .ue-track-drivers .ue-contract-lbl i { background: rgba(30,31,38,.92); box-shadow: 0 1px 3px rgba(0,0,0,.5); }
+
+/* ---- cabeçalho v2, rodada 2 ----
+   (a) botões em GRADE 2×2 de colunas iguais: mesmos tamanhos horizontais;
+   (b) o bloco carro+título tem largura FIXA, então trocar de placa/aggregate não move os botões;
+   (c) o PNG do carro tem margem transparente — margem negativa cola o texto na foto de verdade. */
+.ue-headv2 .ue-fleet-head { flex: 0 0 400px; gap: 0; }
+.ue-headv2 .ue-fleet-id { margin-left: -14px; min-width: 0; }
+.ue-fleet-model { font-size: 10.5px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; color: var(--text-3); margin-top: 3px; }
+.ue-head-ctrls { display: grid; grid-template-columns: repeat(2, minmax(150px, 1fr)); gap: 9px; }
+.ue-head-ctrls .ue-tool-btn, .ue-head-ctrls .idr-btn, .ue-head-ctrls .ue-fcbtn { width: 100%; justify-content: center; }
+.ue-head-ctrls .idr-btn, .ue-head-ctrls .ue-fcbtn { padding-left: 10px; padding-right: 6px; }
+@media (max-width: 1080px) { .ue-headv2 .ue-fleet-head { flex: 1 1 auto; } }
+/* as duas linhas são divs .ue-ctrl-row — cada uma vira uma grade de 2 colunas iguais, e as duas
+   usam a MESMA definição de coluna, então Assumptions/InDrive e Parts/Forecast ficam alinhados */
+.ue-head-ctrls { display: flex; flex-direction: column; }
+.ue-head-ctrls .ue-ctrl-row { display: grid; grid-template-columns: repeat(2, minmax(150px, 1fr)); gap: 9px; }

@@ -1,6 +1,15 @@
 /* ===================== OCN KPIs — app ===================== */
 (function () {
   Chart.register(ChartDataLabels);
+  // Qual versão do front está carregada. O servidor serve `app.js?v=<hash do arquivo>`, então esta
+  // linha no console diz na hora se o navegador está com a versão nova ou com uma cópia velha em
+  // cache — foi exatamente o que custou caro para diagnosticar em 13/08.
+  try {
+    const me = document.currentScript || [...document.querySelectorAll('script[src*="app.js"]')].pop();
+    const v = me && /[?&]v=([a-f0-9]+)/.exec(me.src);
+    console.log('%cOCN KPIs%c front build ' + (v ? v[1] : 'sem versão (cache antigo?)'),
+      'background:#5A00F8;color:#fff;padding:2px 6px;border-radius:4px;font-weight:700', 'color:#6B7280');
+  } catch (e) { /* diagnóstico não pode derrubar o app */ }
   // nitidez: em telas com escala 100% o Chart.js renderiza a 1×, e os gráficos saem serrilhados
   // em monitores com escala do Windows — força pelo menos 2× em todos os canvases
   Chart.defaults.devicePixelRatio = Math.max(2, window.devicePixelRatio || 1);
@@ -8406,10 +8415,7 @@
             `<span class="ue-contract-lbl">week ${Math.min(Math.floor(wkNow), Math.round(totalWeeks))} of ${Math.round(totalWeeks)} · ${Math.round(pct)}%</span>` +
           `</div>` +
           `<span class="ue-contract-date">${fmtDate(endIso)}</span>` +
-        `</div>` +
-        // sem placa escolhida a barra é da FROTA inteira (50 motoristas) — a linha do tempo por
-        // motorista só faz sentido numa placa, e nada na tela dizia isso
-        (plateView ? '' : `<div class="ue-contract-hint">↓ pick a <b>plate</b> below to turn this bar into the car's driver timeline — who drove it, when, at what pace and on which contract version</div>`);
+        `</div>`;
     }
     // painel de visões: Fleet (unitary) = por veículo · Fleet (aggregate) = soma de todas as placas · uma placa
     function renderPlates(f) {

@@ -766,10 +766,13 @@ html { scrollbar-gutter: stable; }
 .ue-exp { font: inherit; font-size: 11px; font-weight: 800; line-height: 1; width: 17px; height: 17px; margin-left: 6px; padding: 0;
   border: 1px solid var(--border-2); border-radius: 5px; background: var(--surface); color: var(--text-2); cursor: pointer; vertical-align: middle; }
 .ue-exp:hover, .ue-exp.on { border-color: var(--accent); color: var(--accent); }
-.ue-subrow td { background: color-mix(in srgb, var(--accent) 3%, var(--surface)); }
+/* sub-linhas das peças: tom levemente mais quente que a linha-mãe e título mais recuado,
+   para ficar claro que são o detalhe do Part Replacement e não linhas do mesmo nível */
+.ue-subrow td { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
+.ue-subrow td:first-child { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 45%, transparent); }
 .ue-subrow .ue-main { font-weight: 600; opacity: .92; }
-.ue-sublabel { padding-left: 22px !important; position: relative; }
-.ue-sublabel::before { content: "└"; position: absolute; left: 10px; color: var(--text-3); font-size: 11px; }
+.ue-sublabel { padding-left: 40px !important; position: relative; }
+.ue-sublabel::before { content: "└"; position: absolute; left: 26px; color: var(--text-3); font-size: 11px; }
 .ue-sublabel em { display: block; font-style: normal; font-size: 9.5px; color: var(--text-3); margin-top: 1px; }
 /* aviso enquanto os dados do Finance carregam (Costs/Unit abrem antes dos dados chegarem) */
 .fin-loading { padding: 26px 4px; font-size: 12.5px; font-weight: 600; color: var(--text-2); }

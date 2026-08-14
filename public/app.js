@@ -8400,11 +8400,18 @@
             return `<div class="ue-driver-seg" style="left:${a.toFixed(1)}%;width:${(b - a).toFixed(1)}%;background:${col}" ` +
               `data-nome="${escHU(v.nome || '?')}" data-ver="${v.versao ? 'contract v' + v.versao : ''}" data-per="${v.ini} → ${v.fim || 'today'}" data-kw="${kw != null ? Math.round(kw).toLocaleString('pt-BR') + ' km/week' : ''}">${lbl}</div>`;
           }).join('');
-          // odômetro no MOMENTO de cada troca de motorista (a partir do 2º vínculo)
-          changeTags = vs.slice(1).map((v) => {
+          // odômetro no MOMENTO de cada troca de motorista (a partir do 2º vínculo), centrado no
+          // VÃO entre o fim do vínculo anterior e o início do próximo — é ali que a troca aconteceu
+          const fmtKmAbrev = (v) => (v >= 1000 ? (Math.round(v / 100) / 10).toLocaleString('pt-BR') + 'k' : Math.round(v).toLocaleString('pt-BR'));
+          changeTags = vs.map((v, i) => {
+            if (i === 0) return '';
             const km = odoAt(v.ini);
             if (km == null) return '';
-            return `<span class="ue-contract-km ue-km-change" style="left:${pos(v.ini).toFixed(1)}%" title="odometer when the driver changed (${v.ini})">${fmtK(km)}</span>`;
+            const prev = vs[i - 1];
+            const aqui = pos(v.ini);
+            const fimAnterior = prev.fim ? pos(prev.fim) : aqui;
+            const meio = (fimAnterior + aqui) / 2;      // centro do vão sem motorista
+            return `<span class="ue-contract-km ue-km-change" style="left:${meio.toFixed(1)}%" title="odometer when the driver changed (${prev.fim || v.ini} → ${v.ini})">${fmtKmAbrev(km)}</span>`;
           }).join('');
         }
       }

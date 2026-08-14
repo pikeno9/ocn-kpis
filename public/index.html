@@ -592,13 +592,11 @@
 
       <!-- ---------- COSTS (mergulho nas linhas de custo de veículo) ---------- -->
       <div class="subsection" id="sub-fincosts">
-        <div class="section-head">
-          <div>
-            <div class="section-title"><i class="ti ti-report-money"></i> Vehicle Costs</div>
-          </div>
+        <!-- sem título: a barra de filtros + o seletor de ano dividem a MESMA linha -->
+        <div class="costs-topline">
+          <div id="costsCtl"></div>
           <div id="costsYear"></div>
         </div>
-        <div id="costsCtl"></div>
         <!-- MAIN: visão geral do COGS — Pareto clicável + drill mensal por frota da barra escolhida -->
         <div id="costsMain" hidden>
           <div class="costs-chart">

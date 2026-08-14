@@ -2524,7 +2524,7 @@
   let finYear = FIN_BASE_YEAR;                 // ano exibido no P&L / Fleet Plan (2026 ou 2027)
   const FIN_YOFF = () => (finYear - FIN_BASE_YEAR) * 12;   // deslocamento em meses do ano exibido
   const FIN_ML = (i) => finYear + '-' + String(i + 1).padStart(2, '0');
-  const FIN_REV_LINES = ['Subscription', 'Late-payment interest', 'Traffic fines', 'Termination fee', 'Vehicle Sell', 'InDrive bonus', 'Security Deposit Refund'];
+  const FIN_REV_LINES = ['Subscription', 'Late-payment interest', 'Traffic fines', 'Termination fee', 'Vehicle Sell', 'InDrive bonus', 'InDrive discount', 'Security Deposit Refund'];
   const FIN_COGS_LINES = ['Subrental fee', 'Maintenance', 'Insurance', 'GPS', 'Car Preparation', 'Sticker', 'Traffic fines (out)', 'Recovery cost', 'Repair cost', 'Part Replacement'];
   const FIN_ASSUMP = [
     { k: '__fin_tax_fed__', label: 'Federal taxes (% of gross revenue)', def: 13.36 },
@@ -3045,20 +3045,21 @@
         actualsThrough = curM;
       }
       // ---- InDrive: recebimento REAL por placa (tabela ID_BONUS, 1x por placa, no M0 do UE) —
-      // no calendário do P&L cai no mês de entrega da frota da placa. Fica FORA do orçado (é um
-      // evento concreto) e sai da conta quando o botão "InDrive" do P&L está desligado.
+      // no calendário do P&L cai no mês de entrega da frota da placa. Junto entra a DEDUÇÃO: o
+      // desconto na semanalidade creditado às placas da promoção (aba import_baseID), espelhando a
+      // linha do UE. Tudo FORA do orçado (é um evento concreto) e fora da conta quando o botão
+      // "InDrive" do P&L está desligado — bônus e desconto são os dois lados da mesma promoção.
       let indriveTot = 0;
       if (!opts.noIndrive && !opts.budget) {
+        const descs = (((OCN.ue || {}).idBase) || {}).descontos || {};
         (((OCN.ue || {}).fleets) || []).forEach((ff) => {
           if (!ff.inicio || String(ff.inicio).slice(0, 4) !== String(finYear)) return;
           const m = parseInt(String(ff.inicio).slice(5, 7), 10) - 1;
           if (!(m >= 0 && m < FIN_MONTHS)) return;
-          let v = 0;
-          (ff.placas || []).forEach((pl) => { v += ID_BONUS[pl] || 0; });
-          if (!v) return;
-          v /= fx;
-          rev['InDrive bonus'][m] += v;
-          indriveTot += v;
+          let v = 0, d = 0;
+          (ff.placas || []).forEach((pl) => { v += ID_BONUS[pl] || 0; d += descs[pl] || 0; });
+          if (v) { rev['InDrive bonus'][m] += v / fx; indriveTot += v / fx; }
+          if (d) { rev['InDrive discount'][m] -= d / fx; indriveTot -= d / fx; }
         });
       }
       // visão "sem sub-rental security deposit": zera o calção E a devolução dele (refund) — os dois
@@ -8841,7 +8842,9 @@
           `<span class="ue-contract-date">${fmtDate(f.inicio)}</span>` +
           `<div class="ue-contract-track${plateView ? ' ue-track-drivers' : ''}" title="${Math.floor(wkNow)} of ${Math.round(totalWeeks)} weeks elapsed">` +
             fill + ticks + kmTags + changeTags +
-            `<span class="ue-contract-lbl"><i>week ${Math.min(Math.floor(wkNow), Math.round(totalWeeks))} of ${Math.round(totalWeeks)} · ${Math.round(pct)}%</i></span>` +
+            // na visão de FROTA os meses decorridos entram aqui (o texto solto do cabeçalho saiu);
+            // na placa individual não — lá a barra já carrega motoristas, km e trocas
+            `<span class="ue-contract-lbl"><i>week ${Math.min(Math.floor(wkNow), Math.round(totalWeeks))} of ${Math.round(totalWeeks)} · ${Math.round(pct)}%${!plateView ? ` · ${elapsed.toFixed(1).replace('.', ',')} months elapsed` : ''}</i></span>` +
           `</div>` +
           `<span class="ue-contract-date">${fmtDate(endIso)}</span>` +
         `</div>`;
@@ -8864,7 +8867,7 @@
         else { plateView = b.dataset.plate; viewAgg = false; }
         platesEl.querySelectorAll('.ue-plate-btn').forEach((x) => x.classList.toggle('active', x === b));
         const titleEl = document.querySelector('#ueHead .ue-fleet-title');
-        if (titleEl) titleEl.textContent = f.label + ' — ' + f.modelLabel + (plateView ? ' · ' + plateView : (viewAgg ? ' · aggregate' : ''));
+        if (titleEl) titleEl.textContent = (allMode ? f.label : f.modelLabel) + (plateView ? ' · ' + plateView : (viewAgg ? ' · aggregate' : ''));
         // a BARRA muda com a placa (odômetro, esperado, segmentos por motorista) — re-renderiza o slot
         const bw = document.getElementById('ueBarWrap');
         if (bw) bw.innerHTML = contractBarHtml(f);
@@ -8948,55 +8951,62 @@
           activeFracArr[p] = Math.max(0, nCars - lost) / nCars;
         }
       }
-      const subInfo = ini
-        ? `start ${fmtDate(f.inicio)} · today ${fmtDate(U.hoje)} · ${elapsed.toFixed(1)} months elapsed`
-        : 'no start date in the base';
       // barra do contrato: início ——[quanto já correu]—— início + 52 semanas (só com data de início;
       // em "All fleets" cada frota tem um começo diferente, então a barra não aparece)
       const contractBar = contractBarHtml(f);
+      // ícones em SVG inline (a fonte de ícones já falhou uma vez e deixou botão em branco)
+      const SVG_ADJ = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h9.6M18.4 6H20M4 12h3.6M12.4 12H20M4 18h12.6"/><circle cx="16" cy="6" r="2.2"/><circle cx="10" cy="12" r="2.2"/><circle cx="18.8" cy="18" r="2.2"/></svg>`;
+      const SVG_REFRESH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.7A8.1 8.1 0 1 0 18.4 16.3"/><path d="M20.3 6.4v5.3H15"/></svg>`;
+      // no modo limpo some tudo que é controle — ficam moeda, Clean view e o "?"
+      const ctrlRows = cleanView ? '' :
+        `<div class="ue-ctrl-row">` +
+          `<button type="button" class="ue-tool-btn ue-assump-btn${slidersOpen ? ' on' : ''}" id="ueSlidersBtn">${SVG_ADJ} Assumptions <span>${slidersOpen ? '▴' : '▾'}</span></button>` +
+          `<button class="ue-tool-btn" id="ueParts" title="Replacement intervals and cost per part">⚙ Parts</button>` +
+        `</div>` +
+        `<div class="ue-ctrl-row">` +
+          `<button class="idr-btn${indriveOn() && !idrOff ? ' on' : (indriveOn() ? ' off' : '')}" id="ueIndrive" title="Edit the InDrive batches">` +
+            `<span class="idr-mark">iD</span><span class="idr-txt">InDrive</span>` +
+            (indriveOn()
+              ? `<span class="idr-state" id="ueIdrToggle" title="${idrOff ? 'InDrive is OUT of the UE — click to bring it back' : 'Click to remove the InDrive benefit from the UE'}">${idrOff ? 'off' : 'on'}</span>`
+              : '') +
+          `</button>` +
+          // Forecast: mesmo interruptor de antes ("Actuals + projection"), agora com nome curto e
+          // estado explícito — pílula acesa/apagada no MESMO desenho do iD ao lado
+          `<button class="ue-fcbtn${showProj ? ' on' : ''}" id="ueProj" title="${showProj ? 'Hide the projected numbers (purple) and show actuals only' : 'Bring the projections back'}">` +
+            `<span class="ue-fc-dot"></span>Forecast<span class="ue-fc-state">${showProj ? 'on' : 'off'}</span></button>` +
+        `</div>`;
       document.getElementById('ueHead').innerHTML =
-        `<div class="ue-headrow">` +
+        `<div class="ue-headrow ue-headv2">` +
           `<div class="ue-fleet-head">` +
-            (foto ? `<div class="ue-car-photo"><img src="${foto}" alt="${f.modelLabel}"/></div>` : '') +
-            `<div><div class="ue-fleet-title">${f.label} — ${f.modelLabel}${plateView ? ' · ' + plateView : (viewAgg ? ' · aggregate' : '')}</div>` +
-            `<div class="ue-fleet-sub">${f.cars} cars · ${U.periods}-month contract</div>` +
-            `<div class="ue-fleet-sub">${subInfo}</div></div>` +
+            (foto ? `<img class="ue-car-img" src="${foto}" alt="${f.modelLabel}"/>` : '') +
+            `<div class="ue-fleet-id">` +
+              `<div class="ue-fleet-eyebrow">${allMode ? f.modelLabel : f.label}</div>` +
+              `<div class="ue-fleet-title">${allMode ? f.label : f.modelLabel}${plateView ? ' · ' + plateView : (viewAgg ? ' · aggregate' : '')}</div>` +
+            `</div>` +
           `</div>` +
-          `<div class="ue-head-actions">` +
-            // moeda + Clean view empilhados (o Clean fica logo abaixo das bandeiras)
-            `<div class="ue-actstack">` +
+          `<div class="ue-head-ctrls">${ctrlRows}</div>` +
+          `<div class="ue-actstack ue-actv2">` +
+            `<div class="ue-ctrl-row ue-row-right">` +
+              (cleanView ? '' : `<button class="ue-round-btn" id="ueRefresh" title="Re-fetches the spreadsheet data">${SVG_REFRESH}</button>`) +
               `<div class="ue-cur-toggle" id="ueCurToggle">${CUR_FLAGS(currency)}</div>` +
+              `<button class="ue-tool-btn ue-info-btn" id="ueInfo" title="Where each line comes from and how it updates">?</button>` +
+            `</div>` +
+            `<div class="ue-ctrl-row ue-row-right">` +
+              (cleanView || !isAdmin ? '' : `<label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Manual mode</span></label>`) +
               `<button class="ue-clean2${cleanView ? ' on' : ''}" id="ueClean" title="${cleanView ? 'Back to the full view' : 'Strip the panel down to the table: one number per month, no budget comparison, no controls'}">✨ Clean view</button>` +
             `</div>` +
-            // no modo limpo some tudo que é controle — fica só moeda, clean view e o "?"
-            (cleanView ? '' :
-              `<button class="ue-projbtn${showProj ? '' : ' off'}" id="ueProj" title="${showProj ? 'Hide the projected numbers (purple) and show actuals only' : 'Bring the projections back'}">` +
-                `<span class="ue-projbtn-dot"></span><span>${showProj ? 'Actuals + projection' : 'Actuals only'}</span></button>` +
-              `<button class="ue-tool-btn" id="ueParts" title="Replacement intervals and cost per part">⚙ Parts</button>` +
-              `<button class="idr-btn${indriveOn() && !idrOff ? ' on' : (indriveOn() ? ' off' : '')}" id="ueIndrive" title="Edit the InDrive batches">` +
-                `<span class="idr-mark">iD</span><span class="idr-txt">InDrive</span>` +
-                (indriveOn()
-                  ? `<span class="idr-state" id="ueIdrToggle" title="${idrOff ? 'InDrive is OUT of the UE — click to bring it back' : 'Click to remove the InDrive benefit from the UE'}">${idrOff ? 'off' : 'on'}</span>`
-                  : '') +
-              `</button>` +
-              (isAdmin ? `<label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Manual mode</span></label>` : '') +
-              `<button class="ue-tool-btn" id="ueRefresh" title="Re-fetches the spreadsheet data">↻ Refresh</button>`) +
-            `<button class="ue-tool-btn ue-info-btn" id="ueInfo" title="Where each line comes from and how it updates">?</button>` +
           `</div>` +
         `</div>` +
         `<div id="ueBarWrap">${contractBar}</div>` +
-        // premissas RECOLHIDAS por padrão: os 4 sliders só aparecem ao clicar no botão
-        (cleanView ? '' :
-        `<div class="ue-sliders-wrap">` +
-          `<button type="button" class="ue-tool-btn ue-assump-btn${slidersOpen ? ' on' : ''}" id="ueSlidersBtn">🎚 Assumptions <span>${slidersOpen ? '▴' : '▾'}</span></button>` +
-          (slidersOpen ? `<div class="ue-sliders">` +
-            slider('ueCotacao', 'future FX (R$/US$)', 3, 8, 0.05, cotacao) +
-            // por PAGAMENTO: a faixa útil é de poucos %, então passo de 0,1 (o histórico dá ~1,1%)
-            slider('ueInad', 'delinquency rate (%)', 0, 20, 0.1, inadimplencia, inadHint()) +
-            slider('ueLate', 'late-payment rate (%)', 0, 100, 1, latePct) +
-            slider('ueTermPct', 'termination fee recovery (%)', 0, 100, 1, termPct) +
-          `</div>` : '') +
-        `</div>`);
+        // premissas RECOLHIDAS por padrão: o botão vive na linha de controles; aqui só o painel
+        (cleanView || !slidersOpen ? '' :
+        `<div class="ue-sliders-wrap"><div class="ue-sliders">` +
+          slider('ueCotacao', 'future FX (R$/US$)', 3, 8, 0.05, cotacao) +
+          // por PAGAMENTO: a faixa útil é de poucos %, então passo de 0,1 (o histórico dá ~1,1%)
+          slider('ueInad', 'delinquency rate (%)', 0, 20, 0.1, inadimplencia, inadHint()) +
+          slider('ueLate', 'late-payment rate (%)', 0, 100, 1, latePct) +
+          slider('ueTermPct', 'termination fee recovery (%)', 0, 100, 1, termPct) +
+        `</div></div>`);
       // o painel de premissas vive no HEAD (renderizado por loadFleet) — re-renderizar só a
       // tabela não abria nada; loadFleet(true) é o mesmo caminho do Clean view/projeção
       const sldBtn = document.getElementById('ueSlidersBtn');

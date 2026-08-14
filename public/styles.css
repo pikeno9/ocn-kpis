@@ -1142,12 +1142,14 @@ html { scrollbar-gutter: stable; }
   background: linear-gradient(135deg, #0F172A, #020617); border-color: transparent; color: #fff;
   box-shadow: 0 0 0 3px #22d3ee42, 0 4px 16px #0206174d, inset 0 1px 0 #ffffff26;
 }
-/* Costs e Unit: mesma pílula do Dashboard, mas em ROXO escuro */
+/* Costs e Unit: mesma pílula do Dashboard, mas em ROXO escuro. O ativo mantém o MESMO gradiente
+   e sinaliza só pelo anel — escurecer o fundo fazia Costs (ativo) e Unit (inativo) parecerem dois
+   botões de estilos diferentes lado a lado. */
 .sub-tab-purple { background: linear-gradient(135deg, #5B21B6, #2E1065); box-shadow: 0 3px 12px #2e10653d, inset 0 1px 0 #ffffff26; }
 .sub-tab-purple:hover { box-shadow: 0 6px 18px #2e10654d, inset 0 1px 0 #ffffff2e; }
 .sub-tab-purple.active {
-  background: linear-gradient(135deg, #3B0764, #1E0538);
-  box-shadow: 0 0 0 3px #a78bfa4d, 0 4px 16px #1e05384d, inset 0 1px 0 #ffffff26;
+  background: linear-gradient(135deg, #5B21B6, #2E1065);
+  box-shadow: 0 0 0 3px #a78bfa66, 0 4px 16px #1e05384d, inset 0 1px 0 #ffffff26;
 }
 
 /* ===================== P&L: painel de indicadores ===================== */
@@ -1710,3 +1712,48 @@ html.dark .rh-gap-pos { color: #FCA5A5; }
    assim mantém a identidade da cor e acompanha a troca de tema sem re-renderizar. */
 html.dark .fleet-tile-num { color: color-mix(in srgb, var(--ink, #E7E8EC) 42%, #ffffff); }
 html.dark .fleet-tile-total .fleet-tile-num { color: #fff; }
+
+/* Costs sem título: filtros e seletor de ano na mesma linha (o ano encosta na direita) */
+.costs-topline { display: flex; align-items: flex-start; gap: 12px; }
+.costs-topline #costsCtl { flex: 1; min-width: 0; }
+.costs-topline #costsYear { flex: none; padding-top: 2px; }
+
+/* ===================== UE: cabeçalho v2 =====================
+   Carro grande e SOLTO (sem caixa) à esquerda com o nome do modelo; controles em duas linhas no
+   meio (Assumptions+Parts / InDrive+Forecast); utilitários à direita (refresh redondo, moeda, "?"
+   em cima; Manual mode e Clean view embaixo). O texto de meta saiu — meses decorridos agora vivem
+   dentro da barra de progresso da frota. */
+.ue-headv2 { align-items: center; row-gap: 14px; }
+.ue-headv2 .ue-fleet-head { gap: 20px; }
+.ue-car-img { width: 225px; max-height: 126px; object-fit: contain; display: block; flex: 0 0 auto;
+  filter: drop-shadow(0 12px 20px rgba(15, 23, 42, .16)); image-rendering: -webkit-optimize-contrast; }
+.ue-fleet-eyebrow { font-size: 10.5px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; color: var(--text-3); }
+.ue-headv2 .ue-fleet-title { font-size: 21px; font-weight: 700; line-height: 1.15; margin-top: 2px; }
+.ue-head-ctrls { display: flex; flex-direction: column; gap: 9px; align-items: flex-start; }
+.ue-ctrl-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ue-row-right { justify-content: flex-end; }
+.ue-actv2 { gap: 9px; margin-left: auto; }
+.ue-assump-btn svg { width: 15px; height: 15px; margin-right: 2px; vertical-align: -3px; }
+.ue-assump-btn { display: inline-flex; align-items: center; gap: 6px; }
+/* refresh redondo, só o símbolo */
+.ue-round-btn { width: 34px; height: 34px; padding: 0; border-radius: 50%; border: 1px solid var(--border-2);
+  background: var(--surface); color: var(--text-2); cursor: pointer; display: inline-flex; align-items: center;
+  justify-content: center; box-shadow: 0 1px 2px #00000010; transition: border-color .12s, color .12s, transform .3s; }
+.ue-round-btn svg { width: 16px; height: 16px; }
+.ue-round-btn:hover { border-color: var(--accent-ink); color: var(--accent-ink); transform: rotate(90deg); }
+/* Forecast: pílula com estado, no mesmo desenho do botão iD ao lado */
+.ue-fcbtn { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 6px 0 13px;
+  font: inherit; font-size: 12px; font-weight: 700; border-radius: 999px; cursor: pointer;
+  border: 1.5px solid var(--border-2); background: var(--surface); color: var(--text-2);
+  box-shadow: 0 1px 2px #00000010; transition: border-color .12s, color .12s, box-shadow .12s; }
+.ue-fc-dot { width: 9px; height: 9px; border-radius: 50%; border: 1.5px dashed #94a3b8; background: transparent; flex: none; }
+.ue-fc-state { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
+  padding: 3px 9px; border-radius: 999px; background: var(--surface-2); color: var(--text-3); }
+.ue-fcbtn.on { border-color: var(--accent-ink); color: var(--accent-ink); }
+.ue-fcbtn.on .ue-fc-dot { background: var(--accent); border: none; box-shadow: 0 0 0 3px #5a00f826; }
+.ue-fcbtn.on .ue-fc-state { background: var(--accent); color: #fff; }
+.ue-fcbtn:hover { border-color: var(--accent-ink); color: var(--accent-ink); box-shadow: 0 2px 8px #7c3aed22; }
+html.dark .ue-car-img { filter: drop-shadow(0 12px 22px rgba(0, 0, 0, .5)); }
+@media (max-width: 980px) { .ue-car-img { width: 170px; max-height: 96px; } .ue-actv2 { margin-left: 0; } .ue-row-right { justify-content: flex-start; } }
+/* pílula do rótulo central da barra (visão por placa): escurece junto do tema */
+html.dark .ue-track-drivers .ue-contract-lbl i { background: rgba(30,31,38,.92); box-shadow: 0 1px 3px rgba(0,0,0,.5); }

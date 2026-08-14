@@ -1773,3 +1773,15 @@ html.dark .ue-track-drivers .ue-contract-lbl i { background: rgba(30,31,38,.92);
    usam a MESMA definição de coluna, então Assumptions/InDrive e Parts/Forecast ficam alinhados */
 .ue-head-ctrls { display: flex; flex-direction: column; }
 .ue-head-ctrls .ue-ctrl-row { display: grid; grid-template-columns: repeat(2, minmax(150px, 1fr)); gap: 9px; }
+
+/* ---- UE: botões de frota iguais e frota ativa com mais destaque ----
+   flex: 1 1 0 divide a linha em partes IGUAIS (o "Fleet 6 · Tera" era mais curto que os outros);
+   o ativo ganha gradiente, anel e leve elevação em vez de só trocar a cor de fundo. */
+#ueFleets .ue-fleet-btn { flex: 1 1 0; min-width: 0; }
+#ueFleets .ue-fleet-btn .n, #ueFleets .ue-fleet-btn .m { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+#ueFleets .ue-fleet-btn.active {
+  background: linear-gradient(135deg, #6A16FF, #3A00A0);
+  border-color: transparent;
+  box-shadow: 0 0 0 3px #5a00f83d, 0 6px 16px #3a00a04d;
+  transform: translateY(-1px);
+}

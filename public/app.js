@@ -25,46 +25,90 @@
     titleMarginBottom: 7, boxPadding: 5, caretSize: 7, caretPadding: 6,
     usePointStyle: true, boxWidth: 8, boxHeight: 8, multiKeyBackground: 'transparent',
   });
-  // ---- MODO ESCURO: a classe no <html> já foi posta pelo snippet inline do index (antes do 1º
-  // paint). Aqui trocamos os defaults do Chart.js e registramos um remapeador de "tinta": os ~90
-  // gráficos usam cinzas escuros chapados para textos/labels, e reescrevê-los um a um seria
-  // interminável — o plugin troca essas cores por equivalentes claras na criação de cada gráfico.
-  // Alternar o tema recarrega a página, então todo gráfico já nasce no tema certo.
-  const DARK = document.documentElement.classList.contains('dark');
-  if (DARK) {
-    Chart.defaults.color = '#A6ADBB';
-    Chart.defaults.borderColor = 'rgba(255,255,255,.07)';
-    Object.assign(Chart.defaults.plugins.tooltip, {
-      backgroundColor: 'rgba(30,31,38,.98)',
-      titleColor: '#F3F4F6', bodyColor: '#C2C7D1', footerColor: '#A78BFA',
-      borderColor: 'rgba(255,255,255,.12)',
-    });
-    const INK = {
-      '#282728': '#EDEEF2', '#1d1d1b': '#EDEEF2', '#111827': '#EDEEF2', '#0f172a': '#E5E7EB',
-      '#374151': '#D3D7DE', '#4B5563': '#C6CBD4', '#4b5563': '#C6CBD4',
-      '#6B7280': '#A6ADBB', '#6b7280': '#A6ADBB', '#1E293B': '#DDE1E8', '#1e293b': '#DDE1E8',
-    };
-    const remap = (o, depth) => {
-      if (!o || typeof o !== 'object' || depth > 9) return;
-      for (const k of Object.keys(o)) {
-        const v = o[k];
-        if (typeof v === 'string' && INK[v] && /color/i.test(k)) o[k] = INK[v];
-        else if (v && typeof v === 'object') remap(v, depth + 1);
-      }
-    };
-    Chart.register({
-      id: 'ocnDarkInk',
-      beforeInit(c) {
-        // andar pelo CONFIG cru (objeto plano), nunca pelo c.options — o proxy de resolução do
-        // Chart.js dispara opções scriptable durante a enumeração e quebra antes do init
-        try {
-          const cfg = c.config || {};
-          remap(cfg.options, 0);
-          ((cfg.data || {}).datasets || []).forEach((ds) => { if (ds && ds.datalabels) remap(ds.datalabels, 0); });
-        } catch (e) { /* tema nunca pode derrubar um gráfico */ }
-      },
+  // ---- MODO ESCURO ----------------------------------------------------------------------
+  // A classe `dark` no <html> já foi posta pelo snippet inline do index (antes do 1º paint).
+  // O CSS resolve a página; os ~90 gráficos é que são o problema: eles fixam cinzas escuros
+  // chapados em ticks e datalabels, e reescrever isso gráfico a gráfico seria interminável.
+  // Em vez disso, um plugin troca essas cores por equivalentes claras na CRIAÇÃO de cada gráfico,
+  // e a troca de tema varre os gráficos vivos fazendo o mesmo nos dois sentidos — por isso o botão
+  // não recarrega a página nem devolve o usuário ao início.
+  const isDark = () => document.documentElement.classList.contains('dark');
+  // cinza-escuro chapado -> equivalente claro (só textos/eixos; cores de série não entram)
+  const INK = {
+    '#282728': '#EDEEF2', '#1d1d1b': '#EDEEF2', '#111827': '#EDEEF2', '#0f172a': '#E5E7EB',
+    '#374151': '#D3D7DE', '#4B5563': '#C6CBD4', '#4b5563': '#C6CBD4',
+    '#6B7280': '#A6ADBB', '#6b7280': '#A6ADBB', '#1E293B': '#DDE1E8', '#1e293b': '#DDE1E8',
+    '#1F2937': '#DDE1E8', '#334155': '#CBD1DA', '#475569': '#BFC5D0',
+  };
+  // pílula BRANCA atrás de um datalabel (Pareto, cumulativo %): no escuro o texto clareia, então
+  // a pílula precisa escurecer junto — senão vira texto claro sobre fundo branco, ilegível
+  const PILL = {
+    'rgba(255,255,255,.9)': 'rgba(30,31,38,.92)', 'rgba(255,255,255,0.9)': 'rgba(30,31,38,.92)',
+    'rgba(255,255,255,.92)': 'rgba(30,31,38,.92)', 'rgba(255,255,255,.85)': 'rgba(30,31,38,.9)',
+    'rgba(255,255,255,.8)': 'rgba(30,31,38,.88)', '#fff': '#1E1F26', '#ffffff': '#1E1F26',
+  };
+  const TIP_LIGHT = { backgroundColor: 'rgba(255,255,255,.98)', titleColor: '#111827', bodyColor: '#4B5563', footerColor: '#8B5CF6', borderColor: 'rgba(17,24,39,.10)' };
+  const TIP_DARK = { backgroundColor: 'rgba(30,31,38,.98)', titleColor: '#F3F4F6', bodyColor: '#C2C7D1', footerColor: '#C4B5FD', borderColor: 'rgba(255,255,255,.12)' };
+  const DEF_LIGHT = { color: Chart.defaults.color, borderColor: Chart.defaults.borderColor };
+  const DEF_DARK = { color: '#A6ADBB', borderColor: 'rgba(255,255,255,.07)' };
+  // mapas inversos: a varredura precisa reconhecer tanto a cor clara (indo p/ o escuro) quanto a
+  // escura (voltando). Três pretos diferentes colapsam no mesmo claro; a volta escolhe um deles,
+  // e como são todos "preto de texto" a diferença não aparece.
+  const INK_REV = {}, PILL_REV = {};
+  Object.keys(INK).forEach((k) => { INK_REV[INK[k]] = k; });
+  Object.keys(PILL).forEach((k) => { PILL_REV[PILL[k]] = k; });
+  // Lista os pontos de cor que o tema controla. `emDl` = estamos dentro de um bloco datalabels,
+  // único lugar onde backgroundColor é pílula de rótulo (fora dele é cor de série, intocável).
+  const coletar = (o, depth, out, emDl) => {
+    if (!o || typeof o !== 'object' || depth > 9) return;
+    for (const k of Object.keys(o)) {
+      let v;
+      try { v = o[k]; } catch (e) { continue; }        // getters do Chart.js podem lançar
+      const isBg = k === 'backgroundColor';
+      if (typeof v === 'string') {
+        if (emDl && isBg) {
+          if (PILL[v]) out.push({ o, k, light: v, dark: PILL[v] });
+          else if (PILL_REV[v]) out.push({ o, k, light: PILL_REV[v], dark: v });
+        } else if (!isBg && /color/i.test(k)) {
+          if (INK[v]) out.push({ o, k, light: v, dark: INK[v] });
+          else if (INK_REV[v]) out.push({ o, k, light: INK_REV[v], dark: v });
+        }
+      } else if (v && typeof v === 'object') coletar(v, depth + 1, out, emDl || k === 'datalabels');
+    }
+  };
+  Chart.register({
+    id: 'ocnThemeInk',
+    beforeInit(c) {
+      // aqui só o config CRU — nunca c.options, cujo proxy de resolução dispara opções
+      // scriptable durante a enumeração e quebra o gráfico antes do init
+      if (!isDark()) return;
+      try {
+        const cfg = c.config || {}, out = [];
+        coletar(cfg.options, 0, out, false);
+        ((cfg.data || {}).datasets || []).forEach((ds) => { if (ds && ds.datalabels) coletar(ds.datalabels, 0, out, true); });
+        out.forEach((x) => { x.o[x.k] = x.dark; });
+      } catch (e) { /* tema nunca pode derrubar um gráfico */ }
+    },
+  });
+  function applyTheme(dark) {
+    document.documentElement.classList.toggle('dark', dark);
+    Object.assign(Chart.defaults, dark ? DEF_DARK : DEF_LIGHT);
+    Object.assign(Chart.defaults.plugins.tooltip, dark ? TIP_DARK : TIP_LIGHT);
+    // Pós-init a varredura tem de ser nas options RESOLVIDAS: o Chart.js clona o config na
+    // criação, então mexer no objeto original depois disso não muda mais nada na tela. As escalas
+    // guardam a própria cópia (chart.scales[id].options), que é a que o desenhador lê.
+    Object.values(Chart.instances || {}).forEach((c) => {
+      try {
+        const out = [];
+        coletar(c.options, 0, out, false);
+        Object.values(c.scales || {}).forEach((s) => coletar(s.options, 0, out, false));
+        ((c.data || {}).datasets || []).forEach((ds) => { if (ds && ds.datalabels) coletar(ds.datalabels, 0, out, true); });
+        out.forEach((x) => { x.o[x.k] = dark ? x.dark : x.light; });
+        c.update('none');
+      } catch (e) { /* um gráfico problemático não pode travar a troca */ }
     });
   }
+  if (isDark()) applyTheme(true);   // no boot só ajusta os defaults (ainda não há gráfico algum)
 
   // Busca dados ao vivo da API; em falha, usa o snapshot fallback (data.js)
   (async function boot() {
@@ -84,19 +128,32 @@
   })();
 
   function start(OCN) {
-  // no escuro a cor "esperado" (quase preta) some no fundo — vira um cinza claro equivalente
-  const NAVY = DARK ? '#D6D9E0' : OCN.corEsperado;
+  // a cor "esperado" (#282728, quase preta) some no escuro — está no mapa INK, então o plugin
+  // de tema a clareia sozinho em qualquer gráfico, nos dois sentidos
+  const NAVY = OCN.corEsperado;
   // mostra a data da última atualização no header
   const hl = document.getElementById('hojeLabel');
   if (hl && OCN.atualizadoEm) hl.textContent = OCN.atualizadoEm;
-  // botão de modo escuro: troca a preferência e recarrega (os gráficos renascem no tema novo)
+  // botão de modo escuro: sol/lua desenhados em SVG (não dependem da fonte de ícones) + o estado
+  // escrito ao lado. Troca ao vivo — sem reload, então a aba/frota/placa aberta continua onde está.
   const themeBtn = document.getElementById('btnTheme');
   if (themeBtn) {
-    themeBtn.innerHTML = DARK ? '<i class="ti ti-sun"></i>' : '<i class="ti ti-moon"></i>';
-    themeBtn.title = DARK ? 'Switch to light mode' : 'Switch to dark mode';
+    const SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>';
+    const MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 14.6A8.6 8.6 0 1 1 9.4 3.5a6.9 6.9 0 0 0 11.1 11.1Z"/></svg>';
+    const paint = () => {
+      const d = isDark();
+      themeBtn.innerHTML = (d ? SUN : MOON) + '<span class="app-theme-txt">' + (d ? 'Light' : 'Dark') + '</span>';
+      themeBtn.title = d ? 'Switch to light mode' : 'Switch to dark mode';
+    };
+    paint();
     themeBtn.addEventListener('click', () => {
-      try { localStorage.setItem('ocn_theme', DARK ? 'light' : 'dark'); } catch (e) { /* sem storage */ }
-      location.reload();
+      const novo = !isDark();
+      try { localStorage.setItem('ocn_theme', novo ? 'dark' : 'light'); } catch (e) { /* sem storage */ }
+      // a transição só existe durante o clique: animar a página inteira o tempo todo custaria caro
+      document.documentElement.classList.add('theme-anim');
+      applyTheme(novo);
+      paint();
+      setTimeout(() => document.documentElement.classList.remove('theme-anim'), 300);
     });
   }
   // usuário logado + botão Sair
@@ -322,7 +379,7 @@
     const numCor = it.listrado ? '#282728' : it.cor;
     return `
     <div class="fleet-tile${it.valor === 0 ? ' is-zero' : ''}" style="background:${bg}">
-      <div class="fleet-tile-num" style="color:${numCor}">${it.valor}</div>
+      <div class="fleet-tile-num" style="--ink:${numCor}">${it.valor}</div>
       <div class="fleet-tile-label">${it.label}</div>
     </div>`;
   }).join('');

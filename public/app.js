@@ -1955,20 +1955,34 @@
     const V = U.vinculos || [];
     const JB = ((U.judBase || {}).placas) || {};
     const AMAX = 15;                                   // idades M0..M14 (contrato de 12 + cauda)
-    const HAZ_FLOOR = 0.005;                           // "nunca aconteceu em 58 casos" ≠ "impossível"
-    // ---- (a) curva de risco por idade do CONTRATO ----
-    const expo = new Array(AMAX).fill(0), evt = new Array(AMAX).fill(0);
+    // ---- (a) curva de risco por idade do CONTRATO + curva de TROCA DE MOTORISTA ----
+    // O contrato também acaba por outros motivos (rescisão do motorista, troca, perda total): 12
+    // casos medidos. Isso NÃO gera custo, mas devolve o carro para a rua com um motorista NOVO, que
+    // volta ao M0 e corre a curva de risco de novo. Sem essa realimentação o modelo assumia que
+    // quem passa do M3 fica seguro para sempre e a projeção despencava para ~15% do histórico.
+    const expo = new Array(AMAX).fill(0), evt = new Array(AMAX).fill(0), evtOut = new Array(AMAX).fill(0);
     const recs = [];
+    let mesesExpo = 0;
     V.forEach((v) => {
       const ini = new Date(v.ini + 'T12:00:00');
       const fim = v.fim ? new Date(v.fim + 'T12:00:00') : hoje;
       const idade = Math.max(0, (fim - ini) / MS / 30.44);
+      mesesExpo += idade;
       const isRec = !!(v.fim && /recupera/i.test(v.motivo || ''));
       for (let a = 0; a < AMAX; a++) if (idade >= a) expo[a]++;
-      if (isRec) { evt[Math.min(AMAX - 1, Math.floor(idade))]++; recs.push(v); }
+      const a0 = Math.min(AMAX - 1, Math.floor(idade));
+      if (isRec) { evt[a0]++; recs.push(v); }
+      else if (v.fim) evtOut[a0]++;                    // saiu sem ser recuperado
     });
-    // idade com pouca exposição não vira estatística — cai no piso
-    const hazard = expo.map((e, a) => (e >= 8 ? Math.max(HAZ_FLOOR, evt[a] / e) : HAZ_FLOOR));
+    // CREDIBILIDADE em vez de piso fixo: hazard = (eventos + k·p0) / (expostos + k). Idade com
+    // muita exposição fala por si; idade com pouca (ou nenhuma) é puxada para a média geral p0 —
+    // "zero em 58 casos" vira ~0,5%, mas "zero em 3 casos" não vira zero.
+    const K = 8;
+    const p0 = mesesExpo > 0 ? recs.length / mesesExpo : 0;
+    const nOut = V.filter((v) => v.fim && !/recupera/i.test(v.motivo || '')).length;
+    const p0out = mesesExpo > 0 ? nOut / mesesExpo : 0;
+    const hazard = expo.map((e, a) => (evt[a] + K * p0) / (e + K));
+    const hazardOut = expo.map((e, a) => (evtOut[a] + K * p0out) / (e + K));
     // ---- (c) custo do evento: recuperação + reparo, medidos nos casos reais ----
     let nR = 0, sR = 0, nP = 0, sP = 0;
     recs.forEach((v) => {
@@ -2031,42 +2045,43 @@
     // Devolve, para um conjunto de placas, as recuperações esperadas por semana a partir de hoje.
     const WK = 52 * 7 * MS;
     function esperadasPorSemana(plates, nSemanas) {
-      const hz = hazard.map((h) => 1 - Math.pow(1 - Math.min(.95, h), 1 / (52 / 12)));  // mensal -> semanal
+      const wk = (h) => 1 - Math.pow(1 - Math.min(.95, h), 1 / (52 / 12));   // mensal -> semanal
+      const hz = hazard.map(wk), hzOut = hazardOut.map(wk);
+      const idadeSem = (a) => Math.min(AMAX - 1, Math.floor(a / (52 / 12)));
       const out = new Array(nSemanas).fill(0);
       plates.forEach((pl) => {
         const v = ativos[pl];
         if (!v) return;                                   // carro sem contrato ativo não gera evento
         const r = fator[pl] != null ? fator[pl] : 1;
-        let cur = 1;                                       // massa do contrato ATUAL (com perfil r)
+        // massa do contrato ATUAL (perfil r) + contratos REINICIADOS por idade (perfil médio = 1)
+        let cur = 1;
         let ageCur = Math.max(0, (hoje - new Date(v.ini + 'T12:00:00')) / MS / 7);
-        const nw = new Array(60).fill(0);                  // contratos REINICIADOS (perfil médio = 1)
+        const nw = new Array(60).fill(0);
         for (let s = 0; s < nSemanas; s++) {
-          const aCur = Math.min(AMAX - 1, Math.floor(ageCur / (52 / 12)));
-          const recCur = cur * hz[aCur] * r;
-          let recNew = 0;
+          const aCur = idadeSem(ageCur);
+          const recCur = cur * hz[aCur] * r;              // recuperado: gera CUSTO e reinicia
+          const outCur = cur * hzOut[aCur];               // saiu por outro motivo: só reinicia
+          let rec = recCur, reinicia = recCur + outCur;
           for (let a = 0; a < nw.length; a++) {
             if (!nw[a]) continue;
-            recNew += nw[a] * hz[Math.min(AMAX - 1, Math.floor(a / (52 / 12)))];
+            const ia = idadeSem(a);
+            const rr = nw[a] * hz[ia], oo = nw[a] * hzOut[ia];
+            rec += rr; reinicia += rr + oo;
+            nw[a] -= rr + oo;
           }
-          const rec = recCur + recNew;
           out[s] += rec;
-          // avança as idades; quem foi recuperado (ou fechou 52 semanas) reinicia no M0
-          cur -= recCur; ageCur += 1;
-          let fechou = 0;
-          if (ageCur >= 52) { fechou += cur; cur = 0; }
-          for (let a = nw.length - 1; a > 0; a--) {
-            const h = hz[Math.min(AMAX - 1, Math.floor((a - 1) / (52 / 12)))];
-            nw[a] = nw[a - 1] * (1 - h);
-          }
+          cur -= recCur + outCur; ageCur += 1;
+          if (ageCur >= 52) { reinicia += cur; cur = 0; } // contrato completou 12 meses -> novo ciclo
+          for (let a = nw.length - 1; a > 0; a--) nw[a] = nw[a - 1];
           nw[0] = 0;
-          fechou += nw[nw.length - 1]; nw[nw.length - 1] = 0;
-          nw[0] += rec + fechou;                           // re-locação (mediana de 4 dias ≈ imediata)
+          reinicia += nw[nw.length - 1]; nw[nw.length - 1] = 0;
+          nw[0] += reinicia;                              // re-locação (mediana de 4 dias ≈ imediata)
         }
       });
       return out;
     }
-    _recModel = { hazard, expo, evt, costRec, costRep, pRep, nRecs: recs.length, baseRate,
-      taxaLate, taxaOk, nLate, nOk, fator, ativos, esperadasPorSemana,
+    _recModel = { hazard, hazardOut, expo, evt, evtOut, costRec, costRep, pRep, nRecs: recs.length,
+      baseRate, taxaLate, taxaOk, nLate, nOk, fator, ativos, esperadasPorSemana, p0, p0out,
       custoEvento: costRec + pRep * costRep };
     return _recModel;
   }
@@ -3387,7 +3402,7 @@
           { t: 'Subrental · Insurance · GPS · Prep · Sticker', src: 'UE boxes per fleet', upd: 'manual',
             d: 'The real per-fleet boxes of the Unit Economics, each on its own schedule — sub-rental always on the 26th (12 installments from the month after delivery), insurance split in N installments, GPS at M0 + monthly, preparation and sticker at M0.' },
           { t: 'Recovery · Repair cost', src: 'import_jud', upd: 'auto',
-            d: 'REALIZED comes from the import_jud sheet by event date: towing + recovery on one line, damages + cleaning + others on the other. PROJECTED does NOT use a flat rate — repossession is an event of the CONTRACT, not of the car. Measured on the 23 real cases: the risk is 2,0% in the contract month M0, 6,0% in M1, 6,3% in M2 and zero from M3 on (58 contracts already passed that age with no case), median 1,6 month. So each active car walks its own driver risk curve week by week, weighted by that driver profile — a late 2nd weekly payment took 32% of contracts to repossession against 8% of the punctual ones, each extra fine per month multiplies the odds by 2,46, more km/week lowers them — all normalised so the fleet average still reproduces the observed rate. Whoever is repossessed returns at M0 with a NEW driver (22 of 23 cars were re-rented in a median of 4 days), which feeds the cycle. Every expected event books BOTH costs at once: the average repossession cost and, in 78% of the cases, the average repair cost — because in real life one follows the other.' },
+            d: 'REALIZED comes from the import_jud sheet by event date: towing + recovery on one line, damages + cleaning + others on the other. PROJECTED does NOT use a flat rate — repossession is an event of the CONTRACT, not of the car. Measured on the 23 real cases: the risk is 2,0% in the contract month M0, 6,0% in M1, 6,3% in M2 and near zero from M3 on (58 contracts already passed that age with no case), median 1,6 month. Ages with thin data are not taken literally: each one is shrunk towards the overall rate in proportion to how many contracts actually reached it. So each active car walks its own driver risk curve week by week, weighted by that driver profile — a late 2nd weekly payment took 32% of contracts to repossession against 8% of the punctual ones, each extra fine per month multiplies the odds by 2,46, more km/week lowers them — all normalised so the fleet average still reproduces the observed rate. The clock RESTARTS whenever the car changes driver — after a repossession (22 of 23 cars were re-rented in a median of 4 days), after the driver hands the car back, or when the 12-month contract closes. Every new driver re-enters the M0–M2 risk window, and this turnover is what keeps the cost recurring: without it the model would wrongly assume a car past M3 is safe forever. Every expected event books BOTH costs at once: the average repossession cost and, in 78% of the cases, the average repair cost — because in real life one follows the other.' },
           { t: 'Part Replacement', src: 'Fleet site + ⚙ Parts panel', upd: 'auto',
             d: 'Real events from the fleet site (natural wear only — atypical damage is charged to the client). Future replacements come from each plate’s km pace against the intervals and costs set in the ⚙ Parts panel.' },
         ]},
@@ -6454,7 +6469,7 @@
         if (ageBox) ageBox.style.display = '';
         if (inds) { inds.innerHTML = ''; inds.style.display = 'none'; }
         document.getElementById('ccAgeT').textContent = 'Recovery cost composition';
-        costsAgeHelp2 = { t: 'Recovery cost composition', d: 'The realized recovery spend of each month, split into its two components: TOWING (getting the car physically back) and RECOVERY (the legal/operational cost of taking it). Only true repossessions enter here — the judicial base also carries returns and total losses, which are filtered out by the event type column. In the full-year view the HATCHED bars are the FORECAST — and it is NOT a flat rate. Repossession is an event of the CONTRACT, not of the car: measured over the 23 real cases, the risk is 2,0% in the contract\'s month 0, 6,0% in M1, 6,3% in M2 and ZERO from M3 on (58 contracts have already passed that age untouched) — whoever survives the first three months paying keeps paying. So every active car walks its own driver\'s risk curve, week by week, weighted by that driver\'s profile: a late 2nd weekly payment took 32% of contracts to repossession against 8% of the punctual ones, each extra fine per month multiplies the odds by 2,46 and more km/week lowers them — all normalised so the fleet average still reproduces the observed rate. Whoever is repossessed comes back at M0 with a NEW driver (22 of the 23 cars were re-rented in a median of 4 days), which feeds the cycle forward. Each expected event books the average repossession cost, split into towing and recovery in the historical proportion.' };
+        costsAgeHelp2 = { t: 'Recovery cost composition', d: 'The realized recovery spend of each month, split into its two components: TOWING (getting the car physically back) and RECOVERY (the legal/operational cost of taking it). Only true repossessions enter here — the judicial base also carries returns and total losses, which are filtered out by the event type column. In the full-year view the HATCHED bars are the FORECAST — and it is NOT a flat rate. Repossession is an event of the CONTRACT, not of the car: measured over the 23 real cases, the risk is 2,0% in the contract\'s month 0, 6,0% in M1, 6,3% in M2 and near zero from M3 on (58 contracts have already passed that age untouched; ages with thin data are shrunk towards the overall rate instead of being taken literally) — whoever survives the first three months paying keeps paying. So every active car walks its own driver\'s risk curve, week by week, weighted by that driver\'s profile: a late 2nd weekly payment took 32% of contracts to repossession against 8% of the punctual ones, each extra fine per month multiplies the odds by 2,46 and more km/week lowers them — all normalised so the fleet average still reproduces the observed rate. The clock RESTARTS on every driver change — repossession (22 of the 23 cars were re-rented in a median of 4 days), hand-back by the driver, or the end of the 12-month contract. Each new driver re-enters the M0–M2 risk window, and this turnover is what keeps the cost recurring: without it the model would wrongly assume a car past M3 is safe forever. Each expected event books the average repossession cost, split into towing and recovery in the historical proportion.' };
         const RD2 = recoveryData();
         const hojeIso3 = (OCN.ue && OCN.ue.hoje) || new Date().toISOString().slice(0, 10);
         const gM = new Array(FIN_MONTHS).fill(0), rM = new Array(FIN_MONTHS).fill(0);
@@ -8294,7 +8309,7 @@
           { t: 'Traffic fines (outflow)', src: 'multas_consolidado', upd: 'auto',
             d: 'What we pay LM: the NET fine (column O, about 80% of the gross) × 1.05, on our due date. The margin of the fines business comes from this asymmetry — we charge over the gross and pay over the net, roughly 26% on the current numbers.' },
           { t: 'Recovery / Repair cost', src: 'import_jud', upd: 'auto',
-            d: 'REALIZED comes from the import_jud sheet by event date: towing + recovery on one line, damages + cleaning + others on the other. PROJECTED does NOT use a flat rate — repossession is an event of the CONTRACT, not of the car. Measured on the 23 real cases: the risk is 2,0% in the contract month M0, 6,0% in M1, 6,3% in M2 and zero from M3 on (58 contracts already passed that age with no case), median 1,6 month. So each active car walks its own driver risk curve week by week, weighted by that driver profile — a late 2nd weekly payment took 32% of contracts to repossession against 8% of the punctual ones, each extra fine per month multiplies the odds by 2,46, more km/week lowers them — all normalised so the fleet average still reproduces the observed rate. Whoever is repossessed returns at M0 with a NEW driver (22 of 23 cars were re-rented in a median of 4 days), which feeds the cycle. Every expected event books BOTH costs at once: the average repossession cost and, in 78% of the cases, the average repair cost — because in real life one follows the other.' },
+            d: 'REALIZED comes from the import_jud sheet by event date: towing + recovery on one line, damages + cleaning + others on the other. PROJECTED does NOT use a flat rate — repossession is an event of the CONTRACT, not of the car. Measured on the 23 real cases: the risk is 2,0% in the contract month M0, 6,0% in M1, 6,3% in M2 and near zero from M3 on (58 contracts already passed that age with no case), median 1,6 month. Ages with thin data are not taken literally: each one is shrunk towards the overall rate in proportion to how many contracts actually reached it. So each active car walks its own driver risk curve week by week, weighted by that driver profile — a late 2nd weekly payment took 32% of contracts to repossession against 8% of the punctual ones, each extra fine per month multiplies the odds by 2,46, more km/week lowers them — all normalised so the fleet average still reproduces the observed rate. The clock RESTARTS whenever the car changes driver — after a repossession (22 of 23 cars were re-rented in a median of 4 days), after the driver hands the car back, or when the 12-month contract closes. Every new driver re-enters the M0–M2 risk window, and this turnover is what keeps the cost recurring: without it the model would wrongly assume a car past M3 is safe forever. Every expected event books BOTH costs at once: the average repossession cost and, in 78% of the cases, the average repair cost — because in real life one follows the other.' },
           { t: 'Part Replacement', src: 'Fleet events + ⚙ Parts panel', upd: 'mix',
             d: 'Realized from the fleet site events, counting natural wear only (atypical damage is charged to the client). Projected from each plate’s km pace against the intervals and costs set in the ⚙ Parts panel.' },
           { t: 'Insurance · GPS · Deposit · Vehicle Purchase', src: '✎ boxes', upd: 'man',

@@ -7360,6 +7360,23 @@
     // movimentação de capital. Valores em USD (mesma base do Costs); moeda de exibição via K.
     let unitSort = 'delta', unitFleet = null, _unitCache = null;
     let unitPlateSel = null;   // placa aberta no drill do "Per car" (null = nenhuma)
+    // linha horizontal de referência CHEIA + rótulo numa pílula opaca encostada à direita.
+    // Texto solto sobre as barras é ilegível; a pílula garante contraste em qualquer fundo.
+    function chartPillLine(ctx, area, y, cor, texto) {
+      const fam = (Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif';
+      ctx.save();
+      ctx.strokeStyle = cor; ctx.lineWidth = 1.8;
+      ctx.beginPath(); ctx.moveTo(area.left, y); ctx.lineTo(area.right, y); ctx.stroke();
+      ctx.font = '800 10px ' + fam;
+      const w = ctx.measureText(texto).width + 14, h = 17;
+      const x = area.right - w - 4, yy = y - h / 2;
+      ctx.fillStyle = cor;
+      if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x, yy, w, h, 9); ctx.fill(); }
+      else ctx.fillRect(x, yy, w, h);
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(texto, x + w / 2, y + .5);
+      ctx.restore();
+    }
     function unitData() {
       if (_unitCache) return _unitCache;
       const U = OCN.ue || {}, MS = 86400000, MESd = UET_WPM * 7;
@@ -7373,6 +7390,12 @@
         Parts: costsAgeProfile('Part Replacement'),
       };
       const pc = { pastilhas: cpar('__part_pastilhas_rs__', 250), disco: cpar('__part_disco_rs__', 350), pneus: cpar('__part_pneus_rs__', 700) };
+      // motorista ATUAL de cada placa (vínculo em aberto; sem ele, o último que devolveu)
+      const drvNow = {}, drvLast = {};
+      (U.vinculos || []).forEach((v) => {
+        if (!v.fim) drvNow[v.placa] = v.nome;
+        else if (!drvLast[v.placa] || v.fim > drvLast[v.placa].fim) drvLast[v.placa] = { nome: v.nome, fim: v.fim };
+      });
       const out = [];
       (U.fleets || []).forEach((f) => {
         if (!f.inicio) return;
@@ -7446,7 +7469,8 @@
             rMo = fv > 0 ? Math.pow(fv / inv, 1 / ageM) - 1 : -1;
           }
           out.push({ pl, fleet: f.id, ageM, real, bud, delta: real - bud, rev: rev / fx, cost: (ev + sched) / fx, inv, rMo,
-            model: f.modelLabel || f.model });
+            model: f.modelLabel || f.model,
+            driver: drvNow[pl] || (drvLast[pl] ? drvLast[pl].nome : null), semMotorista: !drvNow[pl] });
         });
       });
       _unitCache = out;
@@ -7519,20 +7543,35 @@
         footerFont: { size: 10.5, weight: 700 }, titleMarginBottom: 8, footerMarginTop: 8,
         displayColors: false, boxPadding: 4,
         callbacks: {
-          title: (items) => { const r = rows[items[0].dataIndex]; return r.pl; },
-          beforeBody: (items) => { const r = rows[items[0].dataIndex]; return `Fleet ${r.fleet} · ${r.model} · M${r.ageM.toFixed(1)} of 13`; },
+          // título = placa + o número que o gráfico é sobre, em destaque (a fonte do título é a
+          // maior da caixa); o motorista vem logo abaixo, que é quem responde pelo carro
+          title: (items) => { const r = rows[items[0].dataIndex]; return r.pl + '   ' + sinal(r.real); },
+          beforeBody: (items) => { const r = rows[items[0].dataIndex];
+            const nome = r.driver ? (r.driver.split(' ').slice(0, 3).join(' ') + (r.semMotorista ? ' (returned)' : '')) : 'no driver';
+            return [nome, `Fleet ${r.fleet} · ${r.model} · M${r.ageM.toFixed(1)} of 13`]; },
           label: (c) => { const r = rows[c.dataIndex]; return [
             'Cash in      ' + money(r.rev),
             'Cash out     ' + money(r.cost),
-            'Return       ' + sinal(r.real),
             'Budget       ' + mNeg(r.bud),
             'Monthly rate ' + taxa(r.rMo),
           ]; },
+          // corpo em cinza de apoio: o número em destaque é o do título (fonte maior)
+          labelTextColor: () => '#C7CBD4',
           footer: (items) => { const r = rows[items[0].dataIndex];
             return (r.delta >= 0 ? '▲ ' : '▼ ') + sinal(r.delta) + ' vs budget · click to open the full statement'; },
         } };
       const thin = { maxBarThickness: 9, barPercentage: .92, categoryPercentage: .95 };
-      document.getElementById('unitRetHint').textContent = rows.length + ' cars · click one to open its full statement';
+      // LEGENDA em HTML no cabeçalho: a do Chart.js caía embaixo do gráfico, com bolinhas grandes
+      // e sem a linha da média. Aqui ela fica junto do título, discreta e completa.
+      const medRet = rows.length ? rows.reduce((s, r) => s + r.real, 0) / rows.length : 0;
+      document.getElementById('unitRetHint').innerHTML =
+        `<span class="cc-leg">` +
+          `<i class="cc-leg-i"><span class="sw sw-up"></span>above budget</i>` +
+          `<i class="cc-leg-i"><span class="sw sw-dn"></span>below budget</i>` +
+          `<i class="cc-leg-i"><span class="sw sw-dash"></span>budget at each car's age</i>` +
+          `<i class="cc-leg-i"><span class="sw sw-avg"></span>average ${escH(ccK(medRet * K))}</i>` +
+        `</span>` +
+        `<b class="cc-leg-n">${rows.length} cars · click one to open it</b>`;
       // gradiente vertical em cada cor: a barra ganha profundidade sem virar arco-íris
       const grad = (ctx, hexTopo, hexBase) => {
         const a = ctx.chart.chartArea; if (!a) return hexTopo;
@@ -7550,8 +7589,9 @@
             // a placa aberta ganha contorno escuro: acha-se ela no meio de 170 barras
             borderColor: rows.map((r) => (r.pl === unitPlateSel ? '#2E1065' : 'transparent')),
             borderWidth: rows.map((r) => (r.pl === unitPlateSel ? 1.5 : 0)) }, thin),
+          // ORÇADO: tracejado largo, cinza-azulado e fino — é uma referência de fundo
           { type: 'line', label: 'Budget at each car\'s age', data: rows.map((r) => Math.round(r.bud * K)),
-            borderColor: '#1F2937', borderDash: [5, 4], borderWidth: 1.8, pointRadius: 0, tension: 0, order: 0 },
+            borderColor: 'rgba(71,85,105,.75)', borderDash: [7, 5], borderWidth: 1.4, pointRadius: 0, tension: 0, order: 0 },
         ] },
         // faixa de fundo separando lucro de prejuízo + marcação da média da carteira
         plugins: [{ id: 'unitBands', beforeDatasetsDraw(ch) {
@@ -7564,16 +7604,17 @@
             ctx.strokeStyle = 'rgba(31,41,55,.35)'; ctx.lineWidth = 1;
             ctx.beginPath(); ctx.moveTo(a.left, y0); ctx.lineTo(a.right, y0); ctx.stroke();
           }
-          const med = rows.length ? rows.reduce((s, r) => s + r.real, 0) / rows.length * K : null;
-          if (med != null) { const ym = y.getPixelForValue(med);
-            if (ym > a.top + 12 && ym < a.bottom) {
-              ctx.strokeStyle = '#5A00F8'; ctx.setLineDash([2, 3]); ctx.lineWidth = 1.4;
-              ctx.beginPath(); ctx.moveTo(a.left, ym); ctx.lineTo(a.right, ym); ctx.stroke(); ctx.setLineDash([]);
-              ctx.font = '800 9.5px ' + ((Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif');
-              ctx.fillStyle = '#5A00F8'; ctx.textAlign = 'left';
-              ctx.fillText('average ' + ccK(med), a.left + 5, ym - 5);
-            } }
           ctx.restore();
+        } },
+        // MÉDIA: linha CHEIA roxa, desenhada por cima das barras, com o rótulo numa pílula opaca
+        // encostada à direita. Antes era tracejada igual ao orçado (as duas se confundiam) e o
+        // texto ficava solto à esquerda, por baixo das barras, ilegível.
+        { id: 'unitAvg', afterDatasetsDraw(ch) {
+          const { ctx, chartArea: a, scales: { y } } = ch; if (!a || !y || !rows.length) return;
+          const med = rows.reduce((s, r) => s + r.real, 0) / rows.length * K;
+          const ym = y.getPixelForValue(med);
+          if (!(ym > a.top + 8 && ym < a.bottom - 4)) return;
+          chartPillLine(ctx, a, ym, '#5A00F8', 'average ' + ccK(med));
         } }],
         options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
           onClick: (e, els, ch) => {
@@ -7585,7 +7626,7 @@
             renderUnit();
           },
           onHover: (e, els, ch) => { e.native.target.style.cursor = 'pointer'; },
-          plugins: { legend: { position: 'bottom', align: 'start', labels: CC_LEG }, datalabels: { display: false }, tooltip: tip },
+          plugins: { legend: { display: false }, datalabels: { display: false }, tooltip: tip },
           scales: { x: { display: false }, y: { grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } } } } });
       renderUnitPlate(rows);
       // ---- TAXA MENSAL por placa: (FV/PV)^(1/n) − 1, capital empatado × caixa devolvido ----
@@ -7616,15 +7657,13 @@
             ctx.strokeStyle = 'rgba(31,41,55,.35)'; ctx.lineWidth = 1;
             ctx.beginPath(); ctx.moveTo(a.left, y0); ctx.lineTo(a.right, y0); ctx.stroke();
           }
-          if (medTaxa != null) { const ym = y.getPixelForValue(medTaxa * 100);
-            if (ym > a.top + 12 && ym < a.bottom) {
-              ctx.strokeStyle = '#5A00F8'; ctx.setLineDash([2, 3]); ctx.lineWidth = 1.4;
-              ctx.beginPath(); ctx.moveTo(a.left, ym); ctx.lineTo(a.right, ym); ctx.stroke(); ctx.setLineDash([]);
-              ctx.font = '800 9.5px ' + ((Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif');
-              ctx.fillStyle = '#5A00F8'; ctx.textAlign = 'left';
-              ctx.fillText('fleet average ' + taxa(medTaxa), a.left + 5, ym - 5);
-            } }
           ctx.restore();
+        } },
+        { id: 'rateAvg', afterDatasetsDraw(ch) {
+          const { ctx, chartArea: a, scales: { y } } = ch; if (!a || !y || medTaxa == null) return;
+          const ym = y.getPixelForValue(medTaxa * 100);
+          if (!(ym > a.top + 8 && ym < a.bottom - 4)) return;
+          chartPillLine(ctx, a, ym, '#5A00F8', 'average ' + taxa(medTaxa));
         } }],
         options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
           onClick: (e, els, ch) => {
@@ -7664,7 +7703,9 @@
       box.innerHTML =
         `<div class="costs-chart up-box" style="margin-top:14px">` +
           `<div class="cc-head"><h4>${escH(r.pl)} — Unit Economics</h4>` +
-            `<span class="cc-hint">Fleet ${escH(String(r.fleet))} · <b>${escH(r.model || '')}</b> · M${r.ageM.toFixed(1)} of the contract</span>` +
+            `<span class="cc-hint">` +
+              (r.driver ? `<b class="up-driver">${escH(r.driver)}</b>${r.semMotorista ? ' <em>(car returned)</em>' : ''} · ` : '<em>no driver</em> · ') +
+              `Fleet ${escH(String(r.fleet))} · <b>${escH(r.model || '')}</b> · M${r.ageM.toFixed(1)} of the contract</span>` +
             `<button type="button" class="ccl-btn" id="upClose">Close</button></div>` +
           `<div class="up-chips">` +
             chip('Return so far', money(r.real), r.real >= 0 ? 'up' : 'down') +

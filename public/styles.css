@@ -1850,3 +1850,18 @@ html.dark .up-chip.down b { color: #FCA5A5; }
 
 /* ---- Unit: tooltip em fonte monoespaçada para os números alinharem em coluna ---- */
 #unitRet, #unitDelta { cursor: pointer; }
+
+/* ---- legenda em HTML dentro do cabeçalho do gráfico (Unit) ---- */
+.cc-leg { display: inline-flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.cc-leg-i { display: inline-flex; align-items: center; gap: 5px; font-style: normal;
+  font-size: 10.5px; font-weight: 600; color: var(--text-2); white-space: nowrap; }
+.cc-leg .sw { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+.cc-leg .sw-up { background: linear-gradient(180deg, #34D399, #047857); }
+.cc-leg .sw-dn { background: linear-gradient(180deg, #F87171, #B91C1C); }
+.cc-leg .sw-dash { width: 16px; height: 0; border-radius: 0; border-top: 1.4px dashed rgba(71,85,105,.9); }
+.cc-leg .sw-avg { width: 16px; height: 0; border-radius: 0; border-top: 2px solid #5A00F8; }
+.cc-leg-n { margin-left: 12px; font-size: 10.5px; font-weight: 700; color: var(--text-3); white-space: nowrap; }
+html.dark .cc-leg .sw-dash { border-top-color: rgba(148,163,184,.9); }
+html.dark .cc-leg .sw-avg { border-top-color: #B49BFF; }
+.up-driver { color: var(--text); font-weight: 700; }
+.up-box .cc-hint em { font-style: normal; color: var(--text-3); }

@@ -2446,14 +2446,21 @@
       const rT = Math.pow((invested + netTot) / invested, 1 / PMAX) - 1;
       terminal = { m: rT, a: Math.pow(1 + rT, 12) - 1 };
     }
+    // ORDEM DE LEITURA: a taxa SIMPLES vem primeiro e grande — é a que se compara com qualquer
+    // outra aplicação sem precisar de ressalva. A TIR fica ao lado, menor: ela é maior porque
+    // embute reinvestir cada mensalidade à própria taxa, hipótese que a operação não cumpre
+    // (não dá para comprar um pedaço de carro toda semana).
     return `<div class="irr-panel${good ? '' : ' neg'}">` +
         `<div class="irr-main">` +
-          `<div class="irr-kpi"><span class="irr-lbl">Monthly IRR</span><b class="irr-big">${pct(rM)}</b><span class="irr-sub">per UE month (4.33 weeks)</span></div>` +
-          `<div class="irr-sep"></div>` +
-          `<div class="irr-kpi"><span class="irr-lbl">Annual IRR</span><b class="irr-big irr-year">${pct(rA)}</b><span class="irr-sub">(1 + monthly)<sup>12</sup> − 1</span></div>` +
-          (terminal ? `<div class="irr-sep"></div>` +
-            `<div class="irr-kpi irr-kpi-alt"><span class="irr-lbl">Simple annualized</span><b class="irr-big">${pct(terminal.a)}</b>` +
-            `<span class="irr-sub">(FV/PV)<sup>1/n</sup> − 1 · ignores the timing</span></div>` : '') +
+          (terminal
+            ? `<div class="irr-kpi"><span class="irr-lbl">Simple monthly</span><b class="irr-big">${pct(terminal.m)}</b><span class="irr-sub">(FV/PV)<sup>1/n</sup> − 1 · no reinvestment assumed</span></div>` +
+              `<div class="irr-sep"></div>` +
+              `<div class="irr-kpi"><span class="irr-lbl">Simple annualized</span><b class="irr-big irr-year">${pct(terminal.a)}</b><span class="irr-sub">(1 + simple monthly)<sup>12</sup> − 1</span></div>` +
+              `<div class="irr-sep"></div>` +
+              `<div class="irr-kpi irr-kpi-alt"><span class="irr-lbl">Monthly IRR</span><b class="irr-big">${pct(rM)}</b><span class="irr-sub">${pct(rA)} a year · weighs the timing</span></div>`
+            : `<div class="irr-kpi"><span class="irr-lbl">Monthly IRR</span><b class="irr-big">${pct(rM)}</b><span class="irr-sub">per UE month (4.33 weeks)</span></div>` +
+              `<div class="irr-sep"></div>` +
+              `<div class="irr-kpi"><span class="irr-lbl">Annual IRR</span><b class="irr-big irr-year">${pct(rA)}</b><span class="irr-sub">(1 + monthly)<sup>12</sup> − 1</span></div>`) +
         `</div>` +
         `<div class="irr-side">` +
           `<div class="irr-gauge"><div class="irr-gauge-track"><span class="irr-gauge-zero" style="left:${(10 / (gTop + 10) * 100).toFixed(1)}%"></span>` +
@@ -2466,7 +2473,7 @@
             `<div><span>Payback</span><b>${payback == null ? 'not reached' : 'M' + payback}</b></div>` +
           `</div>` +
           `<div class="irr-why irr-note">` +
-            (terminal ? `The two rates answer different questions. SIMPLE ANNUALIZED is (FV/PV)<sup>1/n</sup> − 1: it only looks at ${money(invested)} going in and ${money(invested + netTot)} coming out over ${PMAX} months, as if the cash all landed at the end. The IRR also weighs WHEN each real does it — and here it comes back every month, with payback at M${payback == null ? '—' : payback}, so the same money is worth more and the rate is higher. Neither is wrong; the IRR is the standard one, the simple rate is the floor. ` : '') +
+            (terminal ? `SIMPLE is the headline on purpose: ${money(invested)} in, ${money(invested + netTot)} out over ${PMAX} months, compounded — no assumption about what happens to the cash in between, so it compares directly with any other investment. The IRR is higher (${pct(rM)} a month) because it assumes every instalment is put back to work at that same rate, and the operation cannot do that: there is no way to buy a slice of a car every week. Read the IRR as the ceiling and the simple rate as what the car actually delivers. Payback lands at M${payback == null ? '—' : payback}. ` : '') +
             nota.trim() + `</div>` +
         `</div>` +
       `</div>`;
@@ -4994,8 +5001,9 @@
     const COSTS_HELP = {
       pareto: { t: 'Pareto — where the COGS money goes', d: 'Every vehicle cost line sorted biggest first (each in its own colour), with the cumulative share on the right axis. Where the curve crosses the dashed 80% guide tells you how few lines concentrate almost all the cost — those are the ones worth negotiating; everything after the crossing is operational noise. CLICK any bar to open that line below, month by month and split by fleet.' },
       share: { t: 'Share of COGS by month', d: 'Each month as 100%: how much of that month\'s vehicle cost each line represents — the five biggest lines in their own colours, the rest grouped as grey "Others". Months ahead of today are the PROJECTION and render lighter (the tooltip also says "projected"). Watch for a line quietly growing its slice as the fleet ramps: absolute values always grow with more cars, but the SHARE only grows when the line outpaces the others.' },
-      u_ret: { t: 'Return per car — vs its budget', d: 'One thin bar per plate: everything the car has brought in since delivery (subscriptions received, interest, fines charged to the client) minus everything it has cost (sub-rental, insurance accrued to date, GPS, preparation, sticker, maintenance, fines paid, recovery, repair, parts). Security deposit and its refund are OUT — they are cash parked, not result — and so are the car purchase/sale and termination fees. The dashed line is each car\'s BUDGET at its current age: what its fleet\'s contractual economics (weekly fee, rent, insurance, GPS) plus the pooled event rates (fines, maintenance, recovery, repair, parts by car age) say it should have accumulated by now. GREEN bars are at or above budget, RED are below. Cars of different fleets have different ages, so bars are not directly comparable to each other — always compare each bar to the dashed line at its position.' },
-      u_delta: { t: 'Delta vs budget per car', d: 'The same data as the chart above, reduced to one number per car: realized return minus the budget for its age. Positive (green, up) = the car is ahead of plan; negative (red, down) = behind. This is the chart to scan for problem cars — the deepest red bars are the plates bleeding most against expectation, whatever their age.' },
+      u_ret: { t: 'Return — each car against its budget', d: 'One thin bar per plate, and clicking any of them opens that car\'s full statement below. The tinted bands separate the cars in the black from the ones in the red, and the dotted purple line is the fleet average. Each bar is everything the car has brought in since delivery (subscriptions received, interest, fines charged to the client) minus everything it has cost (sub-rental, insurance accrued to date, GPS, preparation, sticker, maintenance, fines paid, recovery, repair, parts). Security deposit and its refund are OUT — they are cash parked, not result — and so are the car purchase/sale and termination fees. The dashed line is each car\'s BUDGET at its current age: what its fleet\'s contractual economics (weekly fee, rent, insurance, GPS) plus the pooled event rates (fines, maintenance, recovery, repair, parts by car age) say it should have accumulated by now. GREEN bars are at or above budget, RED are below. Cars of different fleets have different ages, so bars are not directly comparable to each other — always compare each bar to the dashed line at its position, or use the "Monthly rate" chart below, which puts every car on the same scale.' },
+      u_ret_old: { t: 'Return per car — vs its budget', d: 'One thin bar per plate: everything the car has brought in since delivery (subscriptions received, interest, fines charged to the client) minus everything it has cost (sub-rental, insurance accrued to date, GPS, preparation, sticker, maintenance, fines paid, recovery, repair, parts). Security deposit and its refund are OUT — they are cash parked, not result — and so are the car purchase/sale and termination fees. The dashed line is each car\'s BUDGET at its current age: what its fleet\'s contractual economics (weekly fee, rent, insurance, GPS) plus the pooled event rates (fines, maintenance, recovery, repair, parts by car age) say it should have accumulated by now. GREEN bars are at or above budget, RED are below. Cars of different fleets have different ages, so bars are not directly comparable to each other — always compare each bar to the dashed line at its position.' },
+      u_irr: { t: 'Monthly rate per car', d: 'What each car is actually yielding per month on the money tied up in it. CAPITAL TIED is the cash that had to leave to put that car on the street: the sub-rental deposit, the FULL insurance premium (the policy is signed once and covers the 12 months, so paying it in instalments is financing, not optionality), plus preparation, sticker and the GPS install. RETURNED is everything the car has brought in minus everything it has cost since delivery. The rate is (capital + returned) ÷ capital, compounded down to one month — the same "simple monthly" formula the panel above highlights, so a car three months old and a car ten months old sit on the same scale. It deliberately makes no assumption about reinvesting the monthly cash, which is why it reads lower than a textbook IRR and is the honest number to compare against any other investment. Cars under half a month of life have no bar (too little history to annualise). A car that has already burned more than its capital shows −100%: there is no real root beyond that, and the reading is simply that the money put into it is gone. The dashed purple line is the fleet average and the grey band below zero marks the cars destroying capital. Click any bar to open that car\'s full statement.' },
       drill: { t: 'Monthly by fleet', d: 'The line you clicked on the Pareto, month by month, stacked by REAL fleet — each fleet in its own colour. This is realized data only (schedules and imported bases per plate); the projection lives in the plan and has no fleet concept. The big number is the average cost per active car per month across the fleets shown, computed over the realized window.' },
       ins: { t: 'Is the insurance paying for itself?', d: 'ACCRUED, NOT PAID. The premium is disbursed in about four installments at the start of each fleet, but it covers the full 12 months of the contract. Comparing the cash of a period against the claims of that same period mismatches the two: a fleet that started in june carries almost all of its cash in 2026 while half of its coverage runs into 2027. So each fleet\'s premium is spread pro-rata, day by day, across its 365 days of coverage, and every month is charged only the risk it actually ran. The footer shows both numbers side by side. CLAIMS are the fleet-site occurrences flagged with a sinistro in the period — collisions, window damage and total loss; mechanical failures never trigger it. BREAK-EVEN PER CLAIM is the accrued premium divided by the number of claims: how much each occurrence would have to cost us out of pocket for "having insurance" and "not having it" to come out the same. The SAVING compares the two worlds: each claim CATEGORY has its own slider (a broken window and a written-off car cost nothing alike), so the out-of-pocket world is the sum of each category\'s claim count × the average cost you set for it — against the accrued premium. We have no workshop quote per occurrence, so the averages are your input. Green means insurance saved money, red means it cost more than the damage would have.' },
       filters: { t: 'View filters', d: 'Everything in this tab is built from the fleets that exist TODAY — realized up to the current month, then each fleet carried to the end of its own 12-month contract. No new fleet enters the projection, so the numbers answer what the current operation costs rather than what a bigger fleet would cost. The calendar picks the period: FULL YEAR is realized plus that projection, YEAR TO DATE stops at the current month, and a single month isolates it (the current month shows its realized value alone). The fleet selector narrows everything to one real fleet.' },
@@ -7413,6 +7421,11 @@
         sched += premCar * Math.min(365, Math.max(0, (hoje - ini) / MS)) / 365;
         const gpsM = par('__gps_mensal__');
         if (gpsM > 0) for (let n2 = 1; n2 <= 12; n2++) { const d = new Date(ini.getTime() + (n2 - 0.5) * MESd * MS); if (d <= hoje) sched += gpsM; }
+        // ---- CAPITAL EMPATADO por carro (base da taxa mensal) ----
+        // Mesma régua do painel de TIR: calção + prêmio INTEIRO do seguro (compromisso assinado de
+        // uma vez) + preparação, adesivo e instalação do GPS. É o que sai do caixa para o carro ir
+        // para a rua — e é sobre isso que a rentabilidade mensal de cada placa é medida.
+        const investCar = (par('__num_alugueis__') * subr) + (IRu ? (IRu.total / Math.max(1, f.cars || (f.placas || []).length || 1)) : par('__ins_total__')) + 50 + 15 + par('__gps_m0__');
         (f.placas || []).forEach((pl) => {
           let rev = 0, ev = 0;
           ((((U.pagamentos || {}).placas) || {})[pl] || []).forEach((s) => { rev += s.r != null ? s.r : (s.e != null ? s.e : 0); });
@@ -7422,7 +7435,18 @@
           ((((U.judBase || {}).placas) || {})[pl] || []).forEach((c) => { ev += (c.recovery || 0) + (c.repair || 0); });
           ((((U.reposicao || {}).placas) || {})[pl] || []).forEach((e2) => { (e2.itens || []).forEach((it) => { if (pc[it]) ev += pc[it]; }); });
           const real = (rev - ev - sched) / fx;
-          out.push({ pl, fleet: f.id, ageM, real, bud, delta: real - bud, rev: rev / fx, cost: (ev + sched) / fx });
+          // ---- TAXA MENSAL da placa: (FV/PV)^(1/n) − 1, a mesma fórmula que o painel destaca ----
+          // PV = capital empatado; FV = capital + caixa que o carro já devolveu; n = meses de vida.
+          // Carro que já torrou o capital (FV ≤ 0) não tem raiz real: marca −100% e o gráfico o
+          // mostra no fundo da escala, que é a leitura correta — perdeu o que foi posto nele.
+          const inv = investCar / fx;
+          let rMo = null;
+          if (inv > 0 && ageM >= .5) {
+            const fv = inv + real;
+            rMo = fv > 0 ? Math.pow(fv / inv, 1 / ageM) - 1 : -1;
+          }
+          out.push({ pl, fleet: f.id, ageM, real, bud, delta: real - bud, rev: rev / fx, cost: (ev + sched) / fx, inv, rMo,
+            model: f.modelLabel || f.model });
         });
       });
       _unitCache = out;
@@ -7481,17 +7505,76 @@
       // ---- gráficos: barras fininhas, tooltip com o dossiê do carro ----
       const mk = (id, cfg) => { if (costsCharts[id]) { costsCharts[id].destroy(); delete costsCharts[id]; } const c = document.getElementById(id); if (!c) return; costsCharts[id] = new Chart(c.getContext('2d'), cfg); };
       const labels = rows.map((r) => r.pl);
-      const tip = { padding: 10, titleFont: { size: 12 }, bodyFont: { size: 11 }, displayColors: false, callbacks: {
-        title: (items) => { const r = rows[items[0].dataIndex]; return r.pl + ' · fleet ' + r.fleet + ' · M' + r.ageM.toFixed(1); },
-        label: (c) => { const r = rows[c.dataIndex]; return ['return: ' + money(r.real), 'budget at this age: ' + money(r.bud), 'delta: ' + (r.delta >= 0 ? '+' : '−') + money(Math.abs(r.delta)), 'in: ' + money(r.rev) + ' · out: ' + money(r.cost)]; },
-      } };
+      const sinal = (v) => (v >= 0 ? '+' : '−') + money(Math.abs(v));
+      const mNeg = (v) => (v < 0 ? '−' : '') + money(Math.abs(v));   // negativo com sinal de menos, não hífen
+      const taxa = (v) => (v == null ? '—' : (v * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%');
+      // tooltip como um MINI-DOSSIÊ do carro: título com a placa, uma linha de veredito e os
+      // números alinhados em pares. Antes era uma pilha de textos soltos, difícil de ler no meio
+      // de 170 barras finas.
+      const tip = { padding: 12, caretSize: 7, caretPadding: 8, cornerRadius: 12,
+        titleFont: { size: 13, weight: 800 },
+        // monoespaçada de propósito: os rótulos são preenchidos com espaços para os valores
+        // ficarem numa coluna alinhada — em fonte proporcional isso vira uma escada torta
+        bodyFont: { size: 11, family: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' },
+        footerFont: { size: 10.5, weight: 700 }, titleMarginBottom: 8, footerMarginTop: 8,
+        displayColors: false, boxPadding: 4,
+        callbacks: {
+          title: (items) => { const r = rows[items[0].dataIndex]; return r.pl; },
+          beforeBody: (items) => { const r = rows[items[0].dataIndex]; return `Fleet ${r.fleet} · ${r.model} · M${r.ageM.toFixed(1)} of 13`; },
+          label: (c) => { const r = rows[c.dataIndex]; return [
+            'Cash in      ' + money(r.rev),
+            'Cash out     ' + money(r.cost),
+            'Return       ' + sinal(r.real),
+            'Budget       ' + mNeg(r.bud),
+            'Monthly rate ' + taxa(r.rMo),
+          ]; },
+          footer: (items) => { const r = rows[items[0].dataIndex];
+            return (r.delta >= 0 ? '▲ ' : '▼ ') + sinal(r.delta) + ' vs budget · click to open the full statement'; },
+        } };
       const thin = { maxBarThickness: 9, barPercentage: .92, categoryPercentage: .95 };
-      document.getElementById('unitRetHint').textContent = rows.length + ' bars — one per plate · click a bar to open that car\'s Unit Economics below';
+      document.getElementById('unitRetHint').textContent = rows.length + ' cars · click one to open its full statement';
+      // gradiente vertical em cada cor: a barra ganha profundidade sem virar arco-íris
+      const grad = (ctx, hexTopo, hexBase) => {
+        const a = ctx.chart.chartArea; if (!a) return hexTopo;
+        const g = ctx.chart.ctx.createLinearGradient(0, a.top, 0, a.bottom);
+        g.addColorStop(0, hexTopo); g.addColorStop(1, hexBase); return g;
+      };
+      const corBarra = (ctx) => {
+        const r = rows[ctx.dataIndex]; if (!r) return '#9CA3AF';
+        if (r.pl === unitPlateSel) return grad(ctx, '#7C3AED', '#4C1D95');
+        return r.delta >= 0 ? grad(ctx, '#34D399', '#047857') : grad(ctx, '#F87171', '#B91C1C');
+      };
       mk('unitRet', { data: { labels, datasets: [
           Object.assign({ type: 'bar', label: 'Return', data: rows.map((r) => Math.round(r.real * K)),
-            backgroundColor: rows.map((r) => (r.pl === unitPlateSel ? '#5A00F8' : (r.delta >= 0 ? '#059669' : '#DC2626'))), borderRadius: 2 }, thin),
-          { type: 'line', label: 'Budget', data: rows.map((r) => Math.round(r.bud * K)), borderColor: '#111827', borderDash: [5, 4], borderWidth: 1.8, pointRadius: 0, tension: 0 },
+            backgroundColor: corBarra, hoverBackgroundColor: corBarra, borderRadius: 3,
+            // a placa aberta ganha contorno escuro: acha-se ela no meio de 170 barras
+            borderColor: rows.map((r) => (r.pl === unitPlateSel ? '#2E1065' : 'transparent')),
+            borderWidth: rows.map((r) => (r.pl === unitPlateSel ? 1.5 : 0)) }, thin),
+          { type: 'line', label: 'Budget at each car\'s age', data: rows.map((r) => Math.round(r.bud * K)),
+            borderColor: '#1F2937', borderDash: [5, 4], borderWidth: 1.8, pointRadius: 0, tension: 0, order: 0 },
         ] },
+        // faixa de fundo separando lucro de prejuízo + marcação da média da carteira
+        plugins: [{ id: 'unitBands', beforeDatasetsDraw(ch) {
+          const { ctx, chartArea: a, scales: { y } } = ch; if (!a || !y) return;
+          const y0 = y.getPixelForValue(0);
+          ctx.save();
+          if (y0 > a.top && y0 < a.bottom) {
+            ctx.fillStyle = 'rgba(5,150,105,.045)'; ctx.fillRect(a.left, a.top, a.width, y0 - a.top);
+            ctx.fillStyle = 'rgba(220,38,38,.05)'; ctx.fillRect(a.left, y0, a.width, a.bottom - y0);
+            ctx.strokeStyle = 'rgba(31,41,55,.35)'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(a.left, y0); ctx.lineTo(a.right, y0); ctx.stroke();
+          }
+          const med = rows.length ? rows.reduce((s, r) => s + r.real, 0) / rows.length * K : null;
+          if (med != null) { const ym = y.getPixelForValue(med);
+            if (ym > a.top + 12 && ym < a.bottom) {
+              ctx.strokeStyle = '#5A00F8'; ctx.setLineDash([2, 3]); ctx.lineWidth = 1.4;
+              ctx.beginPath(); ctx.moveTo(a.left, ym); ctx.lineTo(a.right, ym); ctx.stroke(); ctx.setLineDash([]);
+              ctx.font = '800 9.5px ' + ((Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif');
+              ctx.fillStyle = '#5A00F8'; ctx.textAlign = 'left';
+              ctx.fillText('average ' + ccK(med), a.left + 5, ym - 5);
+            } }
+          ctx.restore();
+        } }],
         options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
           onClick: (e, els, ch) => {
             // barra fininha: usa o índice do eixo X mais próximo, senão quase nunca acerta o clique
@@ -7505,12 +7588,66 @@
           plugins: { legend: { position: 'bottom', align: 'start', labels: CC_LEG }, datalabels: { display: false }, tooltip: tip },
           scales: { x: { display: false }, y: { grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } } } } });
       renderUnitPlate(rows);
+      // ---- TAXA MENSAL por placa: (FV/PV)^(1/n) − 1, capital empatado × caixa devolvido ----
+      // Substituiu o "Δ vs budget", que repetia a informação do gráfico de cima com outro eixo.
+      // Aqui a leitura é de RENTABILIDADE: cada barra é a taxa que aquele carro está rendendo ao
+      // mês sobre o capital que empatamos nele, comparável entre placas de idades diferentes.
+      const comTaxa = rows.filter((r) => r.rMo != null);
+      const medTaxa = comTaxa.length ? comTaxa.reduce((s, r) => s + r.rMo, 0) / comTaxa.length : null;
+      const nPos = comTaxa.filter((r) => r.rMo > 0).length;
+      document.getElementById('unitIrrHint').textContent = medTaxa == null ? 'no car with enough history yet'
+        : nPos + ' of ' + comTaxa.length + ' cars above zero · average ' + taxa(medTaxa) + ' a month';
+      const corTaxa = (ctx) => { const r = rows[ctx.dataIndex]; if (!r || r.rMo == null) return '#E5E7EB';
+        if (r.pl === unitPlateSel) return grad(ctx, '#7C3AED', '#4C1D95');
+        return r.rMo >= 0 ? grad(ctx, '#38BDF8', '#0369A1') : grad(ctx, '#F87171', '#B91C1C'); };
       mk('unitDelta', { type: 'bar', data: { labels, datasets: [
-          Object.assign({ label: 'Δ vs budget', data: rows.map((r) => Math.round(r.delta * K)), backgroundColor: rows.map((r) => (r.delta >= 0 ? '#059669' : '#DC2626')), borderRadius: 2 }, thin),
+          Object.assign({ label: 'Monthly rate', data: rows.map((r) => (r.rMo == null ? null : +(r.rMo * 100).toFixed(2))),
+            backgroundColor: corTaxa, hoverBackgroundColor: corTaxa, borderRadius: 3,
+            borderColor: rows.map((r) => (r.pl === unitPlateSel ? '#2E1065' : 'transparent')),
+            borderWidth: rows.map((r) => (r.pl === unitPlateSel ? 1.5 : 0)) }, thin),
         ] },
+        plugins: [{ id: 'rateRefs', beforeDatasetsDraw(ch) {
+          const { ctx, chartArea: a, scales: { y } } = ch; if (!a || !y) return;
+          ctx.save();
+          const y0 = y.getPixelForValue(0);
+          if (y0 > a.top && y0 < a.bottom) {
+            ctx.fillStyle = 'rgba(3,105,161,.04)'; ctx.fillRect(a.left, a.top, a.width, y0 - a.top);
+            ctx.fillStyle = 'rgba(220,38,38,.05)'; ctx.fillRect(a.left, y0, a.width, a.bottom - y0);
+            ctx.strokeStyle = 'rgba(31,41,55,.35)'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(a.left, y0); ctx.lineTo(a.right, y0); ctx.stroke();
+          }
+          if (medTaxa != null) { const ym = y.getPixelForValue(medTaxa * 100);
+            if (ym > a.top + 12 && ym < a.bottom) {
+              ctx.strokeStyle = '#5A00F8'; ctx.setLineDash([2, 3]); ctx.lineWidth = 1.4;
+              ctx.beginPath(); ctx.moveTo(a.left, ym); ctx.lineTo(a.right, ym); ctx.stroke(); ctx.setLineDash([]);
+              ctx.font = '800 9.5px ' + ((Chart.defaults.font && Chart.defaults.font.family) || 'sans-serif');
+              ctx.fillStyle = '#5A00F8'; ctx.textAlign = 'left';
+              ctx.fillText('fleet average ' + taxa(medTaxa), a.left + 5, ym - 5);
+            } }
+          ctx.restore();
+        } }],
         options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
-          plugins: { legend: { display: false }, datalabels: { display: false }, tooltip: tip },
-          scales: { x: { display: false }, y: { grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } } } } });
+          onClick: (e, els, ch) => {
+            const pts = ch.getElementsAtEventForMode(e, 'index', { intersect: false }, true);
+            const i = (els && els.length) ? els[0].index : (pts && pts.length ? pts[0].index : null);
+            if (i == null || !rows[i]) return;
+            unitPlateSel = (unitPlateSel === rows[i].pl) ? null : rows[i].pl;
+            renderUnit();
+          },
+          onHover: (e) => { e.native.target.style.cursor = 'pointer'; },
+          plugins: { legend: { display: false }, datalabels: { display: false },
+            tooltip: Object.assign({}, tip, { callbacks: Object.assign({}, tip.callbacks, {
+              label: (c) => { const r = rows[c.dataIndex]; return [
+                'Monthly rate ' + taxa(r.rMo),
+                'Capital tied ' + money(r.inv),
+                'Returned     ' + sinal(r.real),
+                'Age          M' + r.ageM.toFixed(1),
+              ]; },
+              footer: () => 'Compounded from capital tied and cash returned · click to open',
+            }) }) },
+          scales: { x: { display: false },
+            y: { grid: { color: 'rgba(120,120,140,.10)' }, border: { display: false },
+              ticks: { font: CC_FONT, color: '#6B7280', callback: (v) => v.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + '%' } } } } });
     }
     // ---- drill da placa clicada: o UE COMPLETO dela, na visão limpa, logo abaixo do gráfico ----
     // Todas as linhas continuam lá; o que sai é a comparação com o orçado e os controles de edição,
@@ -7527,7 +7664,7 @@
       box.innerHTML =
         `<div class="costs-chart up-box" style="margin-top:14px">` +
           `<div class="cc-head"><h4>${escH(r.pl)} — Unit Economics</h4>` +
-            `<span class="cc-hint">Fleet ${escH(String(r.fleet))} · M${r.ageM.toFixed(1)} of the contract</span>` +
+            `<span class="cc-hint">Fleet ${escH(String(r.fleet))} · <b>${escH(r.model || '')}</b> · M${r.ageM.toFixed(1)} of the contract</span>` +
             `<button type="button" class="ccl-btn" id="upClose">Close</button></div>` +
           `<div class="up-chips">` +
             chip('Return so far', money(r.real), r.real >= 0 ? 'up' : 'down') +

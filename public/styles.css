@@ -1847,3 +1847,6 @@ html.dark .up-chip.down b { color: #FCA5A5; }
 /* 3ª métrica do painel de TIR: a taxa "simples" (FV/PV)^(1/n) − 1, secundária às duas primeiras */
 .irr-kpi-alt .irr-big { font-size: 21px; opacity: .82; }
 .irr-kpi-alt .irr-lbl { opacity: .8; }
+
+/* ---- Unit: tooltip em fonte monoespaçada para os números alinharem em coluna ---- */
+#unitRet, #unitDelta { cursor: pointer; }

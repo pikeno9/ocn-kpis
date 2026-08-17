@@ -7399,6 +7399,17 @@
         Parts: costsAgeProfile('Part Replacement'),
       };
       const pc = { pastilhas: cpar('__part_pastilhas_rs__', 250), disco: cpar('__part_disco_rs__', 350), pneus: cpar('__part_pneus_rs__', 700) };
+      // ---- perfil de evento pelo MODELO do carro, não pela mistura das coortes ----
+      // costsAgeProfile() pondera os modelos pelas coortes do PLANO, e o plano hoje é 706 Polos +
+      // 69 Argos e NENHUM Tera: o blend saía 91% Polo, então todo Tera na rua era orçado com
+      // economia de Polo — e Tera roda ~68.000 km/ano contra 54.000 do Polo, o que muda revisão e
+      // peças. Cada carro passa a usar o perfil do próprio modelo; o blend só entra se o modelo
+      // não tiver perfil de referência.
+      const perfilDe = (model, linha, fallback) => {
+        const pr = refProfiles && refProfiles[model] && refProfiles[model][linha];
+        if (!pr) return fallback;
+        return { ok: true, per: pr.map((v) => Math.abs(v || 0)) };
+      };
       // motorista ATUAL de cada placa (vínculo em aberto; sem ele, o último que devolveu)
       const drvNow = {}, drvLast = {};
       (U.vinculos || []).forEach((v) => {
@@ -7414,19 +7425,38 @@
         if (ini > hoje) return;
         const ageM = Math.min(13, (hoje - ini) / MS / 30.44);
         const FR = FRK[f.id] || FRK.__pool || { gross: 0, net: 0, prem: 1.1 };
+        // perfis de evento do MODELO desta frota (ver perfilDe)
+        const AGf = {
+          Maintenance: perfilDe(f.model, 'Maintenance', AGE.Maintenance),
+          Recovery: perfilDe(f.model, 'Recovery cost', AGE.Recovery),
+          Repair: perfilDe(f.model, 'Repair cost', AGE.Repair),
+          Parts: perfilDe(f.model, 'Part Replacement', AGE.Parts),
+        };
+        // ---- SEGUNDAS-FEIRAS de cada mês de vida desta frota ----
+        // A mensalidade é cobrada toda segunda, então um M com 5 segundas rende 25% mais que um
+        // com 4. Usar 4,3333 semanas fixas achatava isso e o orçado saía injusto: dependendo do
+        // dia em que a frota começou, o mesmo M1 pode ter 4 ou 5 cobranças. (Só o orçado do Unit
+        // muda — o UE Teórico continua com a régua dele.)
+        const segundas = new Array(14).fill(0);
+        for (let p = 1; p <= 13; p++) {
+          const a = new Date(ini.getTime() + (p - 1) * MESd * MS);
+          const b = new Date(ini.getTime() + p * MESd * MS);
+          const d = new Date(a.getTime());
+          while (d < b) { if (d.getDay() === 1) segundas[p]++; d.setDate(d.getDate() + 1); }
+        }
         // ---- budget mensal por carro (R$), mês de vida p ----
         const bm = (p) => {
           let v = 0;
           if (p === 0) v -= par('__gps_m0__') + 50 + 15;
           if (p >= 1 && p <= 12) {
-            v += par('__sub_semanal__') * UET_WPM;                     // receita contratual
+            v += par('__sub_semanal__') * segundas[p];                 // receita contratual: 1 por segunda
             v -= par('__subrental_mensal__') + par('__ins_total__') / 12 + par('__gps_mensal__');
             v += (FR.gross || 0) * (FR.prem || 1.1) * MESd;            // multas repassadas
             v -= (FR.net || 0) * MESd;                                 // multas pagas à LM
-            v -= (AGE.Maintenance.ok ? AGE.Maintenance.per[p] || 0 : 0);
-            v -= (AGE.Recovery.ok ? AGE.Recovery.per[p] || 0 : 0);
-            v -= (AGE.Repair.ok ? AGE.Repair.per[p] || 0 : 0);
-            v -= (AGE.Parts.ok ? AGE.Parts.per[p] || 0 : 0);
+            v -= (AGf.Maintenance.ok ? AGf.Maintenance.per[p] || 0 : 0);
+            v -= (AGf.Recovery.ok ? AGf.Recovery.per[p] || 0 : 0);
+            v -= (AGf.Repair.ok ? AGf.Repair.per[p] || 0 : 0);
+            v -= (AGf.Parts.ok ? AGf.Parts.per[p] || 0 : 0);
           }
           return v;
         };
@@ -7638,11 +7668,12 @@
             borderColor: rows.map((r) => (r.pl === unitPlateSel ? '#2E1065' : 'transparent')),
             borderWidth: rows.map((r) => (r.pl === unitPlateSel ? 1.5 : 0)) }, thin),
           // ORÇADO: linha escura POR CIMA das barras (order menor = desenha depois no Chart.js),
-          // com um halo claro por baixo para nunca sumir contra o verde nem contra o vermelho
+          // com um halo claro por baixo. Halo discreto e traço fino — a linha precisa ser lida
+          // sem virar o elemento mais pesado do gráfico.
           { type: 'line', label: 'Budget at each car\'s age', data: rows.map((r) => Math.round(r.bud * K)),
-            borderColor: 'rgba(255,255,255,.85)', borderWidth: 5, pointRadius: 0, tension: 0, order: -1 },
+            borderColor: 'rgba(255,255,255,.45)', borderWidth: 3, pointRadius: 0, tension: 0, order: -1 },
           { type: 'line', label: '__budget__', data: rows.map((r) => Math.round(r.bud * K)),
-            borderColor: '#111827', borderDash: [8, 4], borderWidth: 2.2, pointRadius: 0, tension: 0, order: -2 },
+            borderColor: 'rgba(17,24,39,.9)', borderDash: [5, 4], borderWidth: 1.3, pointRadius: 0, tension: 0, order: -2 },
         ] },
         // faixa de fundo separando lucro de prejuízo + marcação da média da carteira
         plugins: [{ id: 'unitBands', beforeDatasetsDraw(ch) {
@@ -9634,7 +9665,9 @@
             const nome = (v.nome || '?').split(' ').slice(0, 2).join(' ');
             const lbl = kw != null && (b - a) >= 11 ? `<b>${fmtK(kw)}/wk</b>` : '';
             // caixinha própria no hover (tooltip nativo demora e não destaca o NOME)
-            return `<div class="ue-driver-seg" style="left:${a.toFixed(1)}%;width:${(b - a).toFixed(1)}%;background:${col}" ` +
+            // gradiente sutil na própria pílula (mais claro em cima) em vez de cor chapada
+            const bg = `linear-gradient(180deg, ${col} 0%, ${col} 55%, rgba(0,0,0,.16) 100%), ${col}`;
+            return `<div class="ue-driver-seg" style="left:${a.toFixed(1)}%;width:${(b - a).toFixed(1)}%;background:${bg}" ` +
               `data-nome="${escHU(v.nome || '?')}" data-ver="${v.versao ? 'contract v' + v.versao : ''}" data-per="${v.ini} → ${v.fim || 'today'}" data-kw="${kw != null ? Math.round(kw).toLocaleString('pt-BR') + ' km/week' : ''}">${lbl}</div>`;
           }).join('');
           // odômetro no MOMENTO de cada troca de motorista (a partir do 2º vínculo), centrado no

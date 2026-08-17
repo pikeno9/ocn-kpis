@@ -787,8 +787,18 @@ html { scrollbar-gutter: stable; }
 .ue-contract-km { position: absolute; top: -17px; transform: translateX(-50%); font-size: 10px; font-weight: 800; color: var(--accent-ink); white-space: nowrap; }
 .ue-contract-kmend { left: auto !important; right: 0; transform: none; color: var(--text-2); }
 /* linha do tempo por MOTORISTA (placa isolada): um segmento colorido por vínculo */
-.ue-driver-seg { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; border-right: 1.5px solid #fff; cursor: default; }
-.ue-driver-seg:first-child { border-radius: 3px 0 0 3px; }
+/* Cada motorista é uma PÍLULA própria, não uma fatia de bloco: cantos arredondados dos dois
+   lados, um respiro entre elas no lugar da borda branca dura, brilho suave no topo (o mesmo
+   truque das pílulas do header) e leve realce no hover. */
+.ue-driver-seg { position: absolute; top: 1px; bottom: 1px; display: flex; align-items: center;
+  justify-content: center; overflow: hidden; cursor: default; border-radius: 999px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 1px 3px rgba(15,23,42,.28);
+  transition: filter .12s ease, transform .12s ease; }
+.ue-driver-seg::after { content: ''; position: absolute; inset: 0 0 55% 0; border-radius: 999px 999px 40% 40%;
+  background: linear-gradient(180deg, rgba(255,255,255,.16), transparent); pointer-events: none; }
+.ue-driver-seg:hover { filter: brightness(1.14); transform: scaleY(1.12); z-index: 2; }
+/* a barra fica com um vão escuro entre pílulas, que é o intervalo sem motorista */
+.ue-track-drivers { background: var(--surface-2); }
 .ue-driver-seg b { font-size: 9px; font-weight: 800; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.45); white-space: nowrap; }
 .ue-driver-tip { position: absolute; z-index: 60; width: 160px; background: #111827; color: #fff; border-radius: 9px; padding: 8px 11px; font-size: 11px; line-height: 1.45; box-shadow: 0 6px 20px rgba(0,0,0,.25); pointer-events: none; }
 .ue-driver-tip b { display: block; font-size: 12px; }

@@ -1912,3 +1912,5 @@ html.dark .cc-leg .sw-avg { border-top-color: #B49BFF; }
 .irr-notes { list-style: none; margin: 10px 0 0; padding: 9px 0 0; border-top: 1px solid #ffffff1f; display: grid; gap: 5px; }
 .irr-notes li { font-size: 10px; line-height: 1.5; color: #ffffff8a; padding-left: 12px; position: relative; }
 .irr-notes li::before { content: '·'; position: absolute; left: 3px; font-weight: 800; color: #ffffff5c; }
+.cc-leg .sw-bud { width: 16px; height: 0; border-radius: 0; border-top: 2.2px dashed #111827; }
+html.dark .cc-leg .sw-bud { border-top-color: #E7E8EC; }

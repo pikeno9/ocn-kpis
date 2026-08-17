@@ -2357,30 +2357,43 @@
     TYZ2D25: 7500, TYZ2G63: 3600, TYZ0I54: 3600, TYZ2D36: 3600, UDG5A66: 7500,
   };
   // TIR (IRR) dos fluxos M0..Mn — taxa POR PERÍODO (o "mês" de 4,333 semanas do UE).
-  // O fluxo do UE não é convencional (troca de sinal mais de uma vez: M0 negativo, meses positivos,
-  // M13 com compra/venda do veículo), então bracketar direto nas pontas falha. Varremos o VPL numa
-  // grade de taxas, pegamos o PRIMEIRO intervalo com troca de sinal e refinamos por bissecção —
-  // é a menor raiz ≥ −99%, que é a que faz sentido econômico. null = nenhuma raiz na faixa.
+  //
+  // O fluxo do UE NÃO é convencional: M0 negativo, M1..M12 positivos e o M13 volta a ser negativo
+  // (compra do veículo, calção). Duas trocas de sinal = até DUAS raízes, e o VPL cruza o zero em
+  // sentidos opostos em cada uma. A versão anterior pegava a PRIMEIRA raiz varrendo de −99% para
+  // cima, e essa é justamente a espúria: com r perto de −100% o desconto amplifica o M13 negativo
+  // a ponto de o VPL ir a −∞, então existe um cruzamento SUBINDO lá embaixo, sem sentido econômico
+  // (era o −71,4% ao mês que aparecia num contrato que devolve 3,2× o capital investido).
+  //
+  // A raiz certa é aquela em que o VPL cruza o zero DESCENDO — o comportamento de quem investe
+  // primeiro e recebe depois: com juro baixo o projeto vale, e a partir de certa taxa deixa de
+  // valer. É essa que se pega; a subindo fica de reserva, só para nunca devolver null.
   function irrOf(flows) {
     const f = (flows || []).map((v) => Number(v) || 0);
     if (f.length < 2) return null;
     if (!f.some((v) => v > 0) || !f.some((v) => v < 0)) return null; // sem entrada ou sem saída: não existe TIR
     const npv = (r) => f.reduce((s, v, i) => s + v / Math.pow(1 + r, i), 0);
+    const raiz = (lo, hi, flo) => {
+      for (let k = 0; k < 120; k++) {
+        const mid = (lo + hi) / 2, fm = npv(mid);
+        if (flo * fm <= 0) hi = mid; else { lo = mid; flo = fm; }
+      }
+      return (lo + hi) / 2;
+    };
     const LO = -0.99, HI = 10, N = 600, step = (HI - LO) / N;
-    let a = LO, fa = npv(a);
+    let a = LO, fa = npv(a), subindo = null;
     for (let i = 1; i <= N; i++) {
       const b = LO + i * step, fb = npv(b);
       if (isFinite(fa) && isFinite(fb) && fa * fb <= 0) {
-        let lo = a, hi = b, flo = fa;
-        for (let k = 0; k < 120; k++) {
-          const mid = (lo + hi) / 2, fm = npv(mid);
-          if (flo * fm <= 0) hi = mid; else { lo = mid; flo = fm; }
+        const r = raiz(a, b, fa);
+        if (isFinite(r)) {
+          if (fa > 0 || fb < 0) return r;              // cruzou DESCENDO: é a TIR econômica
+          if (subindo == null) subindo = r;            // cruzou subindo: guarda como último recurso
         }
-        const r = (lo + hi) / 2;
-        return isFinite(r) ? r : null;
       }
       a = b; fa = fb;
     }
+    if (subindo != null) return subindo;
     return null;
   }
   // Painel de TIR — compartilhado pelo UE real e pelo Teórico, para os dois lerem a mesma conta.
@@ -2441,14 +2454,6 @@
     const gTop = Math.max(30, Math.ceil((rM * 100) / 10) * 10);
     const gaugePct = Math.max(0, Math.min(100, ((rM * 100) + 10) / (gTop + 10) * 100));
     const mult = invested > 0 ? (netTot / invested) : null;
-    // (FV/PV)^(1/n) − 1: a fórmula "simples", que só vale quando existe UM desembolso no início e
-    // UM recebimento no fim. Aqui o caixa volta todo mês, então ela responde outra pergunta — mas
-    // é a intuição de quem lê o múltiplo, então fica lado a lado em vez de escondida no texto.
-    let terminal = null;
-    if (invested > 0 && netTot > 0) {
-      const rT = Math.pow((invested + netTot) / invested, 1 / PMAX) - 1;
-      terminal = { m: rT, a: Math.pow(1 + rT, 12) - 1 };
-    }
     // ORDEM DE LEITURA: a taxa SIMPLES vem primeiro e grande — é a que se compara com qualquer
     // outra aplicação sem precisar de ressalva. A TIR fica ao lado, menor: ela é maior porque
     // embute reinvestir cada mensalidade à própria taxa, hipótese que a operação não cumpre
@@ -2458,15 +2463,9 @@
     return `<div class="irr-panel irr-2col${good ? '' : ' neg'}">` +
       `<div class="irr-col">` +
         `<div class="irr-main">` +
-          (terminal
-            ? `<div class="irr-kpi"><span class="irr-lbl">Simple monthly</span><b class="irr-big">${pct(terminal.m)}</b><span class="irr-sub">(FV/PV)<sup>1/n</sup> − 1 · no reinvestment assumed</span></div>` +
-              `<div class="irr-sep"></div>` +
-              `<div class="irr-kpi"><span class="irr-lbl">Simple annualized</span><b class="irr-big irr-year">${pct(terminal.a)}</b><span class="irr-sub">(1 + simple monthly)<sup>12</sup> − 1</span></div>` +
-              `<div class="irr-sep"></div>` +
-              `<div class="irr-kpi irr-kpi-alt"><span class="irr-lbl">Monthly IRR</span><b class="irr-big">${pct(rM)}</b><span class="irr-sub">${pct(rA)} a year · weighs the timing</span></div>`
-            : `<div class="irr-kpi"><span class="irr-lbl">Monthly IRR</span><b class="irr-big">${pct(rM)}</b><span class="irr-sub">per UE month (4.33 weeks)</span></div>` +
-              `<div class="irr-sep"></div>` +
-              `<div class="irr-kpi"><span class="irr-lbl">Annual IRR</span><b class="irr-big irr-year">${pct(rA)}</b><span class="irr-sub">(1 + monthly)<sup>12</sup> − 1</span></div>`) +
+          `<div class="irr-kpi"><span class="irr-lbl">Annual IRR</span><b class="irr-big irr-year">${pct(rA)}</b><span class="irr-sub">(1 + monthly)<sup>12</sup> − 1</span></div>` +
+          `<div class="irr-sep"></div>` +
+          `<div class="irr-kpi irr-kpi-alt"><span class="irr-lbl">Monthly IRR</span><b class="irr-big">${pct(rM)}</b><span class="irr-sub">per UE month (4.33 weeks)</span></div>` +
         `</div>` +
         `<div class="irr-side">` +
           `<div class="irr-gauge"><div class="irr-gauge-track"><span class="irr-gauge-zero" style="left:${(10 / (gTop + 10) * 100).toFixed(1)}%"></span>` +
@@ -2481,7 +2480,7 @@
         `</div>` +
       `</div>` +
       `<div class="irr-why irr-note irr-aside">` +
-        (terminal ? `<b>Simple is the headline.</b> ${money(invested)} in, ${money(invested + netTot)} out over ${PMAX} months, compounded — it assumes nothing about the cash in between, so it compares with any other investment. The IRR reads higher (${pct(rM)} a month) because it assumes every instalment goes back to work at that same rate, which the operation cannot do. Treat the IRR as the ceiling and simple as what the car delivers.` : '') +
+        `<b>${money(invested)} in, ${money(invested + netTot)} out over ${PMAX} months.</b> The IRR is the rate that makes those flows worth zero today, so it weighs WHEN each real arrives — with payback at M${payback == null ? '—' : payback} the cash comes back early, which is what pushes the rate up. Read it as a ceiling: it assumes every instalment goes back to work at the same rate, and the operation cannot do that. The plain multiple on the cash is ${mult == null ? '—' : Math.abs(mult).toFixed(1) + '×'}.` +
         nota + `</div>` +
       `</div>`;
   }
@@ -7365,7 +7364,8 @@
     // contra o BUDGET da idade dele (a economia contratual da frota + os ritmos de evento por
     // idade). Caução/refund, compra/venda e termination ficam FORA — é resultado da operação, não
     // movimentação de capital. Valores em USD (mesma base do Costs); moeda de exibição via K.
-    let unitSort = 'delta', unitFleet = null, _unitCache = null;
+    // padrão POR FROTA: agrupar as placas da mesma frota e o gráfico já conta uma história
+    let unitSort = 'fleet', unitFleet = null, _unitCache = null;
     let unitPlateSel = null;   // placa aberta no drill do "Per car" (null = nenhuma)
     // linha horizontal de referência CHEIA + rótulo numa pílula opaca encostada à direita.
     // Texto solto sobre as barras é ilegível; a pílula garante contraste em qualquer fundo.
@@ -7582,7 +7582,7 @@
         `<span class="cc-leg">` +
           `<i class="cc-leg-i"><span class="sw sw-up"></span>above budget</i>` +
           `<i class="cc-leg-i"><span class="sw sw-dn"></span>below budget</i>` +
-          `<i class="cc-leg-i"><span class="sw sw-dash"></span>budget at each car's age</i>` +
+          `<i class="cc-leg-i"><span class="sw sw-bud"></span>budget at each car's age</i>` +
           `<i class="cc-leg-i"><span class="sw sw-avg"></span>average ${escH(ccK(medRet * K))}</i>` +
         `</span>` +
         `<b class="cc-leg-n">${rows.length} cars · click one to open it</b>`;
@@ -7603,9 +7603,12 @@
             // a placa aberta ganha contorno escuro: acha-se ela no meio de 170 barras
             borderColor: rows.map((r) => (r.pl === unitPlateSel ? '#2E1065' : 'transparent')),
             borderWidth: rows.map((r) => (r.pl === unitPlateSel ? 1.5 : 0)) }, thin),
-          // ORÇADO: tracejado largo, cinza-azulado e fino — é uma referência de fundo
+          // ORÇADO: linha escura POR CIMA das barras (order menor = desenha depois no Chart.js),
+          // com um halo claro por baixo para nunca sumir contra o verde nem contra o vermelho
           { type: 'line', label: 'Budget at each car\'s age', data: rows.map((r) => Math.round(r.bud * K)),
-            borderColor: 'rgba(71,85,105,.75)', borderDash: [7, 5], borderWidth: 1.4, pointRadius: 0, tension: 0, order: 0 },
+            borderColor: 'rgba(255,255,255,.85)', borderWidth: 5, pointRadius: 0, tension: 0, order: -1 },
+          { type: 'line', label: '__budget__', data: rows.map((r) => Math.round(r.bud * K)),
+            borderColor: '#111827', borderDash: [8, 4], borderWidth: 2.2, pointRadius: 0, tension: 0, order: -2 },
         ] },
         // faixa de fundo separando lucro de prejuízo + marcação da média da carteira
         plugins: [{ id: 'unitBands', beforeDatasetsDraw(ch) {

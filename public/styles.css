@@ -1832,3 +1832,18 @@ html.dark .up-chip.down b { color: #FCA5A5; }
 .up-tablewrap { max-height: none; }
 .up-irr { margin-top: 12px; }
 .cc-head .ccl-btn { margin-left: auto; }
+
+/* ---- seletor de ordenação DENTRO do cabeçalho do gráfico ----
+   Não é um filtro da página, é uma propriedade do gráfico: pílula discreta, sem rótulo repetido. */
+.cc-sort { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; padding: 4px 6px 4px 9px;
+  border: 1px solid var(--border-2); border-radius: 999px; background: var(--surface-2);
+  color: var(--text-2); transition: border-color .12s, color .12s; }
+.cc-sort:hover { border-color: var(--accent-ink); color: var(--accent-ink); }
+.cc-sort svg { width: 13px; height: 13px; flex: none; opacity: .85; }
+.cc-sort select { border: 0; background: transparent; color: inherit; font: inherit; font-size: 11.5px;
+  font-weight: 700; cursor: pointer; padding: 0 2px; outline: none; -webkit-appearance: none; appearance: none; }
+.cc-sort select option { color: var(--text); background: var(--surface); font-weight: 500; }
+.cc-head .cc-sort + .costs-help { margin-left: 8px; }
+/* 3ª métrica do painel de TIR: a taxa "simples" (FV/PV)^(1/n) − 1, secundária às duas primeiras */
+.irr-kpi-alt .irr-big { font-size: 21px; opacity: .82; }
+.irr-kpi-alt .irr-lbl { opacity: .8; }

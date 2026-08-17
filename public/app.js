@@ -2385,7 +2385,7 @@
   }
   // Painel de TIR — compartilhado pelo UE real e pelo Teórico, para os dois lerem a mesma conta.
   // `insM0` = quanto de seguro foi antecipado para o M0 (só para explicar no texto).
-  function irrPanelHtml(flows, cur, PMAX, insM0) {
+  function irrPanelHtml(flows, cur, PMAX, insM0, idrOut) {
     const rM = irrOf(flows);
     const netTot = flows.reduce((a, b) => a + b, 0);
     const invested = -flows.filter((v) => v < 0).reduce((a, b) => a + b, 0);
@@ -2393,7 +2393,8 @@
     for (let p = 0; p <= PMAX; p++) { acc += flows[p]; if (payback == null && acc > 0) payback = p; }
     const pct = (v) => (v * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
     const money = (v) => cur + ' ' + Math.round(Math.abs(v)).toLocaleString('pt-BR');
-    const nota = insM0 ? ` The whole insurance premium (${money(insM0)}) is charged at M0 here: the policy is signed once and covers the 12 months, so paying it in instalments is financing, not optionality.` : '';
+    const nota = (insM0 ? ` The whole insurance premium (${money(insM0)}) is charged at M0 here: the policy is signed once and covers the 12 months, so paying it in instalments is financing, not optionality.` : '')
+      + (idrOut ? ` The InDrive promo is out of this calculation on both sides (${money(idrOut)} net): it was a one-off activation campaign, once per plate, and it does not repeat on the next contract.` : '');
     if (rM == null) {
       const why = netTot < 0
         ? `the contract does not pay the invested cash back in this view (net ${cur} ${Math.round(netTot).toLocaleString('pt-BR')} over M0–M${PMAX}), so there is no rate that zeroes the NPV.`
@@ -2404,7 +2405,11 @@
     // base quase nula, dividir um ano de mensalidades por ela explode a taxa sem dizer nada.
     const inflowTot = flows.filter((v) => v > 0).reduce((a, b) => a + b, 0);
     const semCalcao = invested < inflowTot * 0.10;
-    const absurda = rM > 0.20;
+    // O corte era 20% a.m., e escondia o painel inteiro sempre que a TIR era alta — que é o caso
+    // NORMAL deste negócio (payback em ~3 meses). Agora que o seguro entra no M0, a promoção
+    // InDrive sai da conta e a taxa "simples" aparece ao lado como contraponto conservador, uma
+    // TIR alta é informação, não ruído: o corte fica só para o degenerado de verdade.
+    const absurda = rM > 1.00;
     if (semCalcao || absurda) {
       const mult = invested > 0 ? (netTot / invested) : null;
       const porque = semCalcao
@@ -2428,11 +2433,14 @@
     }
     const rA = Math.pow(1 + rM, 12) - 1;
     const good = rM > 0;
-    const gaugePct = Math.max(0, Math.min(100, ((rM * 100) + 10) / 40 * 100));
+    // escala do medidor: −10% a +30% cobre o caso normal, mas com payback de 3 meses a taxa passa
+    // disso — a escala estica para a TIR não ficar sempre grudada na ponta direita
+    const gTop = Math.max(30, Math.ceil((rM * 100) / 10) * 10);
+    const gaugePct = Math.max(0, Math.min(100, ((rM * 100) + 10) / (gTop + 10) * 100));
     const mult = invested > 0 ? (netTot / invested) : null;
-    // A TIR de um fluxo que devolve caixa TODO MÊS é muito maior que a do mesmo dinheiro chegando
-    // de uma vez no fim — e é isso que costuma assustar quem lê a taxa ao lado do múltiplo. O
-    // painel mostra a comparação em vez de deixar o leitor achar que a conta está errada.
+    // (FV/PV)^(1/n) − 1: a fórmula "simples", que só vale quando existe UM desembolso no início e
+    // UM recebimento no fim. Aqui o caixa volta todo mês, então ela responde outra pergunta — mas
+    // é a intuição de quem lê o múltiplo, então fica lado a lado em vez de escondida no texto.
     let terminal = null;
     if (invested > 0 && netTot > 0) {
       const rT = Math.pow((invested + netTot) / invested, 1 / PMAX) - 1;
@@ -2443,11 +2451,14 @@
           `<div class="irr-kpi"><span class="irr-lbl">Monthly IRR</span><b class="irr-big">${pct(rM)}</b><span class="irr-sub">per UE month (4.33 weeks)</span></div>` +
           `<div class="irr-sep"></div>` +
           `<div class="irr-kpi"><span class="irr-lbl">Annual IRR</span><b class="irr-big irr-year">${pct(rA)}</b><span class="irr-sub">(1 + monthly)<sup>12</sup> − 1</span></div>` +
+          (terminal ? `<div class="irr-sep"></div>` +
+            `<div class="irr-kpi irr-kpi-alt"><span class="irr-lbl">Simple annualized</span><b class="irr-big">${pct(terminal.a)}</b>` +
+            `<span class="irr-sub">(FV/PV)<sup>1/n</sup> − 1 · ignores the timing</span></div>` : '') +
         `</div>` +
         `<div class="irr-side">` +
-          `<div class="irr-gauge"><div class="irr-gauge-track"><span class="irr-gauge-zero" style="left:25%"></span>` +
+          `<div class="irr-gauge"><div class="irr-gauge-track"><span class="irr-gauge-zero" style="left:${(10 / (gTop + 10) * 100).toFixed(1)}%"></span>` +
             `<span class="irr-gauge-pin" style="left:${gaugePct.toFixed(1)}%"></span></div>` +
-            `<div class="irr-gauge-scale"><span>−10%</span><span>0</span><span>+30%</span></div></div>` +
+            `<div class="irr-gauge-scale"><span>−10%</span><span>0</span><span>+${gTop}%</span></div></div>` +
           `<div class="irr-facts">` +
             `<div><span>Cash invested</span><b>${money(invested)}</b></div>` +
             `<div><span>Return on cash</span><b class="${netTot >= 0 ? 'up' : 'down'}">${mult == null ? '—' : (mult >= 0 ? '' : '−') + Math.abs(mult).toFixed(1) + '×'}</b></div>` +
@@ -2455,7 +2466,7 @@
             `<div><span>Payback</span><b>${payback == null ? 'not reached' : 'M' + payback}</b></div>` +
           `</div>` +
           `<div class="irr-why irr-note">` +
-            (terminal ? `The rate looks far bigger than the ${Math.abs(mult).toFixed(1)}× because the cash comes back EVERY month, not at the end: the same ${money(invested)} in and ${money(invested + netTot)} out would be only ${pct(terminal.m)} a month (${pct(terminal.a)} a year) if it all landed at M${PMAX}. Payback at M${payback == null ? '—' : payback} is what pushes the IRR up. ` : '') +
+            (terminal ? `The two rates answer different questions. SIMPLE ANNUALIZED is (FV/PV)<sup>1/n</sup> − 1: it only looks at ${money(invested)} going in and ${money(invested + netTot)} coming out over ${PMAX} months, as if the cash all landed at the end. The IRR also weighs WHEN each real does it — and here it comes back every month, with payback at M${payback == null ? '—' : payback}, so the same money is worth more and the rate is higher. Neither is wrong; the IRR is the standard one, the simple rate is the floor. ` : '') +
             nota.trim() + `</div>` +
         `</div>` +
       `</div>`;
@@ -7437,15 +7448,22 @@
       ctl.innerHTML = '<div class="costs-bar">' +
         `<select class="costs-mini" id="unitFleetSel"><option value="">All fleets</option>` +
           fleets.map((f) => `<option value="${escH(f.id)}"${unitFleet === f.id ? ' selected' : ''}>Fleet ${escH(f.id)} · ${f.cars || (f.placas || []).length} cars</option>`).join('') + '</select>' +
-        `<select class="costs-mini" id="unitSortSel">` +
-          [['delta', 'Sort: Δ vs budget'], ['real', 'Sort: return'], ['fleet', 'Sort: fleet'], ['age', 'Sort: age']].map(([v, t]) => `<option value="${v}"${unitSort === v ? ' selected' : ''}>${t}</option>`).join('') + '</select>' +
         // atalho para o drill: com 170 barras de 9px, acertar a do carro certo no clique é difícil
         `<select class="costs-mini" id="unitPlateSel"><option value="">Open a car…</option>` +
           rows.map((r) => `<option value="${escH(r.pl)}"${unitPlateSel === r.pl ? ' selected' : ''}>${escH(r.pl)} · Fleet ${escH(String(r.fleet))}</option>`).join('') + '</select>' +
         finCurFlags() + '</div>';
       ctl.querySelector('#unitFleetSel').addEventListener('change', (e) => { unitFleet = e.target.value === '' ? null : e.target.value; renderUnit(); });
-      ctl.querySelector('#unitSortSel').addEventListener('change', (e) => { unitSort = e.target.value; renderUnit(); });
       ctl.querySelector('#unitPlateSel').addEventListener('change', (e) => { unitPlateSel = e.target.value || null; renderUnit(); });
+      // ORDENAÇÃO mora DENTRO do gráfico (é uma propriedade dele, não um filtro da página):
+      // pílula discreta no cabeçalho, com o critério escrito sem o prefixo "Sort:" repetido
+      const sortWrap = document.getElementById('unitSortWrap');
+      if (sortWrap) {
+        const SORTS = [['delta', 'Biggest gap vs budget'], ['real', 'Highest return'], ['fleet', 'By fleet'], ['age', 'Oldest first']];
+        sortWrap.className = 'cc-sort';
+        sortWrap.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><path d="M7 4v16M7 20l-3-3M7 20l3-3M17 20V4M17 4l-3 3M17 4l3 3"/></svg>` +
+          `<select id="unitSortSel">` + SORTS.map(([v, t]) => `<option value="${v}"${unitSort === v ? ' selected' : ''}>${t}</option>`).join('') + `</select>`;
+        sortWrap.querySelector('#unitSortSel').addEventListener('change', (e) => { unitSort = e.target.value; renderUnit(); });
+      }
       wireCurFlags(ctl, () => renderUnit());
       sec.querySelectorAll('.costs-help').forEach((b) => { b.onclick = () => costsHelpOpen(b.dataset.h); });
       // ---- cartões ----
@@ -7815,6 +7833,12 @@
       const T = computeAll(), maint = maintByMonth();
       const flows = [];
       for (let p = 0; p < UET_PERIODS; p++) flows.push(conv(T.net[p]) || 0);
+      // promoção InDrive fora da conta, dos dois lados (mesma regra do UE real)
+      let idrTot = 0;
+      ['InDrive bonus', 'InDrive discount'].forEach((lb) => {
+        const ln = UET_LINES.find((l) => l.label === lb); if (!ln) return;
+        for (let p = 0; p < UET_PERIODS; p++) { const v = conv(uetEff(uetVals, uetSel, ln, p, maint)); if (v) { idrTot += v; flows[p] -= v; } }
+      });
       const insLine = UET_LINES.find((l) => l.label === 'Insurance');
       let insTot = 0;
       if (insLine) for (let p = 0; p < UET_PERIODS; p++) {
@@ -7822,7 +7846,7 @@
         if (v) { insTot += v; flows[p] -= v; }
       }
       flows[0] += insTot;
-      el.innerHTML = irrPanelHtml(flows, uetCurrency === 'USD' ? 'US$' : 'R$', UET_PERIODS - 1, insTot);
+      el.innerHTML = irrPanelHtml(flows, uetCurrency === 'USD' ? 'US$' : 'R$', UET_PERIODS - 1, insTot, idrTot);
     }
     // override manual de uma célula específica (modo manual): sobrescreve a projeção; vazio volta ao projetado
     function editCell(td) {
@@ -9777,10 +9801,18 @@
       // adesivo e GPS) e a taxa que zera o VPL disparava para centenas de % ao mês, dizendo mais
       // sobre o tamanho da base do que sobre o negócio.
       const lineVal = (label, p) => { const e = effSplit(label, p); if (e) return (e.real || 0) + (e.proj || 0); const o = orcDisp(label, p); return o == null ? 0 : o; };
+      // A PROMOÇÃO INDRIVE SAI DA CONTA (bônus recebido E desconto concedido): foi uma campanha
+      // pontual de ativação, uma vez por placa, que não se repete no próximo contrato. Deixá-la
+      // dentro faria a TIR de quem pegou a promoção parecer estruturalmente melhor do que o
+      // negócio é. Os dois lados saem juntos — tirar só o bônus penalizaria essas placas.
+      let idrTot = 0;
+      for (let p = 0; p <= PMAX; p++) {
+        ['InDrive bonus', 'InDrive discount'].forEach((L) => { const v = lineVal(L, p); if (v) { idrTot += v; flows[p] -= v; } });
+      }
       let insTot = 0;
       for (let p = 0; p <= PMAX; p++) { const v = lineVal('Insurance', p); if (v) { insTot += v; flows[p] -= v; } }
       flows[0] += insTot;
-      el.innerHTML = irrPanelHtml(flows, currency === 'BRL' ? 'R$' : 'US$', PMAX, insTot);
+      el.innerHTML = irrPanelHtml(flows, currency === 'BRL' ? 'R$' : 'US$', PMAX, insTot, idrTot);
     }
 
     function openEditor(td, f) {
@@ -9852,10 +9884,16 @@
       const st = { current, plateView, viewAgg, cleanView, slidersOpen };
       current = alvo.id; plateView = placa; viewAgg = false; cleanView = true; slidersOpen = false;
       await loadFleet(true);
+      // a barra de progresso não existe no clean view (contractBarHtml devolve '' com ele ligado),
+      // e é justamente ela que mostra motoristas e quilometragem — monta à parte, com o clean
+      // desligado só nessa chamada
+      cleanView = false;
+      const barra = contractBarHtml(alvo);
+      cleanView = true;
       const out = {
         table: (document.getElementById('ueTable') || {}).outerHTML || '',
         irr: (document.getElementById('ueIrr') || {}).innerHTML || '',
-        bar: (document.getElementById('ueBarWrap') || {}).innerHTML || '',
+        bar: barra,
         fleet: alvo.id, model: alvo.modelLabel || alvo.model,
       };
       current = st.current; plateView = st.plateView; viewAgg = st.viewAgg; cleanView = st.cleanView; slidersOpen = st.slidersOpen;

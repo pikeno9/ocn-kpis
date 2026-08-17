@@ -2405,6 +2405,8 @@
     let acc = 0, payback = null;
     for (let p = 0; p <= PMAX; p++) { acc += flows[p]; if (payback == null && acc > 0) payback = p; }
     const pct = (v) => (v * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
+    // a TIR ANUAL é o número de destaque: casa decimal em cima de milhares por cento é ruído
+    const pctA = (v) => Math.round(v * 100).toLocaleString('pt-BR') + '%';
     const money = (v) => cur + ' ' + Math.round(Math.abs(v)).toLocaleString('pt-BR');
     // notas de premissa: curtas e em lista, para não esticarem o parágrafo de leitura
     const notas = [];
@@ -2463,7 +2465,7 @@
     return `<div class="irr-panel irr-2col${good ? '' : ' neg'}">` +
       `<div class="irr-col">` +
         `<div class="irr-main">` +
-          `<div class="irr-kpi"><span class="irr-lbl">Annual IRR</span><b class="irr-big irr-year">${pct(rA)}</b><span class="irr-sub">(1 + monthly)<sup>12</sup> − 1</span></div>` +
+          `<div class="irr-kpi"><span class="irr-lbl">Annual IRR</span><b class="irr-big irr-year">${pctA(rA)}</b><span class="irr-sub">(1 + monthly)<sup>12</sup> − 1</span></div>` +
           `<div class="irr-sep"></div>` +
           `<div class="irr-kpi irr-kpi-alt"><span class="irr-lbl">Monthly IRR</span><b class="irr-big">${pct(rM)}</b><span class="irr-sub">per UE month (4.33 weeks)</span></div>` +
         `</div>` +
@@ -5007,9 +5009,9 @@
     const COSTS_HELP = {
       pareto: { t: 'Pareto — where the COGS money goes', d: 'Every vehicle cost line sorted biggest first (each in its own colour), with the cumulative share on the right axis. Where the curve crosses the dashed 80% guide tells you how few lines concentrate almost all the cost — those are the ones worth negotiating; everything after the crossing is operational noise. CLICK any bar to open that line below, month by month and split by fleet.' },
       share: { t: 'Share of COGS by month', d: 'Each month as 100%: how much of that month\'s vehicle cost each line represents — the five biggest lines in their own colours, the rest grouped as grey "Others". Months ahead of today are the PROJECTION and render lighter (the tooltip also says "projected"). Watch for a line quietly growing its slice as the fleet ramps: absolute values always grow with more cars, but the SHARE only grows when the line outpaces the others.' },
-      u_ret: { t: 'Return — each car against its budget', d: 'One thin bar per plate, and clicking any of them opens that car\'s full statement below. The tinted bands separate the cars in the black from the ones in the red, and the dotted purple line is the fleet average. Each bar is everything the car has brought in since delivery (subscriptions received, interest, fines charged to the client) minus everything it has cost (sub-rental, insurance accrued to date, GPS, preparation, sticker, maintenance, fines paid, recovery, repair, parts). Security deposit and its refund are OUT — they are cash parked, not result — and so are the car purchase/sale and termination fees. The dashed line is each car\'s BUDGET at its current age: what its fleet\'s contractual economics (weekly fee, rent, insurance, GPS) plus the pooled event rates (fines, maintenance, recovery, repair, parts by car age) say it should have accumulated by now. GREEN bars are at or above budget, RED are below. Cars of different fleets have different ages, so bars are not directly comparable to each other — always compare each bar to the dashed line at its position, or use the "Monthly rate" chart below, which puts every car on the same scale.' },
+      u_ret: { t: 'Return — each car against its budget', d: 'One thin bar per plate, and clicking any of them opens that car\'s full statement below. The tinted bands separate the cars in the black from the ones in the red, and the dotted purple line is the fleet average. Each bar is everything the car has brought in since delivery (subscriptions received, interest, fines charged to the client) minus everything it has cost (sub-rental, insurance accrued to date, GPS, preparation, sticker, maintenance, fines paid, recovery, repair, parts). Security deposit and its refund are OUT — they are cash parked, not result — and so are the car purchase/sale and termination fees. The dashed line is each car\'s BUDGET at its current age: what its fleet\'s contractual economics (weekly fee, rent, insurance, GPS) plus the pooled event rates (fines, maintenance, recovery, repair, parts by car age) say it should have accumulated by now. GREEN bars are at or above budget, RED are below. Cars of different fleets have different ages, so bars are not directly comparable to each other — always compare each bar to the dashed line at its position, or use the "Monthly IRR" chart below, which puts every car on the same scale.' },
       u_ret_old: { t: 'Return per car — vs its budget', d: 'One thin bar per plate: everything the car has brought in since delivery (subscriptions received, interest, fines charged to the client) minus everything it has cost (sub-rental, insurance accrued to date, GPS, preparation, sticker, maintenance, fines paid, recovery, repair, parts). Security deposit and its refund are OUT — they are cash parked, not result — and so are the car purchase/sale and termination fees. The dashed line is each car\'s BUDGET at its current age: what its fleet\'s contractual economics (weekly fee, rent, insurance, GPS) plus the pooled event rates (fines, maintenance, recovery, repair, parts by car age) say it should have accumulated by now. GREEN bars are at or above budget, RED are below. Cars of different fleets have different ages, so bars are not directly comparable to each other — always compare each bar to the dashed line at its position.' },
-      u_irr: { t: 'Monthly rate per car', d: 'What each car is actually yielding per month on the money tied up in it. CAPITAL TIED is the cash that had to leave to put that car on the street: the sub-rental deposit, the FULL insurance premium (the policy is signed once and covers the 12 months, so paying it in instalments is financing, not optionality), plus preparation, sticker and the GPS install. RETURNED is everything the car has brought in minus everything it has cost since delivery. The rate is (capital + returned) ÷ capital, compounded down to one month — the same "simple monthly" formula the panel above highlights, so a car three months old and a car ten months old sit on the same scale. It deliberately makes no assumption about reinvesting the monthly cash, which is why it reads lower than a textbook IRR and is the honest number to compare against any other investment. Cars under half a month of life have no bar (too little history to annualise). A car that has already burned more than its capital shows −100%: there is no real root beyond that, and the reading is simply that the money put into it is gone. The dashed purple line is the fleet average and the grey band below zero marks the cars destroying capital. Click any bar to open that car\'s full statement.' },
+      u_irr: { t: 'Monthly IRR per car', d: 'The same IRR the Unit Economics panel shows, computed car by car. Each plate gets its own monthly cashflow: M0 carries the CAPITAL TIED — the sub-rental deposit, the FULL insurance premium (the policy is signed once and covers the 12 months, so paying it in instalments is financing, not optionality), plus preparation, sticker and the GPS install — and every month after that carries what actually came in (subscriptions received, interest, fines charged) minus what actually went out (sub-rental, GPS, fines paid to LM, maintenance, recovery, repair, parts), each entry landing in the month of life it happened. The IRR is the rate that makes that series worth zero today, so unlike a plain multiple it weighs WHEN each real arrives: a car that pays back in month two rates higher than one that pays the same amount spread to month ten. The series stops at the car\'s current age, so this is the return on what has already happened, not a guess about the rest of the contract — which is what makes a three-month-old car comparable to a ten-month-old one. Cars under one month of life have no bar (too little history). A car that has burned its capital with nothing coming back shows −100%. The purple line is the fleet average and the band below zero marks the cars destroying capital. Click any bar to open that car\'s full statement. ONE CAVEAT ON READING IT NEXT TO THE UE PANEL: this series is rebuilt from the plate\'s own receipts and costs, so it carries only what that specific car moved. The IRR in the Unit Economics panel is built from the UE table itself and also carries the contractual lines that are not attributable to one plate — security deposit and its refund, termination fee, vehicle purchase and sale. Both are real IRRs of real cashflows; they answer "how is THIS car doing against the others" and "how does the contract look end to end". Compare bars with bars here, and use the panel for the absolute level.' },
       drill: { t: 'Monthly by fleet', d: 'The line you clicked on the Pareto, month by month, stacked by REAL fleet — each fleet in its own colour. This is realized data only (schedules and imported bases per plate); the projection lives in the plan and has no fleet concept. The big number is the average cost per active car per month across the fleets shown, computed over the realized window.' },
       ins: { t: 'Is the insurance paying for itself?', d: 'ACCRUED, NOT PAID. The premium is disbursed in about four installments at the start of each fleet, but it covers the full 12 months of the contract. Comparing the cash of a period against the claims of that same period mismatches the two: a fleet that started in june carries almost all of its cash in 2026 while half of its coverage runs into 2027. So each fleet\'s premium is spread pro-rata, day by day, across its 365 days of coverage, and every month is charged only the risk it actually ran. The footer shows both numbers side by side. CLAIMS are the fleet-site occurrences flagged with a sinistro in the period — collisions, window damage and total loss; mechanical failures never trigger it. BREAK-EVEN PER CLAIM is the accrued premium divided by the number of claims: how much each occurrence would have to cost us out of pocket for "having insurance" and "not having it" to come out the same. The SAVING compares the two worlds: each claim CATEGORY has its own slider (a broken window and a written-off car cost nothing alike), so the out-of-pocket world is the sum of each category\'s claim count × the average cost you set for it — against the accrued premium. We have no workshop quote per occurrence, so the averages are your input. Green means insurance saved money, red means it cost more than the damage would have.' },
       filters: { t: 'View filters', d: 'Everything in this tab is built from the fleets that exist TODAY — realized up to the current month, then each fleet carried to the end of its own 12-month contract. No new fleet enters the projection, so the numbers answer what the current operation costs rather than what a bigger fleet would cost. The calendar picks the period: FULL YEAR is realized plus that projection, YEAR TO DATE stops at the current month, and a single month isolates it (the current month shows its realized value alone). The fleet selector narrows everything to one real fleet.' },
@@ -7456,24 +7458,56 @@
         // uma vez) + preparação, adesivo e instalação do GPS. É o que sai do caixa para o carro ir
         // para a rua — e é sobre isso que a rentabilidade mensal de cada placa é medida.
         const investCar = (par('__num_alugueis__') * subr) + (IRu ? (IRu.total / Math.max(1, f.cars || (f.placas || []).length || 1)) : par('__ins_total__')) + 50 + 15 + par('__gps_m0__');
+        // ---- AGENDA por MÊS de vida (subrental e GPS recorrente), já realizada ----
+        // O M0 não entra aqui: preparação, adesivo, instalação do GPS, calção e o prêmio INTEIRO
+        // do seguro já estão em investCar, que é o desembolso inicial do fluxo.
+        const schedMes = new Array(14).fill(0);
+        const moDe = (d) => Math.max(0, Math.min(13, Math.ceil((d - ini) / MS / MESd)));
+        if (subr > 0) {
+          const dim0 = new Date(ini.getFullYear(), ini.getMonth() + 1, 0).getDate();
+          const proR0 = Math.max(0, Math.min(1, (dim0 - ini.getDate()) / dim0));
+          for (let i = 1; i <= 13; i++) {
+            const d = new Date(ini.getFullYear(), ini.getMonth() + i, 26, 12);
+            if (d > hoje) break;
+            schedMes[moDe(d)] += subr * (i === 1 ? proR0 : (i === 13 ? 1 - proR0 : 1));
+          }
+        }
+        if (gpsM > 0) for (let n2 = 1; n2 <= 12; n2++) { const d = new Date(ini.getTime() + (n2 - 0.5) * MESd * MS); if (d <= hoje) schedMes[moDe(d)] += gpsM; }
         (f.placas || []).forEach((pl) => {
           let rev = 0, ev = 0;
-          ((((U.pagamentos || {}).placas) || {})[pl] || []).forEach((s) => { rev += s.r != null ? s.r : (s.e != null ? s.e : 0); });
-          ((((U.multas || {}).placas) || {})[pl] || []).forEach((x) => { if (x.pago) rev += x.v; });
-          ((((U.multasBase || {}).placas) || {})[pl] || []).forEach((x) => { ev += (x.liq > 0 ? x.liq : (x.v || 0) / 1.05) * 1.05; });
-          ((((U.revBase || {}).placas) || {})[pl] || []).forEach((r) => { if (r.valor) ev += r.valor; });
-          ((((U.judBase || {}).placas) || {})[pl] || []).forEach((c) => { ev += (c.recovery || 0) + (c.repair || 0); });
-          ((((U.reposicao || {}).placas) || {})[pl] || []).forEach((e2) => { (e2.itens || []).forEach((it) => { if (pc[it]) ev += pc[it]; }); });
+          // fluxo de caixa MENSAL da placa (M0..M13) — a base da TIR. Cada lançamento cai no mês
+          // de vida em que aconteceu, e não no bolo do período: é o QUANDO que a TIR pesa.
+          const fluxo = new Array(14).fill(0);
+          const dep = (iso, v) => { if (iso) fluxo[moDe(new Date(iso + 'T12:00:00'))] += v; };
+          ((((U.pagamentos || {}).placas) || {})[pl] || []).forEach((s) => { const v = s.r != null ? s.r : (s.e != null ? s.e : 0); rev += v; dep(s.v, v); });
+          ((((U.multas || {}).placas) || {})[pl] || []).forEach((x) => { if (x.pago) { rev += x.v; dep(x.d, x.v); } });
+          ((((U.multasBase || {}).placas) || {})[pl] || []).forEach((x) => { const v = (x.liq > 0 ? x.liq : (x.v || 0) / 1.05) * 1.05; ev += v; dep(x.venc, -v); });
+          ((((U.revBase || {}).placas) || {})[pl] || []).forEach((r) => { if (r.valor) { ev += r.valor; dep(r.venc, -r.valor); } });
+          ((((U.judBase || {}).placas) || {})[pl] || []).forEach((c) => { const v = (c.recovery || 0) + (c.repair || 0); ev += v; dep(c.d, -v); });
+          ((((U.reposicao || {}).placas) || {})[pl] || []).forEach((e2) => { (e2.itens || []).forEach((it) => { if (pc[it]) { ev += pc[it]; dep(e2.d, -pc[it]); } }); });
           const real = (rev - ev - sched) / fx;
-          // ---- TAXA MENSAL da placa: (FV/PV)^(1/n) − 1, a mesma fórmula que o painel destaca ----
-          // PV = capital empatado; FV = capital + caixa que o carro já devolveu; n = meses de vida.
-          // Carro que já torrou o capital (FV ≤ 0) não tem raiz real: marca −100% e o gráfico o
-          // mostra no fundo da escala, que é a leitura correta — perdeu o que foi posto nele.
+          // ---- TIR da placa: a MESMA conta do painel do UE, mês a mês ----
+          // M0 leva o capital empatado (calção + prêmio INTEIRO do seguro + preparação, adesivo e
+          // instalação do GPS); os meses seguintes levam o que entrou menos o que saiu, incluindo
+          // subrental e GPS recorrente. A série vai só até a idade atual do carro — é a TIR do que
+          // já aconteceu, não de um contrato inteiro que ainda não terminou.
           const inv = investCar / fx;
           let rMo = null;
-          if (inv > 0 && ageM >= .5) {
-            const fv = inv + real;
-            rMo = fv > 0 ? Math.pow(fv / inv, 1 / ageM) - 1 : -1;
+          const nM = Math.max(1, Math.min(13, Math.round(ageM)));
+          if (inv > 0 && ageM >= 1) {
+            const serie = [-inv];
+            for (let m = 1; m <= nM; m++) serie.push((fluxo[m] - schedMes[m]) / fx);
+            // O CONTRATO INTEIRO, não só o que já correu: os meses que faltam entram pelo mesmo
+            // orçado que a linha tracejada do gráfico de cima usa (economia contratual da frota +
+            // taxas de evento por idade). Sem isso um carro de 4 meses era medido numa janela de 4
+            // meses e o outro de 10 numa de 10 — e a taxa do gráfico saía ao dobro da do painel do
+            // UE, que sempre olha M0..M13. O seguro é somado de volta porque no fluxo da TIR ele
+            // já está inteiro no M0.
+            for (let m = nM + 1; m <= 13; m++) serie.push((bm(m) + (m >= 1 && m <= 12 ? par('__ins_total__') / 12 : 0)) / fx);
+            const soma = serie.reduce((a, b) => a + b, 0);
+            // sem nenhuma entrada não existe TIR; capital todo queimado = −100%, que é a leitura certa
+            rMo = serie.some((v) => v > 0) ? irrOf(serie) : -1;
+            if (rMo == null) rMo = soma > 0 ? null : -1;
           }
           out.push({ pl, fleet: f.id, ageM, real, bud, delta: real - bud, rev: rev / fx, cost: (ev + sched) / fx, inv, rMo,
             model: f.modelLabel || f.model,
@@ -7654,12 +7688,12 @@
       const medTaxa = comTaxa.length ? comTaxa.reduce((s, r) => s + r.rMo, 0) / comTaxa.length : null;
       const nPos = comTaxa.filter((r) => r.rMo > 0).length;
       document.getElementById('unitIrrHint').textContent = medTaxa == null ? 'no car with enough history yet'
-        : nPos + ' of ' + comTaxa.length + ' cars above zero · average ' + taxa(medTaxa) + ' a month';
+        : nPos + ' of ' + comTaxa.length + ' cars above zero · average ' + taxa(medTaxa) + ' a month · M0–M13, from each plate\'s own cashflow';
       const corTaxa = (ctx) => { const r = rows[ctx.dataIndex]; if (!r || r.rMo == null) return '#E5E7EB';
         if (r.pl === unitPlateSel) return grad(ctx, '#7C3AED', '#4C1D95');
         return r.rMo >= 0 ? grad(ctx, '#38BDF8', '#0369A1') : grad(ctx, '#F87171', '#B91C1C'); };
       mk('unitDelta', { type: 'bar', data: { labels, datasets: [
-          Object.assign({ label: 'Monthly rate', data: rows.map((r) => (r.rMo == null ? null : +(r.rMo * 100).toFixed(2))),
+          Object.assign({ label: 'Monthly IRR', data: rows.map((r) => (r.rMo == null ? null : +(r.rMo * 100).toFixed(2))),
             backgroundColor: corTaxa, hoverBackgroundColor: corTaxa, borderRadius: 3,
             borderColor: rows.map((r) => (r.pl === unitPlateSel ? '#2E1065' : 'transparent')),
             borderWidth: rows.map((r) => (r.pl === unitPlateSel ? 1.5 : 0)) }, thin),

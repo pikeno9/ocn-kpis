@@ -2393,8 +2393,11 @@
     for (let p = 0; p <= PMAX; p++) { acc += flows[p]; if (payback == null && acc > 0) payback = p; }
     const pct = (v) => (v * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
     const money = (v) => cur + ' ' + Math.round(Math.abs(v)).toLocaleString('pt-BR');
-    const nota = (insM0 ? ` The whole insurance premium (${money(insM0)}) is charged at M0 here: the policy is signed once and covers the 12 months, so paying it in instalments is financing, not optionality.` : '')
-      + (idrOut ? ` The InDrive promo is out of this calculation on both sides (${money(idrOut)} net): it was a one-off activation campaign, once per plate, and it does not repeat on the next contract.` : '');
+    // notas de premissa: curtas e em lista, para não esticarem o parágrafo de leitura
+    const notas = [];
+    if (insM0) notas.push(`Full insurance premium (${money(insM0)}) charged at M0 — signed once, covers 12 months.`);
+    if (idrOut) notas.push(`InDrive promo out on both sides (${money(idrOut)} net) — one-off, does not repeat.`);
+    const nota = notas.length ? `<ul class="irr-notes">` + notas.map((n) => `<li>${n}</li>`).join('') + `</ul>` : '';
     if (rM == null) {
       const why = netTot < 0
         ? `the contract does not pay the invested cash back in this view (net ${cur} ${Math.round(netTot).toLocaleString('pt-BR')} over M0–M${PMAX}), so there is no rate that zeroes the NPV.`
@@ -2450,7 +2453,10 @@
     // outra aplicação sem precisar de ressalva. A TIR fica ao lado, menor: ela é maior porque
     // embute reinvestir cada mensalidade à própria taxa, hipótese que a operação não cumpre
     // (não dá para comprar um pedaço de carro toda semana).
-    return `<div class="irr-panel${good ? '' : ' neg'}">` +
+    // duas COLUNAS: números à esquerda, texto à direita. Empilhado, o parágrafo esticava o painel
+    // para o dobro da altura e empurrava a tabela para fora da tela.
+    return `<div class="irr-panel irr-2col${good ? '' : ' neg'}">` +
+      `<div class="irr-col">` +
         `<div class="irr-main">` +
           (terminal
             ? `<div class="irr-kpi"><span class="irr-lbl">Simple monthly</span><b class="irr-big">${pct(terminal.m)}</b><span class="irr-sub">(FV/PV)<sup>1/n</sup> − 1 · no reinvestment assumed</span></div>` +
@@ -2472,10 +2478,11 @@
             `<div><span>Net over the contract</span><b class="${netTot >= 0 ? 'up' : 'down'}">${netTot < 0 ? '−' : ''}${money(netTot)}</b></div>` +
             `<div><span>Payback</span><b>${payback == null ? 'not reached' : 'M' + payback}</b></div>` +
           `</div>` +
-          `<div class="irr-why irr-note">` +
-            (terminal ? `SIMPLE is the headline on purpose: ${money(invested)} in, ${money(invested + netTot)} out over ${PMAX} months, compounded — no assumption about what happens to the cash in between, so it compares directly with any other investment. The IRR is higher (${pct(rM)} a month) because it assumes every instalment is put back to work at that same rate, and the operation cannot do that: there is no way to buy a slice of a car every week. Read the IRR as the ceiling and the simple rate as what the car actually delivers. Payback lands at M${payback == null ? '—' : payback}. ` : '') +
-            nota.trim() + `</div>` +
         `</div>` +
+      `</div>` +
+      `<div class="irr-why irr-note irr-aside">` +
+        (terminal ? `<b>Simple is the headline.</b> ${money(invested)} in, ${money(invested + netTot)} out over ${PMAX} months, compounded — it assumes nothing about the cash in between, so it compares with any other investment. The IRR reads higher (${pct(rM)} a month) because it assumes every instalment goes back to work at that same rate, which the operation cannot do. Treat the IRR as the ceiling and simple as what the car delivers.` : '') +
+        nota + `</div>` +
       `</div>`;
   }
 
@@ -7532,34 +7539,41 @@
       const sinal = (v) => (v >= 0 ? '+' : '−') + money(Math.abs(v));
       const mNeg = (v) => (v < 0 ? '−' : '') + money(Math.abs(v));   // negativo com sinal de menos, não hífen
       const taxa = (v) => (v == null ? '—' : (v * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%');
-      // tooltip como um MINI-DOSSIÊ do carro: título com a placa, uma linha de veredito e os
-      // números alinhados em pares. Antes era uma pilha de textos soltos, difícil de ler no meio
-      // de 170 barras finas.
-      const tip = { padding: 12, caretSize: 7, caretPadding: 8, cornerRadius: 12,
-        titleFont: { size: 13, weight: 800 },
-        // monoespaçada de propósito: os rótulos são preenchidos com espaços para os valores
-        // ficarem numa coluna alinhada — em fonte proporcional isso vira uma escada torta
-        bodyFont: { size: 11, family: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' },
-        footerFont: { size: 10.5, weight: 700 }, titleMarginBottom: 8, footerMarginTop: 8,
-        displayColors: false, boxPadding: 4,
-        callbacks: {
-          // título = placa + o número que o gráfico é sobre, em destaque (a fonte do título é a
-          // maior da caixa); o motorista vem logo abaixo, que é quem responde pelo carro
-          title: (items) => { const r = rows[items[0].dataIndex]; return r.pl + '   ' + sinal(r.real); },
-          beforeBody: (items) => { const r = rows[items[0].dataIndex];
-            const nome = r.driver ? (r.driver.split(' ').slice(0, 3).join(' ') + (r.semMotorista ? ' (returned)' : '')) : 'no driver';
-            return [nome, `Fleet ${r.fleet} · ${r.model} · M${r.ageM.toFixed(1)} of 13`]; },
-          label: (c) => { const r = rows[c.dataIndex]; return [
-            'Cash in      ' + money(r.rev),
-            'Cash out     ' + money(r.cost),
-            'Budget       ' + mNeg(r.bud),
-            'Monthly rate ' + taxa(r.rMo),
-          ]; },
-          // corpo em cinza de apoio: o número em destaque é o do título (fonte maior)
-          labelTextColor: () => '#C7CBD4',
-          footer: (items) => { const r = rows[items[0].dataIndex];
-            return (r.delta >= 0 ? '▲ ' : '▼ ') + sinal(r.delta) + ' vs budget · click to open the full statement'; },
-        } };
+      const meses = (v) => v.toFixed(1).replace('.', ',') + ' months';
+      // TOOLTIP EM HTML: o do Chart.js só permite três tamanhos de fonte e uma cor por bloco, e
+      // por isso a caixa saía com tudo do mesmo peso. Este é um elemento na página, então a
+      // hierarquia (placa grande, retorno colorido, motorista, três valores) sai no CSS.
+      const tipHtml = (r, destaque) => {
+        const dl = (t, v) => `<div class="ut-row"><span>${escH(t)}</span><b>${escH(v)}</b></div>`;
+        return `<div class="ut-head">` +
+            `<div class="ut-plate">${escH(r.pl)}</div>` +
+            `<div class="ut-hero ${destaque.cls}">${escH(destaque.v)}<i>${escH(destaque.t)}</i></div>` +
+          `</div>` +
+          `<div class="ut-sub">${escH(r.driver ? r.driver.split(' ').slice(0, 3).join(' ') : 'no driver')}` +
+            (r.semMotorista && r.driver ? `<em>returned</em>` : '') + `</div>` +
+          `<div class="ut-meta">Fleet ${escH(String(r.fleet))} · ${escH(r.model || '')} · ${escH(meses(r.ageM))}</div>` +
+          `<div class="ut-rows">` + dl('Cash in', money(r.rev)) + dl('Cash out', money(r.cost)) + dl('Budget', mNeg(r.bud)) + `</div>` +
+          `<div class="ut-foot">${r.delta >= 0 ? '▲' : '▼'} ${escH(sinal(r.delta))} vs budget · click to open</div>`;
+      };
+      const externalTip = (destaqueDe) => (ctx) => {
+        let el = document.getElementById('unitTip');
+        if (!el) { el = document.createElement('div'); el.id = 'unitTip'; el.className = 'unit-tip'; document.body.appendChild(el); }
+        const tt = ctx.tooltip;
+        if (!tt || tt.opacity === 0) { el.style.opacity = '0'; el.style.pointerEvents = 'none'; return; }
+        const i = tt.dataPoints && tt.dataPoints.length ? tt.dataPoints[0].dataIndex : null;
+        const r = i == null ? null : rows[i];
+        if (!r) { el.style.opacity = '0'; return; }
+        el.innerHTML = tipHtml(r, destaqueDe(r));
+        const cv = ctx.chart.canvas.getBoundingClientRect();
+        const w = el.offsetWidth, h = el.offsetHeight;
+        // segue o cursor mas nunca sai da janela
+        let x = cv.left + window.scrollX + tt.caretX + 14;
+        if (x + w > window.scrollX + document.documentElement.clientWidth - 8) x = cv.left + window.scrollX + tt.caretX - w - 14;
+        let y = cv.top + window.scrollY + tt.caretY - h / 2;
+        y = Math.max(window.scrollY + 8, Math.min(y, window.scrollY + document.documentElement.clientHeight - h - 8));
+        el.style.left = x + 'px'; el.style.top = y + 'px'; el.style.opacity = '1';
+      };
+      const tip = { enabled: false, external: externalTip((r) => ({ t: 'return', v: sinal(r.real), cls: r.real >= 0 ? 'up' : 'dn' })) };
       const thin = { maxBarThickness: 9, barPercentage: .92, categoryPercentage: .95 };
       // LEGENDA em HTML no cabeçalho: a do Chart.js caía embaixo do gráfico, com bolinhas grandes
       // e sem a linha da média. Aqui ela fica junto do título, discreta e completa.
@@ -7674,16 +7688,9 @@
             renderUnit();
           },
           onHover: (e) => { e.native.target.style.cursor = 'pointer'; },
+          // mesma caixa, com a TAXA no lugar do retorno como número em destaque
           plugins: { legend: { display: false }, datalabels: { display: false },
-            tooltip: Object.assign({}, tip, { callbacks: Object.assign({}, tip.callbacks, {
-              label: (c) => { const r = rows[c.dataIndex]; return [
-                'Monthly rate ' + taxa(r.rMo),
-                'Capital tied ' + money(r.inv),
-                'Returned     ' + sinal(r.real),
-                'Age          M' + r.ageM.toFixed(1),
-              ]; },
-              footer: () => 'Compounded from capital tied and cash returned · click to open',
-            }) }) },
+            tooltip: { enabled: false, external: externalTip((r) => ({ t: 'a month', v: taxa(r.rMo), cls: (r.rMo || 0) >= 0 ? 'up' : 'dn' })) } },
           scales: { x: { display: false },
             y: { grid: { color: 'rgba(120,120,140,.10)' }, border: { display: false },
               ticks: { font: CC_FONT, color: '#6B7280', callback: (v) => v.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + '%' } } } } });

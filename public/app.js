@@ -344,6 +344,9 @@
       if (tab.dataset.sub === 'ocorrencias') initOcorrencias();
       if (tab.dataset.sub === 'unit') initUnit();
       if (tab.dataset.sub === 'unittheoric') initUnitTheoric();
+      // "Per car" mora em Unit Economics mas o motor dele (renderUnit) vive no initFinance —
+      // sem esta linha a aba abriria vazia até alguém passar pela seção Finance
+      if (tab.dataset.sub === 'finunit') initFinance();
       if (tab.dataset.sub === 'utilization') initUtilization();
       if (tab.dataset.sub === 'funnel') initFunnel();
       if (tab.dataset.sub === 'indrive') initInDrive();
@@ -2030,6 +2033,9 @@
   // Igual à UE real na aparência (reusa .ue-table/.ue-fleet-btn), mas dividido por MODELO
   // de carro (não por frota/placa) e com valores lançados MANUALMENTE. Só admin edita.
   let uetReady = false, uetModels = [], uetSel = null, uetVals = {}, uetManual = false, uetCurrency = 'BRL';
+  // ponte entre a aba "Per car" (motor no initFinance) e o UE real (motor no initUnit): devolve o
+  // UE completo de UMA placa sem deixar a aba de Unit Economics fora do lugar
+  let ueDrillPlate = null;
   const UET_PERIODS = 14; // M0..M13
   const UET_RECUR = 12;    // recorrências mensais (M1..M12)
   const UET_WPM = 52 / 12; // semanas por mês (~4,333)
@@ -2376,6 +2382,83 @@
       a = b; fa = fb;
     }
     return null;
+  }
+  // Painel de TIR — compartilhado pelo UE real e pelo Teórico, para os dois lerem a mesma conta.
+  // `insM0` = quanto de seguro foi antecipado para o M0 (só para explicar no texto).
+  function irrPanelHtml(flows, cur, PMAX, insM0) {
+    const rM = irrOf(flows);
+    const netTot = flows.reduce((a, b) => a + b, 0);
+    const invested = -flows.filter((v) => v < 0).reduce((a, b) => a + b, 0);
+    let acc = 0, payback = null;
+    for (let p = 0; p <= PMAX; p++) { acc += flows[p]; if (payback == null && acc > 0) payback = p; }
+    const pct = (v) => (v * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
+    const money = (v) => cur + ' ' + Math.round(Math.abs(v)).toLocaleString('pt-BR');
+    const nota = insM0 ? ` The whole insurance premium (${money(insM0)}) is charged at M0 here: the policy is signed once and covers the 12 months, so paying it in instalments is financing, not optionality.` : '';
+    if (rM == null) {
+      const why = netTot < 0
+        ? `the contract does not pay the invested cash back in this view (net ${cur} ${Math.round(netTot).toLocaleString('pt-BR')} over M0–M${PMAX}), so there is no rate that zeroes the NPV.`
+        : `the net cashflow never turns negative in this view — with no outlay to discount there is no IRR.`;
+      return `<div class="irr-panel irr-na"><div class="irr-na-txt"><b>IRR not defined</b><span>${why}</span></div></div>`;
+    }
+    // TIR só significa alguma coisa quando existe um desembolso relevante para remunerar: com uma
+    // base quase nula, dividir um ano de mensalidades por ela explode a taxa sem dizer nada.
+    const inflowTot = flows.filter((v) => v > 0).reduce((a, b) => a + b, 0);
+    const semCalcao = invested < inflowTot * 0.10;
+    const absurda = rM > 0.20;
+    if (semCalcao || absurda) {
+      const mult = invested > 0 ? (netTot / invested) : null;
+      const porque = semCalcao
+        ? `Almost no cash goes in up front (${money(invested)} against ${money(inflowTot)} of inflows), so the rate that zeroes the NPV runs away from any useful range.`
+        : `The upfront outlay is still small next to a full year of subscriptions, so the rate compounds to a number that no longer compares to anything.`;
+      return `<div class="irr-panel irr-thin">` +
+          `<div class="irr-main">` +
+            `<div class="irr-kpi"><span class="irr-lbl">IRR not meaningful here</span>` +
+              `<b class="irr-big irr-year">${money(netTot)}</b>` +
+              `<span class="irr-sub">net cash per car over M0–M${PMAX} — use this instead</span></div>` +
+          `</div>` +
+          `<div class="irr-side">` +
+            `<div class="irr-facts">` +
+              `<div><span>Cash invested</span><b>${money(invested)}</b></div>` +
+              `<div><span>Return on cash</span><b class="${netTot >= 0 ? 'up' : 'down'}">${mult == null ? '—' : (mult >= 0 ? '' : '−') + Math.abs(mult).toFixed(1) + '×'}</b></div>` +
+              `<div><span>Payback</span><b>${payback == null ? 'not reached' : 'M' + payback}</b></div>` +
+            `</div>` +
+            `<div class="irr-why">${porque} The IRR would read ${pct(rM)} a month (${pct(Math.pow(1 + rM, 12) - 1)} a year) — a number that big comes from the cash returning EVERY month, not from a big gain: the same money arriving only at M${PMAX} would rate far lower.${nota}</div>` +
+          `</div>` +
+        `</div>`;
+    }
+    const rA = Math.pow(1 + rM, 12) - 1;
+    const good = rM > 0;
+    const gaugePct = Math.max(0, Math.min(100, ((rM * 100) + 10) / 40 * 100));
+    const mult = invested > 0 ? (netTot / invested) : null;
+    // A TIR de um fluxo que devolve caixa TODO MÊS é muito maior que a do mesmo dinheiro chegando
+    // de uma vez no fim — e é isso que costuma assustar quem lê a taxa ao lado do múltiplo. O
+    // painel mostra a comparação em vez de deixar o leitor achar que a conta está errada.
+    let terminal = null;
+    if (invested > 0 && netTot > 0) {
+      const rT = Math.pow((invested + netTot) / invested, 1 / PMAX) - 1;
+      terminal = { m: rT, a: Math.pow(1 + rT, 12) - 1 };
+    }
+    return `<div class="irr-panel${good ? '' : ' neg'}">` +
+        `<div class="irr-main">` +
+          `<div class="irr-kpi"><span class="irr-lbl">Monthly IRR</span><b class="irr-big">${pct(rM)}</b><span class="irr-sub">per UE month (4.33 weeks)</span></div>` +
+          `<div class="irr-sep"></div>` +
+          `<div class="irr-kpi"><span class="irr-lbl">Annual IRR</span><b class="irr-big irr-year">${pct(rA)}</b><span class="irr-sub">(1 + monthly)<sup>12</sup> − 1</span></div>` +
+        `</div>` +
+        `<div class="irr-side">` +
+          `<div class="irr-gauge"><div class="irr-gauge-track"><span class="irr-gauge-zero" style="left:25%"></span>` +
+            `<span class="irr-gauge-pin" style="left:${gaugePct.toFixed(1)}%"></span></div>` +
+            `<div class="irr-gauge-scale"><span>−10%</span><span>0</span><span>+30%</span></div></div>` +
+          `<div class="irr-facts">` +
+            `<div><span>Cash invested</span><b>${money(invested)}</b></div>` +
+            `<div><span>Return on cash</span><b class="${netTot >= 0 ? 'up' : 'down'}">${mult == null ? '—' : (mult >= 0 ? '' : '−') + Math.abs(mult).toFixed(1) + '×'}</b></div>` +
+            `<div><span>Net over the contract</span><b class="${netTot >= 0 ? 'up' : 'down'}">${netTot < 0 ? '−' : ''}${money(netTot)}</b></div>` +
+            `<div><span>Payback</span><b>${payback == null ? 'not reached' : 'M' + payback}</b></div>` +
+          `</div>` +
+          `<div class="irr-why irr-note">` +
+            (terminal ? `The rate looks far bigger than the ${Math.abs(mult).toFixed(1)}× because the cash comes back EVERY month, not at the end: the same ${money(invested)} in and ${money(invested + netTot)} out would be only ${pct(terminal.m)} a month (${pct(terminal.a)} a year) if it all landed at M${PMAX}. Payback at M${payback == null ? '—' : payback} is what pushes the IRR up. ` : '') +
+            nota.trim() + `</div>` +
+        `</div>` +
+      `</div>`;
   }
 
   // toggle de moeda com bandeirinhas — mesmo markup no UE real e no Teórico
@@ -7257,6 +7340,7 @@
     // idade). Caução/refund, compra/venda e termination ficam FORA — é resultado da operação, não
     // movimentação de capital. Valores em USD (mesma base do Costs); moeda de exibição via K.
     let unitSort = 'delta', unitFleet = null, _unitCache = null;
+    let unitPlateSel = null;   // placa aberta no drill do "Per car" (null = nenhuma)
     function unitData() {
       if (_unitCache) return _unitCache;
       const U = OCN.ue || {}, MS = 86400000, MESd = UET_WPM * 7;
@@ -7355,9 +7439,13 @@
           fleets.map((f) => `<option value="${escH(f.id)}"${unitFleet === f.id ? ' selected' : ''}>Fleet ${escH(f.id)} · ${f.cars || (f.placas || []).length} cars</option>`).join('') + '</select>' +
         `<select class="costs-mini" id="unitSortSel">` +
           [['delta', 'Sort: Δ vs budget'], ['real', 'Sort: return'], ['fleet', 'Sort: fleet'], ['age', 'Sort: age']].map(([v, t]) => `<option value="${v}"${unitSort === v ? ' selected' : ''}>${t}</option>`).join('') + '</select>' +
+        // atalho para o drill: com 170 barras de 9px, acertar a do carro certo no clique é difícil
+        `<select class="costs-mini" id="unitPlateSel"><option value="">Open a car…</option>` +
+          rows.map((r) => `<option value="${escH(r.pl)}"${unitPlateSel === r.pl ? ' selected' : ''}>${escH(r.pl)} · Fleet ${escH(String(r.fleet))}</option>`).join('') + '</select>' +
         finCurFlags() + '</div>';
       ctl.querySelector('#unitFleetSel').addEventListener('change', (e) => { unitFleet = e.target.value === '' ? null : e.target.value; renderUnit(); });
       ctl.querySelector('#unitSortSel').addEventListener('change', (e) => { unitSort = e.target.value; renderUnit(); });
+      ctl.querySelector('#unitPlateSel').addEventListener('change', (e) => { unitPlateSel = e.target.value || null; renderUnit(); });
       wireCurFlags(ctl, () => renderUnit());
       sec.querySelectorAll('.costs-help').forEach((b) => { b.onclick = () => costsHelpOpen(b.dataset.h); });
       // ---- cartões ----
@@ -7380,20 +7468,67 @@
         label: (c) => { const r = rows[c.dataIndex]; return ['return: ' + money(r.real), 'budget at this age: ' + money(r.bud), 'delta: ' + (r.delta >= 0 ? '+' : '−') + money(Math.abs(r.delta)), 'in: ' + money(r.rev) + ' · out: ' + money(r.cost)]; },
       } };
       const thin = { maxBarThickness: 9, barPercentage: .92, categoryPercentage: .95 };
-      document.getElementById('unitRetHint').textContent = rows.length + ' bars — one per plate · dashed line = budget at each car\'s age';
+      document.getElementById('unitRetHint').textContent = rows.length + ' bars — one per plate · click a bar to open that car\'s Unit Economics below';
       mk('unitRet', { data: { labels, datasets: [
-          Object.assign({ type: 'bar', label: 'Return', data: rows.map((r) => Math.round(r.real * K)), backgroundColor: rows.map((r) => (r.delta >= 0 ? '#059669' : '#DC2626')), borderRadius: 2 }, thin),
+          Object.assign({ type: 'bar', label: 'Return', data: rows.map((r) => Math.round(r.real * K)),
+            backgroundColor: rows.map((r) => (r.pl === unitPlateSel ? '#5A00F8' : (r.delta >= 0 ? '#059669' : '#DC2626'))), borderRadius: 2 }, thin),
           { type: 'line', label: 'Budget', data: rows.map((r) => Math.round(r.bud * K)), borderColor: '#111827', borderDash: [5, 4], borderWidth: 1.8, pointRadius: 0, tension: 0 },
         ] },
         options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+          onClick: (e, els, ch) => {
+            // barra fininha: usa o índice do eixo X mais próximo, senão quase nunca acerta o clique
+            const pts = ch.getElementsAtEventForMode(e, 'index', { intersect: false }, true);
+            const i = (els && els.length) ? els[0].index : (pts && pts.length ? pts[0].index : null);
+            if (i == null || !rows[i]) return;
+            unitPlateSel = (unitPlateSel === rows[i].pl) ? null : rows[i].pl;   // clicar de novo fecha
+            renderUnit();
+          },
+          onHover: (e, els, ch) => { e.native.target.style.cursor = 'pointer'; },
           plugins: { legend: { position: 'bottom', align: 'start', labels: CC_LEG }, datalabels: { display: false }, tooltip: tip },
           scales: { x: { display: false }, y: { grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } } } } });
+      renderUnitPlate(rows);
       mk('unitDelta', { type: 'bar', data: { labels, datasets: [
           Object.assign({ label: 'Δ vs budget', data: rows.map((r) => Math.round(r.delta * K)), backgroundColor: rows.map((r) => (r.delta >= 0 ? '#059669' : '#DC2626')), borderRadius: 2 }, thin),
         ] },
         options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
           plugins: { legend: { display: false }, datalabels: { display: false }, tooltip: tip },
           scales: { x: { display: false }, y: { grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } } } } });
+    }
+    // ---- drill da placa clicada: o UE COMPLETO dela, na visão limpa, logo abaixo do gráfico ----
+    // Todas as linhas continuam lá; o que sai é a comparação com o orçado e os controles de edição,
+    // que não fazem sentido num painel de leitura rápida carro a carro.
+    async function renderUnitPlate(rows) {
+      const box = document.getElementById('unitPlate'); if (!box) return;
+      if (!unitPlateSel) { box.innerHTML = ''; return; }
+      const r = rows.find((x) => x.pl === unitPlateSel);
+      if (!r) { box.innerHTML = ''; unitPlateSel = null; return; }
+      const K = finCurK();
+      // sinal ANTES da moeda: fmtQty devolveria "US$ -48", que lê mal
+      const money = (v) => (v < 0 ? '−' : '') + finCS() + ' ' + fmtQty(Math.abs(v) * K);
+      const chip = (t, v, cl) => `<span class="up-chip${cl ? ' ' + cl : ''}"><i>${escH(t)}</i><b>${v}</b></span>`;
+      box.innerHTML =
+        `<div class="costs-chart up-box" style="margin-top:14px">` +
+          `<div class="cc-head"><h4>${escH(r.pl)} — Unit Economics</h4>` +
+            `<span class="cc-hint">Fleet ${escH(String(r.fleet))} · M${r.ageM.toFixed(1)} of the contract</span>` +
+            `<button type="button" class="ccl-btn" id="upClose">Close</button></div>` +
+          `<div class="up-chips">` +
+            chip('Return so far', money(r.real), r.real >= 0 ? 'up' : 'down') +
+            chip('Budget at this age', money(r.bud)) +
+            chip('Δ vs budget', (r.delta >= 0 ? '+' : '−') + money(Math.abs(r.delta)), r.delta >= 0 ? 'up' : 'down') +
+            chip('Cash in', money(r.rev)) +
+            chip('Cash out', money(r.cost)) +
+          `</div>` +
+          `<div class="up-loading">Loading the full statement…</div>` +
+        `</div>`;
+      const close = document.getElementById('upClose');
+      if (close) close.addEventListener('click', () => { unitPlateSel = null; renderUnit(); });
+      if (typeof ueDrillPlate !== 'function') { box.querySelector('.up-loading').textContent = 'Open the Unit Economics tab once to load the per-plate engine.'; return; }
+      const d = await ueDrillPlate(r.pl);
+      const alvo = box.querySelector('.up-loading'); if (!alvo) return;   // usuário já fechou
+      if (!d) { alvo.textContent = 'No contract data for this plate.'; return; }
+      alvo.outerHTML = (d.bar ? `<div class="up-bar">${d.bar}</div>` : '') +
+        `<div class="ue-table-wrap up-tablewrap">${d.table}</div>` +
+        (d.irr ? `<div class="up-irr">${d.irr}</div>` : '');
     }
     (async () => {
       const getVals = async (fleet) => { const o = {}; try { const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(fleet), { credentials: 'include' }); const d = await r.json(); (d.values || []).forEach((v) => { const lbl = v.line === 'Initial Fee / Vehicle Sell' ? 'Vehicle Sell' : v.line; if (o[lbl + '@@' + v.period] == null) o[lbl + '@@' + v.period] = v.value; }); } catch (e) {} return o; };
@@ -7442,7 +7577,8 @@
       const subAberta = abertaAgora && abertaAgora.dataset.sub;
       if (subAberta === 'findash') renderDash();
       else if (subAberta === 'fincosts') renderCosts();
-      else if (subAberta === 'finunit') renderUnit();
+      // "Per car" migrou para a seção Unit Economics — procurar dentro de #sec-finance não acha mais
+      if (document.querySelector('.sub-tab[data-sub="finunit"].active')) renderUnit();
     })();
   }
 
@@ -7670,6 +7806,23 @@
         tableEl.querySelectorAll('.ue-param-label').forEach((el) => el.addEventListener('click', () => openParamModal(el.dataset.pline)));
         tableEl.querySelectorAll('td.ue-editable').forEach((td) => td.addEventListener('click', () => editCell(td)));
       }
+      renderUetIrr();
+    }
+    // TIR do Teórico — MESMAS premissas do UE real: fluxo líquido M0..M13 do modelo em tela, com
+    // o prêmio de seguro inteiro antecipado para o M0 (compromisso firmado, não opcionalidade).
+    function renderUetIrr() {
+      const el = document.getElementById('uetIrr'); if (!el) return;
+      const T = computeAll(), maint = maintByMonth();
+      const flows = [];
+      for (let p = 0; p < UET_PERIODS; p++) flows.push(conv(T.net[p]) || 0);
+      const insLine = UET_LINES.find((l) => l.label === 'Insurance');
+      let insTot = 0;
+      if (insLine) for (let p = 0; p < UET_PERIODS; p++) {
+        const v = conv(uetEff(uetVals, uetSel, insLine, p, maint));
+        if (v) { insTot += v; flows[p] -= v; }
+      }
+      flows[0] += insTot;
+      el.innerHTML = irrPanelHtml(flows, uetCurrency === 'USD' ? 'US$' : 'R$', UET_PERIODS - 1, insTot);
     }
     // override manual de uma célula específica (modo manual): sobrescreve a projeção; vazio volta ao projetado
     function editCell(td) {
@@ -9618,76 +9771,16 @@
       const el = document.getElementById('ueIrr'); if (!el) return;
       const flows = [];
       for (let p = 0; p <= PMAX; p++) { const c = T.net[p]; flows.push(c ? (c.hasMain ? c.eff : (c.orc || 0)) : 0); }
-      const rM = irrOf(flows);
-      const cur = currency === 'BRL' ? 'R$' : 'US$';
-      const netTot = flows.reduce((a, b) => a + b, 0);
-      const invested = -flows.filter((v) => v < 0).reduce((a, b) => a + b, 0);
-      // payback = primeiro mês em que o acumulado vira positivo
-      let acc = 0, payback = null;
-      for (let p = 0; p <= PMAX; p++) { acc += flows[p]; if (payback == null && acc > 0) payback = p; }
-      const pct = (v) => (v * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
-      const money = (v) => cur + ' ' + Math.round(Math.abs(v)).toLocaleString('pt-BR') ;
-      if (rM == null) {
-        const why = netTot < 0
-          ? `the contract does not pay the invested cash back in this view (net ${cur} ${Math.round(netTot).toLocaleString('pt-BR')} over M0–M${PMAX}), so there is no rate that zeroes the NPV.`
-          : `the net cashflow never turns negative in this view — with no outlay to discount there is no IRR.`;
-        el.innerHTML = `<div class="irr-panel irr-na"><div class="irr-na-txt"><b>IRR not defined</b><span>${why}</span></div></div>`;
-        return;
-      }
-      // TIR só significa alguma coisa quando existe um desembolso relevante para remunerar.
-      // Na frota 1, por exemplo, não houve calção: o "investido" é só a preparação do carro, e
-      // dividir um ano de mensalidades por uma base quase nula explode a taxa (centenas de % a.m.)
-      // sem dizer nada sobre o negócio. Nesse caso mostramos o retorno em CAIXA, que é o que vale.
-      const inflowTot = flows.filter((v) => v > 0).reduce((a, b) => a + b, 0);
-      // dois gatilhos: base de desembolso irrelevante (< 10% do que entra) ou taxa fora de qualquer
-      // faixa útil (> 20% a.m. ≈ 700% a.a.) — nos dois casos a TIR vira ruído, não informação
-      const semCalcao = invested < inflowTot * 0.10;
-      const absurda = rM > 0.20;
-      if (semCalcao || absurda) {
-        const mult = invested > 0 ? (netTot / invested) : null;
-        const porque = semCalcao
-          ? `Almost no cash goes in up front (${money(invested)} against ${money(inflowTot)} of inflows — this fleet has no sub-rental deposit), so the rate that zeroes the NPV runs away from any useful range.`
-          : `The upfront outlay is small next to a full year of subscriptions, so the rate compounds to a number that no longer compares to anything.`;
-        el.innerHTML =
-          `<div class="irr-panel irr-thin">` +
-            `<div class="irr-main">` +
-              `<div class="irr-kpi"><span class="irr-lbl">IRR not meaningful here</span>` +
-                `<b class="irr-big irr-year">${money(netTot)}</b>` +
-                `<span class="irr-sub">net cash per car over M0–M${PMAX} — use this instead</span></div>` +
-            `</div>` +
-            `<div class="irr-side">` +
-              `<div class="irr-facts">` +
-                `<div><span>Cash invested</span><b>${money(invested)}</b></div>` +
-                `<div><span>Return on cash</span><b class="${netTot >= 0 ? 'up' : 'down'}">${mult == null ? '—' : (mult >= 0 ? '' : '−') + Math.abs(mult).toFixed(1) + '×'}</b></div>` +
-                `<div><span>Payback</span><b>${payback == null ? 'not reached' : 'M' + payback}</b></div>` +
-              `</div>` +
-              `<div class="irr-why">${porque} The IRR would read ${pct(rM)} a month (${pct(Math.pow(1 + rM, 12) - 1)} a year).</div>` +
-            `</div>` +
-          `</div>`;
-        return;
-      }
-      const rA = Math.pow(1 + rM, 12) - 1;
-      const good = rM > 0;
-      // barrinha: posição da TIR mensal numa escala de −10% a +30%
-      const gaugePct = Math.max(0, Math.min(100, ((rM * 100) + 10) / 40 * 100));
-      el.innerHTML =
-        `<div class="irr-panel${good ? '' : ' neg'}">` +
-          `<div class="irr-main">` +
-            `<div class="irr-kpi"><span class="irr-lbl">Monthly IRR</span><b class="irr-big">${pct(rM)}</b><span class="irr-sub">per UE month (4.33 weeks)</span></div>` +
-            `<div class="irr-sep"></div>` +
-            `<div class="irr-kpi"><span class="irr-lbl">Annual IRR</span><b class="irr-big irr-year">${pct(rA)}</b><span class="irr-sub">(1 + monthly)<sup>12</sup> − 1</span></div>` +
-          `</div>` +
-          `<div class="irr-side">` +
-            `<div class="irr-gauge"><div class="irr-gauge-track"><span class="irr-gauge-zero" style="left:25%"></span>` +
-              `<span class="irr-gauge-pin" style="left:${gaugePct.toFixed(1)}%"></span></div>` +
-              `<div class="irr-gauge-scale"><span>−10%</span><span>0</span><span>+30%</span></div></div>` +
-            `<div class="irr-facts">` +
-              `<div><span>Cash invested</span><b>${money(invested)}</b></div>` +
-              `<div><span>Net over the contract</span><b class="${netTot >= 0 ? 'up' : 'down'}">${netTot < 0 ? '−' : ''}${money(netTot)}</b></div>` +
-              `<div><span>Payback</span><b>${payback == null ? 'not reached' : 'M' + payback}</b></div>` +
-            `</div>` +
-          `</div>` +
-        `</div>`;
+      // SEGURO INTEIRO NO M0 (só para a TIR): a apólice é contratada de uma vez e cobre os 12
+      // meses — parcelar o pagamento é financiamento, não opcionalidade. Como compromisso firmado,
+      // ele pertence ao desembolso inicial. Sem isso o M0 ficava quase vazio (só preparação,
+      // adesivo e GPS) e a taxa que zera o VPL disparava para centenas de % ao mês, dizendo mais
+      // sobre o tamanho da base do que sobre o negócio.
+      const lineVal = (label, p) => { const e = effSplit(label, p); if (e) return (e.real || 0) + (e.proj || 0); const o = orcDisp(label, p); return o == null ? 0 : o; };
+      let insTot = 0;
+      for (let p = 0; p <= PMAX; p++) { const v = lineVal('Insurance', p); if (v) { insTot += v; flows[p] -= v; } }
+      flows[0] += insTot;
+      el.innerHTML = irrPanelHtml(flows, currency === 'BRL' ? 'R$' : 'US$', PMAX, insTot);
     }
 
     function openEditor(td, f) {
@@ -9749,6 +9842,26 @@
       await loadIndrive();
       loadFleet();
     })();
+    // ---- ponte para a aba "Per car" ----
+    // Monta o UE COMPLETO de uma placa (visão limpa: um número por mês, todas as linhas) e devolve
+    // o HTML. O estado da aba de Unit Economics é salvo antes e restaurado depois, para quem
+    // estava olhando a Frota 3 continuar na Frota 3 ao voltar.
+    ueDrillPlate = async (placa) => {
+      const alvo = (U.fleets || []).find((f) => (f.placas || []).includes(placa));
+      if (!alvo) return null;
+      const st = { current, plateView, viewAgg, cleanView, slidersOpen };
+      current = alvo.id; plateView = placa; viewAgg = false; cleanView = true; slidersOpen = false;
+      await loadFleet(true);
+      const out = {
+        table: (document.getElementById('ueTable') || {}).outerHTML || '',
+        irr: (document.getElementById('ueIrr') || {}).innerHTML || '',
+        bar: (document.getElementById('ueBarWrap') || {}).innerHTML || '',
+        fleet: alvo.id, model: alvo.modelLabel || alvo.model,
+      };
+      current = st.current; plateView = st.plateView; viewAgg = st.viewAgg; cleanView = st.cleanView; slidersOpen = st.slidersOpen;
+      await loadFleet(true);
+      return out;
+    };
   }
   }
 })();

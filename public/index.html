@@ -460,6 +460,8 @@
       <div class="sub-tabs">
         <button class="sub-tab active" data-sub="unit">Unit Economics</button>
         <button class="sub-tab" data-sub="unittheoric">Unit Economics Theoric</button>
+        <span class="sub-sep"></span>
+        <button class="sub-tab sub-tab-dash sub-tab-purple" data-sub="finunit"><span>Per car</span></button>
       </div>
 
       <!-- ---------- UNIT ECONOMICS (real) ---------- -->
@@ -483,6 +485,23 @@
         <div class="ue-fleets" id="uetFleets"></div>
         <div class="ue-head" id="uetControls"></div>
         <div class="ue-table-wrap"><table class="ue-table" id="uetTable"></table></div>
+        <div id="uetIrr"></div>
+      </div>
+
+      <!-- ---------- PER CAR (rentabilidade carro a carro) ---------- -->
+      <div class="subsection" id="sub-finunit">
+        <div id="unitCtl"></div>
+        <div id="unitHero"></div>
+        <div class="costs-chart">
+          <div class="cc-head"><h4>Return per car</h4><span class="cc-hint" id="unitRetHint"></span><button type="button" class="costs-help" data-h="u_ret">?</button></div>
+          <div class="cc-cv cv-tall"><canvas id="unitRet"></canvas></div>
+        </div>
+        <!-- drill: o UE completo da placa clicada no gráfico acima -->
+        <div id="unitPlate"></div>
+        <div class="costs-chart" style="margin-top:14px">
+          <div class="cc-head"><h4>Delta vs budget per car</h4><button type="button" class="costs-help" data-h="u_delta">?</button></div>
+          <div class="cc-cv cv-mid"><canvas id="unitDelta"></canvas></div>
+        </div>
       </div>
     </section>
 
@@ -496,7 +515,6 @@
         <span class="sub-sep"></span>
         <button class="sub-tab sub-tab-dash" data-sub="findash"><span>Dashboard</span></button>
         <button class="sub-tab sub-tab-dash sub-tab-purple" data-sub="fincosts"><span>Costs</span></button>
-        <button class="sub-tab sub-tab-dash sub-tab-purple" data-sub="finunit"><span>Unit</span></button>
       </div>
 
       <!-- ---------- P&L (consolidado) ---------- -->
@@ -658,24 +676,6 @@
         </div>
       </div>
 
-      <!-- ---------- UNIT (rentabilidade carro a carro) ---------- -->
-      <div class="subsection" id="sub-finunit">
-        <div class="section-head">
-          <div>
-            <div class="section-title"><i class="ti ti-car"></i> Unit — per-car profitability</div>
-          </div>
-        </div>
-        <div id="unitCtl"></div>
-        <div id="unitHero"></div>
-        <div class="costs-chart">
-          <div class="cc-head"><h4>Return per car</h4><span class="cc-hint" id="unitRetHint"></span><button type="button" class="costs-help" data-h="u_ret">?</button></div>
-          <div class="cc-cv cv-tall"><canvas id="unitRet"></canvas></div>
-        </div>
-        <div class="costs-chart" style="margin-top:14px">
-          <div class="cc-head"><h4>Delta vs budget per car</h4><button type="button" class="costs-help" data-h="u_delta">?</button></div>
-          <div class="cc-cv cv-mid"><canvas id="unitDelta"></canvas></div>
-        </div>
-      </div>
 
 </section>
   </main>

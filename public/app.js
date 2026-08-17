@@ -2036,6 +2036,10 @@
   // ponte entre a aba "Per car" (motor no initFinance) e o UE real (motor no initUnit): devolve o
   // UE completo de UMA placa sem deixar a aba de Unit Economics fora do lugar
   let ueDrillPlate = null;
+  // ...e a TIR mensal de TODAS as placas saída do mesmo motor do painel do UE (uma varredura por
+  // frota, não por placa). Enquanto não chega, o gráfico usa a reconstrução local como provisório.
+  let ueIrrByPlate = null;
+  let ueIrrMap = null;
   const UET_PERIODS = 14; // M0..M13
   const UET_RECUR = 12;    // recorrências mensais (M1..M12)
   const UET_WPM = 52 / 12; // semanas por mês (~4,333)
@@ -5011,7 +5015,7 @@
       share: { t: 'Share of COGS by month', d: 'Each month as 100%: how much of that month\'s vehicle cost each line represents — the five biggest lines in their own colours, the rest grouped as grey "Others". Months ahead of today are the PROJECTION and render lighter (the tooltip also says "projected"). Watch for a line quietly growing its slice as the fleet ramps: absolute values always grow with more cars, but the SHARE only grows when the line outpaces the others.' },
       u_ret: { t: 'Return — each car against its budget', d: 'One thin bar per plate, and clicking any of them opens that car\'s full statement below. The tinted bands separate the cars in the black from the ones in the red, and the dotted purple line is the fleet average. Each bar is everything the car has brought in since delivery (subscriptions received, interest, fines charged to the client) minus everything it has cost (sub-rental, insurance accrued to date, GPS, preparation, sticker, maintenance, fines paid, recovery, repair, parts). Security deposit and its refund are OUT — they are cash parked, not result — and so are the car purchase/sale and termination fees. The dashed line is each car\'s BUDGET at its current age: what its fleet\'s contractual economics (weekly fee, rent, insurance, GPS) plus the pooled event rates (fines, maintenance, recovery, repair, parts by car age) say it should have accumulated by now. GREEN bars are at or above budget, RED are below. Cars of different fleets have different ages, so bars are not directly comparable to each other — always compare each bar to the dashed line at its position, or use the "Monthly IRR" chart below, which puts every car on the same scale.' },
       u_ret_old: { t: 'Return per car — vs its budget', d: 'One thin bar per plate: everything the car has brought in since delivery (subscriptions received, interest, fines charged to the client) minus everything it has cost (sub-rental, insurance accrued to date, GPS, preparation, sticker, maintenance, fines paid, recovery, repair, parts). Security deposit and its refund are OUT — they are cash parked, not result — and so are the car purchase/sale and termination fees. The dashed line is each car\'s BUDGET at its current age: what its fleet\'s contractual economics (weekly fee, rent, insurance, GPS) plus the pooled event rates (fines, maintenance, recovery, repair, parts by car age) say it should have accumulated by now. GREEN bars are at or above budget, RED are below. Cars of different fleets have different ages, so bars are not directly comparable to each other — always compare each bar to the dashed line at its position.' },
-      u_irr: { t: 'Monthly IRR per car', d: 'The same IRR the Unit Economics panel shows, computed car by car. Each plate gets its own monthly cashflow: M0 carries the CAPITAL TIED — the sub-rental deposit, the FULL insurance premium (the policy is signed once and covers the 12 months, so paying it in instalments is financing, not optionality), plus preparation, sticker and the GPS install — and every month after that carries what actually came in (subscriptions received, interest, fines charged) minus what actually went out (sub-rental, GPS, fines paid to LM, maintenance, recovery, repair, parts), each entry landing in the month of life it happened. The IRR is the rate that makes that series worth zero today, so unlike a plain multiple it weighs WHEN each real arrives: a car that pays back in month two rates higher than one that pays the same amount spread to month ten. The series stops at the car\'s current age, so this is the return on what has already happened, not a guess about the rest of the contract — which is what makes a three-month-old car comparable to a ten-month-old one. Cars under one month of life have no bar (too little history). A car that has burned its capital with nothing coming back shows −100%. The purple line is the fleet average and the band below zero marks the cars destroying capital. Click any bar to open that car\'s full statement. ONE CAVEAT ON READING IT NEXT TO THE UE PANEL: this series is rebuilt from the plate\'s own receipts and costs, so it carries only what that specific car moved. The IRR in the Unit Economics panel is built from the UE table itself and also carries the contractual lines that are not attributable to one plate — security deposit and its refund, termination fee, vehicle purchase and sale. Both are real IRRs of real cashflows; they answer "how is THIS car doing against the others" and "how does the contract look end to end". Compare bars with bars here, and use the panel for the absolute level.' },
+      u_irr: { t: 'Monthly IRR per car', d: 'Exactly the IRR the Unit Economics panel shows for that plate — same engine, same premises, run once per car. Select any plate in the Unit Economics tab and the monthly rate there is the height of its bar here. Each car gets its own M0..M13 cashflow straight from the UE statement: M0 carries the CAPITAL TIED — the sub-rental deposit, the FULL insurance premium (the policy is signed once and covers the 12 months, so paying it in instalments is financing, not optionality), plus preparation, sticker and the GPS install — and every month after that carries what came in (subscriptions, interest, fines charged, termination fee, vehicle sale) minus what went out (sub-rental, GPS, fines paid to LM, maintenance, recovery, repair, parts, deposit refund, vehicle purchase), each entry landing in the month of life it happened, realized up to today and budgeted from there to the end of the contract. The InDrive promotion leaves the account on BOTH sides — the bonus received and the discount granted — because it was a one-off activation campaign that will not repeat in the next contract; leaving it in would make the plates that caught it look structurally better than the business is. The IRR is the rate that makes that series worth zero today, so unlike a plain multiple it weighs WHEN each real arrives: a car that pays back in month two rates higher than one that pays the same amount spread to month ten. Cars under one month of life have no bar (too little history). A car that has burned its capital with nothing coming back shows −100%. The purple line is the fleet average and the band below zero marks the cars destroying capital. Click any bar to open that car\'s full statement.' },
       drill: { t: 'Monthly by fleet', d: 'The line you clicked on the Pareto, month by month, stacked by REAL fleet — each fleet in its own colour. This is realized data only (schedules and imported bases per plate); the projection lives in the plan and has no fleet concept. The big number is the average cost per active car per month across the fleets shown, computed over the realized window.' },
       ins: { t: 'Is the insurance paying for itself?', d: 'ACCRUED, NOT PAID. The premium is disbursed in about four installments at the start of each fleet, but it covers the full 12 months of the contract. Comparing the cash of a period against the claims of that same period mismatches the two: a fleet that started in june carries almost all of its cash in 2026 while half of its coverage runs into 2027. So each fleet\'s premium is spread pro-rata, day by day, across its 365 days of coverage, and every month is charged only the risk it actually ran. The footer shows both numbers side by side. CLAIMS are the fleet-site occurrences flagged with a sinistro in the period — collisions, window damage and total loss; mechanical failures never trigger it. BREAK-EVEN PER CLAIM is the accrued premium divided by the number of claims: how much each occurrence would have to cost us out of pocket for "having insurance" and "not having it" to come out the same. The SAVING compares the two worlds: each claim CATEGORY has its own slider (a broken window and a written-off car cost nothing alike), so the out-of-pocket world is the sum of each category\'s claim count × the average cost you set for it — against the accrued premium. We have no workshop quote per occurrence, so the averages are your input. Green means insurance saved money, red means it cost more than the damage would have.' },
       filters: { t: 'View filters', d: 'Everything in this tab is built from the fleets that exist TODAY — realized up to the current month, then each fleet carried to the end of its own 12-month contract. No new fleet enters the projection, so the numbers answer what the current operation costs rather than what a bigger fleet would cost. The calendar picks the period: FULL YEAR is realized plus that projection, YEAR TO DATE stops at the current month, and a single month isolates it (the current month shows its realized value alone). The fleet selector narrows everything to one real fleet.' },
@@ -7367,7 +7371,7 @@
     // idade). Caução/refund, compra/venda e termination ficam FORA — é resultado da operação, não
     // movimentação de capital. Valores em USD (mesma base do Costs); moeda de exibição via K.
     // padrão POR FROTA: agrupar as placas da mesma frota e o gráfico já conta uma história
-    let unitSort = 'fleet', unitFleet = null, _unitCache = null;
+    let unitSort = 'fleet', unitFleet = null, _unitCache = null, _ueIrrLoading = false;
     let unitPlateSel = null;   // placa aberta no drill do "Per car" (null = nenhuma)
     // linha horizontal de referência CHEIA + rótulo numa pílula opaca encostada à direita.
     // Texto solto sobre as barras é ilegível; a pílula garante contraste em qualquer fundo.
@@ -7539,7 +7543,11 @@
             rMo = serie.some((v) => v > 0) ? irrOf(serie) : -1;
             if (rMo == null) rMo = soma > 0 ? null : -1;
           }
-          out.push({ pl, fleet: f.id, ageM, real, bud, delta: real - bud, rev: rev / fx, cost: (ev + sched) / fx, inv, rMo,
+          // quando o motor do UE já respondeu, a taxa dele MANDA — é a mesma que o usuário lê no
+          // painel da placa. A reconstrução acima fica só como provisório do primeiro segundo.
+          let irrUe = false;
+          if (ueIrrMap && ueIrrMap[pl] != null) { rMo = ueIrrMap[pl]; irrUe = true; }
+          out.push({ pl, fleet: f.id, ageM, real, bud, delta: real - bud, rev: rev / fx, cost: (ev + sched) / fx, inv, rMo, irrUe,
             model: f.modelLabel || f.model,
             driver: drvNow[pl] || (drvLast[pl] ? drvLast[pl].nome : null), semMotorista: !drvNow[pl] });
         });
@@ -7552,6 +7560,13 @@
       if (!sec || !sec.classList.contains('active')) return;
       const K = finCurK(), cs = finCS();
       const money = (v) => fmtQty(v * K);
+      // primeira renderização: dispara a varredura do motor do UE e redesenha quando ela chega
+      if (ueIrrMap == null && typeof ueIrrByPlate === 'function' && !_ueIrrLoading) {
+        _ueIrrLoading = true;
+        ueIrrByPlate().then((m) => { ueIrrMap = m || {}; _unitCache = null; renderUnit(); })
+          .catch(() => { ueIrrMap = {}; })
+          .finally(() => { _ueIrrLoading = false; });
+      }
       const all = unitData();
       let rows = unitFleet != null ? all.filter((r) => r.fleet === unitFleet) : all.slice();
       const sorters = {
@@ -9911,10 +9926,11 @@
       renderPlates(f);
     }
 
-    function renderTable(f) {
+    // separa o CÁLCULO da renderização: a ponte de TIR por placa roda o motor do UE uma vez por
+    // placa (~170 vezes) e não pode pagar o custo de montar a tabela em HTML a cada passagem
+    function buildT(f) {
       const orc = U.orcado[f.model];
-      const tbl = document.getElementById('ueTable');
-      if (!orc) { tbl.innerHTML = '<tbody><tr><td>No budget for ' + f.modelLabel + '</td></tr></tbody>'; return; }
+      if (!orc) return null;
       // injeta a linha de juros de atraso logo após Subscription (entra no Total Inflow; principal fica na Subscription)
       // a linha combinada da planilha vira duas na tela (venda + InDrive); o orçado dela fica na venda
       const baseLines = orc.lines.flatMap((l) => (l.label === 'Initial Fee / Vehicle Sell'
@@ -9966,7 +9982,14 @@
         computeJud(f);
         computeParts(f);
       }
-      const T = computeTotals(lines);
+      return { lines, T: computeTotals(lines) };
+    }
+
+    function renderTable(f) {
+      const tbl = document.getElementById('ueTable');
+      const B = buildT(f);
+      if (!B) { tbl.innerHTML = '<tbody><tr><td>No budget for ' + f.modelLabel + '</td></tr></tbody>'; return; }
+      const lines = B.lines, T = B.T;
       const gmap = { totalInflow: T.totalInflow, totalOutflow: T.totalOutflow, net: T.net, acc: T.acc };
       const editable = isAdmin && manualMode && !allMode; // no all-mode não há frota única p/ salvar edições
       let html = '<thead><tr><th class="ue-rowlabel">Line</th><th>M0</th>';
@@ -10048,6 +10071,13 @@
     // período do UE (janela de 4,333 semanas); anual = (1 + mensal)^12 − 1.
     function renderIrr(T) {
       const el = document.getElementById('ueIrr'); if (!el) return;
+      const F = irrFlowsOf(T);
+      el.innerHTML = irrPanelHtml(F.flows, currency === 'BRL' ? 'R$' : 'US$', PMAX, F.insTot, F.idrTot);
+    }
+
+    // Os fluxos da TIR do UE, isolados da renderização — é esta mesma função que a aba Unit usa
+    // para desenhar o gráfico de TIR mensal, de modo que painel e gráfico não possam divergir.
+    function irrFlowsOf(T) {
       const flows = [];
       for (let p = 0; p <= PMAX; p++) { const c = T.net[p]; flows.push(c ? (c.hasMain ? c.eff : (c.orc || 0)) : 0); }
       // SEGURO INTEIRO NO M0 (só para a TIR): a apólice é contratada de uma vez e cobre os 12
@@ -10067,7 +10097,7 @@
       let insTot = 0;
       for (let p = 0; p <= PMAX; p++) { const v = lineVal('Insurance', p); if (v) { insTot += v; flows[p] -= v; } }
       flows[0] += insTot;
-      el.innerHTML = irrPanelHtml(flows, currency === 'BRL' ? 'R$' : 'US$', PMAX, insTot, idrTot);
+      return { flows, insTot, idrTot };
     }
 
     function openEditor(td, f) {
@@ -10151,6 +10181,32 @@
         bar: barra,
         fleet: alvo.id, model: alvo.modelLabel || alvo.model,
       };
+      current = st.current; plateView = st.plateView; viewAgg = st.viewAgg; cleanView = st.cleanView; slidersOpen = st.slidersOpen;
+      await loadFleet(true);
+      return out;
+    };
+
+    // ---- TIR mensal de todas as placas, pelo motor do UE ----
+    // O gráfico de "Monthly IRR per car" reconstruía o fluxo a partir das bases cruas (pagamentos,
+    // multas, revisões, jud, peças, subrental, GPS). Faltavam nele as linhas contratuais que só o
+    // UE tem — calção e devolução, taxa de rescisão, compra e venda do veículo — e por isso a
+    // mesma placa aparecia com 42,1%/mês no gráfico e 36,7%/mês no painel. Aqui rodamos o motor
+    // de verdade: uma chamada de rede por FROTA (6, não 170) e, dentro dela, o cálculo por placa.
+    ueIrrByPlate = async () => {
+      const st = { current, plateView, viewAgg, cleanView, slidersOpen };
+      const out = {};
+      for (const f of (U.fleets || [])) {
+        if (!f.inicio) continue;
+        current = f.id; plateView = null; viewAgg = false;
+        await loadFleet(true);
+        for (const pl of (f.placas || [])) {
+          plateView = pl;
+          const B = buildT(f);
+          if (!B) continue;
+          const r = irrOf(irrFlowsOf(B.T).flows);
+          if (r != null && isFinite(r)) out[pl] = r;
+        }
+      }
       current = st.current; plateView = st.plateView; viewAgg = st.viewAgg; cleanView = st.cleanView; slidersOpen = st.slidersOpen;
       await loadFleet(true);
       return out;

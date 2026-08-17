@@ -7809,7 +7809,7 @@
       const close = document.getElementById('upClose');
       if (close) close.addEventListener('click', () => { unitPlateSel = null; renderUnit(); });
       if (typeof ueDrillPlate !== 'function') { box.querySelector('.up-loading').textContent = 'Open the Unit Economics tab once to load the per-plate engine.'; return; }
-      const d = await ueDrillPlate(r.pl);
+      const d = await ueDrillPlate(r.pl, pnlCur === 'BRL' ? 'BRL' : 'USD');
       const alvo = box.querySelector('.up-loading'); if (!alvo) return;   // usuário já fechou
       if (!d) { alvo.textContent = 'No contract data for this plate.'; return; }
       alvo.outerHTML = (d.bar ? `<div class="up-bar">${d.bar}</div>` : '') +
@@ -10197,11 +10197,13 @@
     // Monta o UE COMPLETO de uma placa (visão limpa: um número por mês, todas as linhas) e devolve
     // o HTML. O estado da aba de Unit Economics é salvo antes e restaurado depois, para quem
     // estava olhando a Frota 3 continuar na Frota 3 ao voltar.
-    ueDrillPlate = async (placa) => {
+    ueDrillPlate = async (placa, cur) => {
       const alvo = (U.fleets || []).find((f) => (f.placas || []).includes(placa));
       if (!alvo) return null;
-      const st = { current, plateView, viewAgg, cleanView, slidersOpen };
+      // a moeda vem de quem chamou (a aba Unit tem o seu próprio botão R$/US$); sem ela, mantém a daqui
+      const st = { current, plateView, viewAgg, cleanView, slidersOpen, currency };
       current = alvo.id; plateView = placa; viewAgg = false; cleanView = true; slidersOpen = false;
+      if (cur === 'BRL' || cur === 'USD') currency = cur;
       await loadFleet(true);
       // a barra de progresso não existe no clean view (contractBarHtml devolve '' com ele ligado),
       // e é justamente ela que mostra motoristas e quilometragem — monta à parte, com o clean
@@ -10215,7 +10217,7 @@
         bar: barra,
         fleet: alvo.id, model: alvo.modelLabel || alvo.model,
       };
-      current = st.current; plateView = st.plateView; viewAgg = st.viewAgg; cleanView = st.cleanView; slidersOpen = st.slidersOpen;
+      current = st.current; plateView = st.plateView; viewAgg = st.viewAgg; cleanView = st.cleanView; slidersOpen = st.slidersOpen; currency = st.currency;
       await loadFleet(true);
       return out;
     };

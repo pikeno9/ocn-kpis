@@ -2486,7 +2486,11 @@
         `</div>` +
       `</div>` +
       `<div class="irr-why irr-note irr-aside">` +
-        `<b>${money(invested)} in, ${money(invested + netTot)} out over ${PMAX} months.</b> The IRR is the rate that makes those flows worth zero today, so it weighs WHEN each real arrives — with payback at M${payback == null ? '—' : payback} the cash comes back early, which is what pushes the rate up. Read it as a ceiling: it assumes every instalment goes back to work at the same rate, and the operation cannot do that. The plain multiple on the cash is ${mult == null ? '—' : Math.abs(mult).toFixed(1) + '×'}.` +
+        `<b>${money(invested)} in, ${money(invested + netTot)} out over ${PMAX} months.</b> The IRR is the rate that makes those flows worth zero today, so it weighs WHEN each real arrives — ` +
+        (payback == null
+          ? `and here the invested cash never comes back inside the contract, which is what drives the rate down.`
+          : `with payback at M${payback} the cash comes back early, which is what pushes the rate up. Read it as a ceiling: it assumes every instalment goes back to work at the same rate, and the operation cannot do that.`) +
+        ` The plain multiple on the cash is ${mult == null ? '—' : (mult < 0 ? '−' : '') + Math.abs(mult).toFixed(1) + '×'}.` +
         nota + `</div>` +
       `</div>`;
   }

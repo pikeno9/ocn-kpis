@@ -9069,7 +9069,9 @@
       const m = entered[ekey(line, period)]; // entradas manuais são em R$
       if (m) {
         const val = toDisplay({ rs: m.value }, m.kind === 'proj' ? cotacao : ORCADO_FX);
-        return m.kind === 'proj' ? { real: 0, proj: val, status: 'proj' } : { real: val, proj: 0, status: 'real' };
+        // man: valor DIGITADO por alguém, não medido pelas bases — a célula fica verde para
+        // separar na hora o que o sistema apurou do que foi imputado à mão
+        return m.kind === 'proj' ? { real: 0, proj: val, status: 'proj', man: true } : { real: val, proj: 0, status: 'real', man: true };
       }
       const v = effNative(line, period);
       if (!v) return null;
@@ -9098,17 +9100,17 @@
     // do mês; as demais (Insurance etc.) pelos carros totais. Uma célula pode sair com realizado E projetado
     // (frotas em fases diferentes) — o cellLeaf mostra os dois.
     function combinedSplit(line, period) {
-      let real = 0, proj = 0, den = 0, any = false, anyReal = false;
+      let real = 0, proj = 0, den = 0, any = false, anyReal = false, anyMan = false;
       for (const c of fleetCtx) {
         applyCtx(c);
         const e = effSplitOne(line, period);
         if (!e) continue;
         const w = e.perActive ? activeCarsAt(period) : (c.f.cars || 1);
         real += (e.real || 0) * w; proj += (e.proj || 0) * w; den += w;
-        any = true; if (e.status === 'real') anyReal = true;
+        any = true; if (e.status === 'real') anyReal = true; if (e.man) anyMan = true;
       }
       if (!any) return null;
-      return { real, proj, den: den || 1, status: anyReal ? 'real' : 'proj' };
+      return { real, proj, den: den || 1, status: anyReal ? 'real' : 'proj', man: anyMan };
     }
     // camada de visão: unitary (÷ carros — ativos p/ linhas perActive) × aggregate (soma) × placa (individual)
     function effSplit(line, period) {
@@ -9119,20 +9121,50 @@
         const r = combinedSplit(line, period);
         if (!r) return null;
         const k = viewAgg ? 1 : 1 / r.den; // combinado já vem como soma total; unitary divide pelo denominador
-        return cut({ real: Math.round(r.real * k), proj: Math.round(r.proj * k), status: r.status });
+        return cut({ real: Math.round(r.real * k), proj: Math.round(r.proj * k), status: r.status, man: r.man });
       }
       const e = effSplitOne(line, period);
       if (!e) return null;
       const k = plateView ? 1 : (viewAgg ? (e.perActive ? activeCarsAt(period) : (curCars || 1)) : 1);
-      return cut({ real: Math.round((e.real || 0) * k), proj: Math.round((e.proj || 0) * k), status: e.status });
+      return cut({ real: Math.round((e.real || 0) * k), proj: Math.round((e.proj || 0) * k), status: e.status, man: e.man });
     }
     // linhas cujo lançamento pontual foi movido para o M13 (planilha original só vai até M12) — o orçado de
     // referência sai do M12 e passa a aparecer só no M13 (substituição, não duplicação)
     const M13_LINES = ['Vehicle Purchase', 'Vehicle Sell', 'Deposit Refund'];
     // a PLANILHA de orçado ainda usa o rótulo combinado — as linhas novas leem dela por alias
     const ORC_ALIAS = { 'Vehicle Sell': 'Initial Fee / Vehicle Sell' };
+    // ---- orçado da SUBSCRIPTION pelas segundas-feiras reais do mês ----
+    // A mensalidade é cobrada toda segunda, então um M com 5 segundas rende 25% a mais que um com 4
+    // — e, dependendo do dia em que a frota começou, o mesmo M1 pode ter 4 ou 5 cobranças. O orçado
+    // da planilha é linear (4,3333 semanas fixas em todo mês), o que fazia o realizado parecer
+    // acima do esperado nos meses de 5 segundas e abaixo nos de 4, sem nada ter acontecido.
+    // mondaysAvg(p) já conta as segundas da janela de cada carro, respeitando a data de entrega da
+    // placa e tirando quem virou perda total. Vale só para o UE real — o UE Teórico continua linear,
+    // porque lá não existe data de início de frota.
+    const subOrcMondays = (period) => {
+      if (period < 1 || period > PMAX) return null;
+      const semanal = par('__sub_semanal__');
+      if (!(semanal > 0)) return null;
+      const n = mondaysAvg(period);
+      return n > 0 ? n * semanal : 0;   // R$ por carro
+    };
     // orçado (planilha, USD) na moeda de exibição; all-mode = média ponderada dos orçados por modelo
     const orcDisp = (line, period) => {
+      if (line === 'Subscription') {
+        const fxS = currency === 'BRL' ? 1 : 1 / ORCADO_FX;
+        const kS = viewMult();
+        if (allMode && !plateView) {
+          let sum = 0, any = false;
+          fleetCtx && fleetCtx.forEach((c) => {
+            applyCtx(c);
+            const v = subOrcMondays(period);
+            if (v != null) { sum += v * (c.f.cars || 0); any = true; }
+          });
+          return any ? Math.round((sum / (curCars || 1)) * fxS * kS) : null;
+        }
+        const v = subOrcMondays(period);
+        return v == null ? null : Math.round(v * fxS * kS);
+      }
       const isM13Line = M13_LINES.includes(line);
       if (isM13Line && period === U.periods) return null; // M12 não mostra mais (valor foi para o M13)
       const srcP = (isM13Line && period === PMAX) ? U.periods : period; // M13 reaproveita o valor do M12
@@ -9183,6 +9215,7 @@
       const e = effSplit(line, period);
       const orc = orcDisp(line, period);
       let s = '';
+      const mc = e && e.man ? ' ue-man' : '';   // imputado à mão → verde
       if (e) {
         // modo limpo: um número só (realizado + projetado somados) e, quando há mistura,
         // uma barrinha proporcional abaixo mostrando quanto de cada — sem poluir com o orçado.
@@ -9191,16 +9224,17 @@
           if (!e.real && !e.proj) return `<span class="ue-main ue-${e.status}">-</span>`;
           const mixed = e.real && e.proj;
           const kind = mixed ? 'mix' : (e.real ? 'real' : 'proj');
-          s += `<span class="ue-main ue-${kind}">${ueFmt(tot)}</span>`;
+          s += `<span class="ue-main ue-${kind}${mc}"${mc ? ' title="Manually entered"' : ''}>${ueFmt(tot)}</span>`;
           if (mixed) {
             const pr = Math.max(0, Math.min(100, Math.abs(e.real) / (Math.abs(e.real) + Math.abs(e.proj)) * 100));
             s += `<span class="ue-mixbar" title="realized ${ueFmt(e.real)} + projected ${ueFmt(e.proj)}"><i style="width:${pr.toFixed(1)}%"></i></span>`;
           }
           return s;
         }
-        if (e.real) s += `<span class="ue-main ue-real">${ueFmt(e.real)}</span>`;
-        if (e.proj) s += `<span class="ue-main ue-proj">${ueFmt(e.proj)}</span>`;
-        if (!e.real && !e.proj) s += `<span class="ue-main ue-${e.status}">-</span>`;
+        const tm = mc ? ' title="Manually entered"' : '';
+        if (e.real) s += `<span class="ue-main ue-real${mc}"${tm}>${ueFmt(e.real)}</span>`;
+        if (e.proj) s += `<span class="ue-main ue-proj${mc}"${tm}>${ueFmt(e.proj)}</span>`;
+        if (!e.real && !e.proj) s += `<span class="ue-main ue-${e.status}${mc}"${tm}>-</span>`;
       }
       if (orc != null && !cleanView) s += `<span class="ue-orc">${ueFmt(orc)}</span>`;
       // lacuna sem NADA (linha não se aplica ao período, ex.: Sticker fora do M0) vira "-" (= zero)

@@ -818,6 +818,8 @@ html { scrollbar-gutter: stable; }
 .ue-main { display: block; font-weight: 700; line-height: 1.25; }
 .ue-real { color: #1d1d1b; }
 .ue-proj { color: #6D28D9; }
+/* valor IMPUTADO A MAO: verde, vence real e projetado (contraste 5,0:1 sobre branco) */
+.ue-main.ue-man { color: #047857; }
 .ue-main + .ue-orc { font-size: 10px; opacity: .7; }
 .ue-editor { display: flex; flex-direction: column; gap: 3px; align-items: flex-end; }
 .ue-editor-cur { font-size: 9px; font-weight: 700; color: var(--accent-ink); }
@@ -1666,6 +1668,7 @@ html.dark .ue-switch input::after, html.dark .fin-slider::before, html.dark .irr
 /* ---- números da tabela do UE: realizado era quase preto (contraste 1,03) ---- */
 html.dark .ue-real { color: #E7E8EC; }
 html.dark .ue-proj { color: #B49BFF; }
+html.dark .ue-main.ue-man { color: #4ADE80; }
 
 /* ---- UE: cabeçalho invertido, coluna Total, totalizadores e Net/Acc ---- */
 html.dark .ue-table thead th, html.dark .ue-table thead .ue-rowlabel, html.dark .rh-table thead th { background: #3A3C49; }

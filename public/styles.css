@@ -2069,16 +2069,16 @@ html.dark .ue-judbtn.on { border-color: #f59e0b; color: #FCD34D; }
 html.dark .irr-cashtbl tr.neg .ic-v { color: #FCA5A5; }
 
 /* ---- cabeçalho do UE: uma linha no clean view, três na visão normal ---- */
-.ue-head-ctrls { flex: 1 1 auto; min-width: 0; align-items: stretch; }
+.ue-head-ctrls { flex: 1 1 0; min-width: 520px; align-items: stretch; }
 .ue-head-ctrls .ue-ctrl-row { width: 100%; }
 .ue-gap { flex: 1 1 auto; min-width: 0; }
 .ue-row-busca { justify-content: flex-end; }
 /* a foto encolhe na visão normal: são três linhas de controles ao lado dela */
 .ue-head-full .ue-car-img { width: 190px; max-height: 106px; }
-.ue-head-full .ue-fleet-head { flex: 0 0 345px; }
+.ue-head-full .ue-fleet-head { flex: 0 0 330px; }
 .ue-head-full .ue-fleet-title { font-size: 19px; }
 .ue-head-slim .ue-fleet-head { flex: 0 0 340px; }
-.ue-head-full .ue-search input { width: 148px; }
+.ue-head-full .ue-search input { width: 128px; }
 @media (max-width: 1180px) {
   .ue-head-full .ue-fleet-head, .ue-head-slim .ue-fleet-head { flex: 1 1 auto; }
   .ue-row-busca { justify-content: flex-start; }
@@ -2092,7 +2092,7 @@ html.dark .irr-cashtbl tr.neg .ic-v { color: #FCA5A5; }
 .ue-head-full .ue-ctrl-row > .idr-btn,
 .ue-head-full .ue-ctrl-row > .ue-fcbtn,
 .ue-head-full .ue-ctrl-row > .ue-tool-btn:not(.ue-info-btn),
-.ue-head-full .ue-ctrl-row > .ue-modelsel { width: 152px; max-width: 152px; justify-content: center; text-align: center; }
+.ue-head-full .ue-ctrl-row > .ue-modelsel { width: 132px; max-width: 132px; justify-content: center; text-align: center; }
 .ue-head-full .ue-ctrl-row > .ue-modelsel { text-align: left; }
 
 /* IRR by model v3: sem a moldura externa — só o nome e as duas caixas, com número GRANDE */

@@ -7473,6 +7473,7 @@
     // contrato — com ela ligada, a leitura normal do gráfico virava a da exceção.
     let unitIdrOff = true;
     let unitJudOff = false;    // tira recuperação + reparo do retorno e da TIR das barras
+    let unitDrillBud = false;  // mostra a linha cinza do orçado na tabela aberta pelo gráfico
     const ueIrrMaps = {};      // um mapa de TIR por combinação dos dois botões
     let unitPlateSel = null;   // placa aberta no drill do "Per car" (null = nenhuma)
     // linha horizontal de referência CHEIA + rótulo numa pílula opaca encostada à direita.
@@ -7997,6 +7998,8 @@
             `<span class="cc-hint">` +
               (r.driver ? `<b class="up-driver">${escH(r.driver)}</b>${r.semMotorista ? ' <em>(car returned)</em>' : ''} · ` : '<em>no driver</em> · ') +
               `Fleet ${escH(String(r.fleet))} · <b>${escH(r.model || '')}</b> · M${r.ageM.toFixed(1)} of the contract</span>` +
+            // botão discreto: traz a linha cinza do orçado para dentro da tabela desta placa
+            `<button type="button" class="ccl-btn up-budbtn${unitDrillBud ? ' on' : ''}" id="upBud" title="${unitDrillBud ? 'Hide the budget line' : 'Show the budget line inside the table'}">${unitDrillBud ? '◧' : '◫'} Budget</button>` +
             `<button type="button" class="ccl-btn" id="upClose">Close</button></div>` +
           `<div class="up-chips">` +
             chip('Return so far', money(r.real), r.real >= 0 ? 'up' : 'down') +
@@ -8007,10 +8010,12 @@
           `</div>` +
           `<div class="up-loading">Loading the full statement…</div>` +
         `</div>`;
+      const budBtn = document.getElementById('upBud');
+      if (budBtn) budBtn.addEventListener('click', () => { unitDrillBud = !unitDrillBud; renderUnitPlate(rows); });
       const close = document.getElementById('upClose');
       if (close) close.addEventListener('click', () => { unitPlateSel = null; renderUnit(); });
       if (typeof ueDrillPlate !== 'function') { box.querySelector('.up-loading').textContent = 'Open the Unit Economics tab once to load the per-plate engine.'; return; }
-      const d = await ueDrillPlate(r.pl, pnlCur === 'BRL' ? 'BRL' : 'USD');
+      const d = await ueDrillPlate(r.pl, pnlCur === 'BRL' ? 'BRL' : 'USD', { idrOff: unitIdrOff, judOff: unitJudOff, budget: unitDrillBud });
       const alvo = box.querySelector('.up-loading'); if (!alvo) return;   // usuário já fechou
       if (!d) { alvo.textContent = 'No contract data for this plate.'; return; }
       alvo.outerHTML = (d.bar ? `<div class="up-bar">${d.bar}</div>` : '') +
@@ -10089,7 +10094,6 @@
       if (!keepView) { plateView = null; viewAgg = false; }
       curCars = f.cars || 0; ctxCars = f.cars || 0; ctxPlates = f.placas || []; ctxFleetId = f.id;
       const foto = allMode ? null : (OCN.modelos[f.model] || {}).foto;
-      fleetsEl.querySelectorAll('.ue-fleet-btn').forEach((b) => b.classList.toggle('active', b.dataset.id === current));
       // carrega valores (entradas manuais + params) — all-mode busca de todas as frotas em paralelo
       entered = {}; params = {};
       if (allMode) {
@@ -10126,6 +10130,9 @@
       // barra do contrato: início ——[quanto já correu]—— início + 52 semanas (só com data de início;
       // em "All fleets" cada frota tem um começo diferente, então a barra não aparece)
       if (quiet) return;   // varredura: os dados ja estao carregados, a tela nao muda
+      // o destaque do botão de frota é TELA: durante a varredura ele acendia de 1 em 6 e parecia
+      // um carregamento em looping. Fica depois do corte silencioso.
+      fleetsEl.querySelectorAll('.ue-fleet-btn').forEach((b) => b.classList.toggle('active', b.dataset.id === current));
       const contractBar = contractBarHtml(f);
       // ícones em SVG inline (a fonte de ícones já falhou uma vez e deixou botão em branco)
       const SVG_ADJ = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h9.6M18.4 6H20M4 12h3.6M12.4 12H20M4 18h12.6"/><circle cx="16" cy="6" r="2.2"/><circle cx="10" cy="12" r="2.2"/><circle cx="18.8" cy="18" r="2.2"/></svg>`;
@@ -10137,34 +10144,44 @@
         `<div class="ue-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>` +
           `<input type="search" id="ueSearch" placeholder="Plate or driver…" autocomplete="off" spellcheck="false" />` +
           `<div class="ue-search-res" id="ueSearchRes" hidden></div></div>`;
-      const ctrlRows = cleanView ? (`<div class="ue-ctrl-row">` + BUSCA_HTML + `</div>`) :
-        `<div class="ue-ctrl-row">` +
-          BUSCA_HTML +
-          `<button type="button" class="ue-tool-btn ue-assump-btn${slidersOpen ? ' on' : ''}" id="ueSlidersBtn">${SVG_ADJ} Assumptions <span>${slidersOpen ? '▴' : '▾'}</span></button>` +
-          `<button class="ue-tool-btn" id="ueParts" title="Replacement intervals and cost per part">⚙ Parts</button>` +
-        `</div>` +
-        `<div class="ue-ctrl-row">` +
-          // Interruptor simples: os valores da InDrive vêm da base (import_baseID), não há mais
-          // nada para editar aqui — o botão inteiro liga e desliga o efeito.
-          `<button class="idr-btn${idrOff ? ' off' : ' on'}" id="ueIndrive" title="${idrOff ? 'InDrive is OUT of the UE — click to bring it back' : 'Click to take the InDrive effect out of the UE'}">` +
-            `<span class="idr-mark">iD</span><span class="idr-txt">InDrive</span>` +
-            `<span class="idr-state">${idrOff ? 'off' : 'on'}</span>` +
-          `</button>` +
-          // Forecast: mesmo interruptor de antes ("Actuals + projection"), agora com nome curto e
-          // estado explícito — pílula acesa/apagada no MESMO desenho do iD ao lado
-          // "Rec+Rep": tira guincho e reparo da conta. É a pergunta que sempre aparece na reunião
-          // — "e se este carro não tivesse dado problema?" — e agora ela tem um interruptor.
-          `<button class="ue-fcbtn ue-judbtn${judOff ? '' : ' on'}" id="ueJud" title="${judOff ? 'Recovery + repair are OUT — click to bring them back' : 'Click to take recovery + repair costs out of the account'}">` +
-            `<span class="ue-fc-dot"></span>Rec+Rep<span class="ue-fc-state">${judOff ? 'off' : 'on'}</span></button>` +
-          `<button class="ue-fcbtn${showProj ? ' on' : ''}" id="ueProj" title="${showProj ? 'Hide the projected numbers (purple) and show actuals only' : 'Bring the projections back'}">` +
-            `<span class="ue-fc-dot"></span>Forecast<span class="ue-fc-state">${showProj ? 'on' : 'off'}</span></button>` +
-        `</div>`;
+      // ---- CABEÇALHO ----
+      // Clean view: uma linha só (busca, modelo, moeda, Clean view, "?").
+      // Normal: a busca no alto à direita e duas linhas de controles — iD/Rec+Rep/modelo de um
+      // lado, refresh/moeda/"?" do outro; embaixo Forecast/Parts/Assumptions e Manual/Clean.
+      const MODELSEL =
+        `<select class="ue-modelsel" id="ueModelSel" title="Look at every fleet of one model together">` +
+          `<option value="">All fleets</option>` +
+          [...new Set(U.fleets.map((x) => x.model))].map((m) => {
+            const fs2 = U.fleets.filter((x) => x.model === m);
+            const n2 = fs2.reduce((t, x) => t + (x.cars || (x.placas || []).length || 0), 0);
+            return `<option value="m:${m}"${current === 'm:' + m ? ' selected' : ''}>${fs2[0].modelLabel || m} · ${n2} cars</option>`;
+          }).join('') + `</select>`;
+      const REFRESH = cleanView ? '' : `<button class="ue-round-btn" id="ueRefresh" title="Re-fetches the spreadsheet data">${SVG_REFRESH}</button>`;
+      const MOEDA = `<div class="ue-cur-toggle" id="ueCurToggle">${CUR_FLAGS(currency)}</div>`;
+      const INFO = `<button class="ue-tool-btn ue-info-btn" id="ueInfo" title="Where each line comes from and how it updates">?</button>`;
+      const CLEAN = `<button class="ue-clean2${cleanView ? ' on' : ''}" id="ueClean" title="${cleanView ? 'Back to the full view' : 'Strip the panel down to the table: one number per month, no budget comparison, no controls'}">✨ Clean view</button>`;
+      const MANUAL = (cleanView || !isAdmin) ? '' : `<label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Manual mode</span></label>`;
+      // Interruptor simples: os valores da InDrive vêm da base (import_baseID) — não há menu.
+      const IDR = `<button class="idr-btn${idrOff ? ' off' : ' on'}" id="ueIndrive" title="${idrOff ? 'InDrive is OUT of the UE — click to bring it back' : 'Click to take the InDrive effect out of the UE'}">` +
+        `<span class="idr-mark">iD</span><span class="idr-txt">InDrive</span><span class="idr-state">${idrOff ? 'off' : 'on'}</span></button>`;
+      // "e se este carro não tivesse dado problema?" — tira guincho e reparo da conta
+      const RECREP = `<button class="ue-fcbtn ue-judbtn${judOff ? '' : ' on'}" id="ueJud" title="${judOff ? 'Recovery + repair are OUT — click to bring them back' : 'Click to take recovery + repair costs out of the account'}">` +
+        `<span class="ue-fc-dot"></span>Rec+Rep<span class="ue-fc-state">${judOff ? 'off' : 'on'}</span></button>`;
+      const FCAST = `<button class="ue-fcbtn${showProj ? ' on' : ''}" id="ueProj" title="${showProj ? 'Hide the projected numbers (purple) and show actuals only' : 'Bring the projections back'}">` +
+        `<span class="ue-fc-dot"></span>Forecast<span class="ue-fc-state">${showProj ? 'on' : 'off'}</span></button>`;
+      const PARTS = `<button class="ue-tool-btn" id="ueParts" title="Replacement intervals and cost per part">⚙ Parts</button>`;
+      const ASSUMP = `<button type="button" class="ue-tool-btn ue-assump-btn${slidersOpen ? ' on' : ''}" id="ueSlidersBtn">${SVG_ADJ} Assumptions <span>${slidersOpen ? '▴' : '▾'}</span></button>`;
+      const GAP = `<span class="ue-gap" aria-hidden="true"></span>`;
+      const ctrlRows = cleanView
+        ? (`<div class="ue-ctrl-row ue-row-1">` + BUSCA_HTML + MODELSEL + GAP + MOEDA + CLEAN + INFO + `</div>`)
+        : (`<div class="ue-ctrl-row ue-row-busca">` + BUSCA_HTML + `</div>` +
+           `<div class="ue-ctrl-row">` + IDR + RECREP + MODELSEL + GAP + REFRESH + MOEDA + INFO + `</div>` +
+           `<div class="ue-ctrl-row">` + FCAST + PARTS + ASSUMP + GAP + MANUAL + CLEAN + `</div>`);
       document.getElementById('ueHead').innerHTML =
-        `<div class="ue-headrow ue-headv2">` +
+        `<div class="ue-headrow ue-headv2${cleanView ? ' ue-head-slim' : ' ue-head-full'}">` +
           `<div class="ue-fleet-head">` +
             (foto ? `<img class="ue-car-img" src="${foto}" alt="${f.modelLabel}"/>` : '') +
-            // placa selecionada = ELA é o destaque; o modelo desce para uma linha cinza (igual ao
-            // "Fleet 1" de cima). Sem placa, o destaque segue sendo o modelo (ou "All fleets").
+            // placa selecionada = ELA é o destaque; o modelo desce para uma linha cinza
             `<div class="ue-fleet-id">` +
               `<div class="ue-fleet-eyebrow">${allMode ? f.modelLabel : f.label}</div>` +
               `<div class="ue-fleet-title" id="ueTitleBig">${plateView ? plateView : (allMode ? f.label : f.modelLabel) + (viewAgg ? ' · aggregate' : '')}</div>` +
@@ -10172,27 +10189,6 @@
             `</div>` +
           `</div>` +
           `<div class="ue-head-ctrls">` + ctrlRows + `</div>` +
-          `<div class="ue-actstack ue-actv2">` +
-            `<div class="ue-ctrl-row ue-row-right">` +
-              // recorte por MODELO: dropdown pequeno, ao lado do refresh. A fila de botões é das
-              // FROTAS (as levas); o modelo é outro eixo e não precisa ocupar a mesma régua.
-              `<select class="ue-modelsel" id="ueModelSel" title="Look at every fleet of one model together">` +
-                `<option value="">All fleets</option>` +
-                [...new Set(U.fleets.map((x) => x.model))].map((m) => {
-                  const fs2 = U.fleets.filter((x) => x.model === m);
-                  const n2 = fs2.reduce((t, x) => t + (x.cars || (x.placas || []).length || 0), 0);
-                  return `<option value="m:${m}"${current === 'm:' + m ? ' selected' : ''}>${fs2[0].modelLabel || m} · ${n2} cars</option>`;
-                }).join('') +
-              `</select>` +
-              (cleanView ? '' : `<button class="ue-round-btn" id="ueRefresh" title="Re-fetches the spreadsheet data">${SVG_REFRESH}</button>`) +
-              `<div class="ue-cur-toggle" id="ueCurToggle">${CUR_FLAGS(currency)}</div>` +
-              `<button class="ue-tool-btn ue-info-btn" id="ueInfo" title="Where each line comes from and how it updates">?</button>` +
-            `</div>` +
-            `<div class="ue-ctrl-row ue-row-right">` +
-              (cleanView || !isAdmin ? '' : `<label class="ue-switch"><input type="checkbox" id="ueManual"${manualMode ? ' checked' : ''}/><span>Manual mode</span></label>`) +
-              `<button class="ue-clean2${cleanView ? ' on' : ''}" id="ueClean" title="${cleanView ? 'Back to the full view' : 'Strip the panel down to the table: one number per month, no budget comparison, no controls'}">✨ Clean view</button>` +
-            `</div>` +
-          `</div>` +
         `</div>` +
         `<div id="ueBarWrap">${contractBar}</div>` +
         // premissas RECOLHIDAS por padrão: o botão vive na linha de controles; aqui só o painel
@@ -10614,12 +10610,18 @@
     // Monta o UE COMPLETO de uma placa (visão limpa: um número por mês, todas as linhas) e devolve
     // o HTML. O estado da aba de Unit Economics é salvo antes e restaurado depois, para quem
     // estava olhando a Frota 3 continuar na Frota 3 ao voltar.
-    ueDrillPlate = async (placa, cur) => {
+    // opts = { idrOff, judOff, budget } — a aba Unit tem os próprios interruptores, e a tabela que
+    // abre ao clicar numa barra precisa responder a eles; senão ela fica estática enquanto o
+    // gráfico ao lado muda. budget = mostra a linha cinza do orçado (o clean view a esconde).
+    ueDrillPlate = async (placa, cur, opts) => {
       const alvo = (U.fleets || []).find((f) => (f.placas || []).includes(placa));
       if (!alvo) return null;
-      // a moeda vem de quem chamou (a aba Unit tem o seu próprio botão R$/US$); sem ela, mantém a daqui
-      const st = { current, plateView, viewAgg, cleanView, slidersOpen, currency };
-      current = alvo.id; plateView = placa; viewAgg = false; cleanView = true; slidersOpen = false;
+      const o = opts || {};
+      const st = { current, plateView, viewAgg, cleanView, slidersOpen, currency, idrOff, judOff };
+      current = alvo.id; plateView = placa; viewAgg = false; slidersOpen = false;
+      cleanView = !o.budget;
+      if (o.idrOff != null) idrOff = !!o.idrOff;
+      if (o.judOff != null) judOff = !!o.judOff;
       if (cur === 'BRL' || cur === 'USD') currency = cur;
       await loadFleet(true);
       // a barra de progresso não existe no clean view (contractBarHtml devolve '' com ele ligado),
@@ -10627,7 +10629,7 @@
       // desligado só nessa chamada
       cleanView = false;
       const barra = contractBarHtml(alvo);
-      cleanView = true;
+      cleanView = !o.budget;   // volta ao que a chamada pediu (o budget depende disso)
       const out = {
         table: (document.getElementById('ueTable') || {}).outerHTML || '',
         irr: (document.getElementById('ueIrr') || {}).innerHTML || '',
@@ -10635,7 +10637,7 @@
         fleet: alvo.id, model: alvo.modelLabel || alvo.model,
       };
       sweepSnap = null;
-      current = st.current; plateView = st.plateView; viewAgg = st.viewAgg; cleanView = st.cleanView; slidersOpen = st.slidersOpen; currency = st.currency;
+      current = st.current; plateView = st.plateView; viewAgg = st.viewAgg; cleanView = st.cleanView; slidersOpen = st.slidersOpen; currency = st.currency; idrOff = st.idrOff; judOff = st.judOff;
       await loadFleet(true);
       return out;
     };

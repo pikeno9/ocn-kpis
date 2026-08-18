@@ -1849,14 +1849,12 @@ html.dark .ue-track-drivers .ue-contract-lbl i { background: rgba(30,31,38,.92);
 .ue-headv2 .ue-fleet-head { flex: 0 0 400px; gap: 0; }
 .ue-headv2 .ue-fleet-id { margin-left: -14px; min-width: 0; }
 .ue-fleet-model { font-size: 10.5px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; color: var(--text-3); margin-top: 3px; }
-.ue-head-ctrls { display: grid; grid-template-columns: repeat(2, minmax(150px, 1fr)); gap: 9px; }
-.ue-head-ctrls .ue-tool-btn, .ue-head-ctrls .idr-btn, .ue-head-ctrls .ue-fcbtn { width: 100%; justify-content: center; }
 .ue-head-ctrls .idr-btn, .ue-head-ctrls .ue-fcbtn { padding-left: 10px; padding-right: 6px; }
 @media (max-width: 1080px) { .ue-headv2 .ue-fleet-head { flex: 1 1 auto; } }
 /* as duas linhas são divs .ue-ctrl-row — cada uma vira uma grade de 2 colunas iguais, e as duas
    usam a MESMA definição de coluna, então Assumptions/InDrive e Parts/Forecast ficam alinhados */
 .ue-head-ctrls { display: flex; flex-direction: column; }
-.ue-head-ctrls .ue-ctrl-row { display: grid; grid-template-columns: repeat(2, minmax(150px, 1fr)); gap: 9px; }
+.ue-head-ctrls .ue-ctrl-row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
 
 /* ---- UE: botões de frota iguais e frota ativa com mais destaque ----
    flex: 1 1 0 divide a linha em partes IGUAIS (o "Fleet 6 · Tera" era mais curto que os outros);
@@ -2069,3 +2067,23 @@ html.dark .ue-judbtn.on { border-color: #f59e0b; color: #FCD34D; }
 .irr-cashtbl tr.neg .ic-v { color: #B91C1C; }
 .irr-cashtbl .ic-a { font-weight: 700; }
 html.dark .irr-cashtbl tr.neg .ic-v { color: #FCA5A5; }
+
+/* ---- cabeçalho do UE: uma linha no clean view, três na visão normal ---- */
+.ue-head-ctrls { flex: 1 1 auto; min-width: 0; align-items: stretch; }
+.ue-head-ctrls .ue-ctrl-row { width: 100%; }
+.ue-gap { flex: 1 1 auto; min-width: 0; }
+.ue-row-busca { justify-content: flex-end; }
+/* a foto encolhe na visão normal: são três linhas de controles ao lado dela */
+.ue-head-full .ue-car-img { width: 150px; max-height: 84px; }
+.ue-head-full .ue-fleet-head { flex: 0 0 300px; }
+.ue-head-full .ue-fleet-title { font-size: 19px; }
+.ue-head-slim .ue-fleet-head { flex: 0 0 340px; }
+.ue-head-full .ue-search input { width: 148px; }
+@media (max-width: 1180px) {
+  .ue-head-full .ue-fleet-head, .ue-head-slim .ue-fleet-head { flex: 1 1 auto; }
+  .ue-row-busca { justify-content: flex-start; }
+}
+
+/* botão discreto que traz o orçado para dentro da tabela do carro */
+.up-budbtn { font-variant-numeric: tabular-nums; }
+.up-budbtn.on { border-color: var(--accent-ink); color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }

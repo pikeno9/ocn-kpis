@@ -7474,6 +7474,7 @@
     let unitIdrOff = true;
     let unitJudOff = false;    // tira recuperação + reparo do retorno e da TIR das barras
     let unitDrillBud = false;  // mostra a linha cinza do orçado na tabela aberta pelo gráfico
+    let unitCauOff = false;    // tira a caução (depósito + devolução) da TIR e do capital
     const ueIrrMaps = {};      // um mapa de TIR por combinação dos dois botões
     let unitPlateSel = null;   // placa aberta no drill do "Per car" (null = nenhuma)
     // linha horizontal de referência CHEIA + rótulo numa pílula opaca encostada à direita.
@@ -7575,6 +7576,7 @@
         bud /= fx;
         // ---- custos de AGENDA por carro (iguais para toda a frota), realizados até hoje ----
         let sched = 50 + 15 + par('__gps_m0__');
+        const schedM0Fix = 50 + 15 + par('__gps_m0__');   // parte do M0, não escala com o tempo
         const subr = par('__subrental_mensal__');
         if (subr > 0) {
           const dim = new Date(ini.getFullYear(), ini.getMonth() + 1, 0).getDate();
@@ -7619,29 +7621,40 @@
         if (fullE + 1 <= 13) revEsp += par('__sub_semanal__') * segundas[fullE + 1] * (ageM - fullE);
         (f.placas || []).forEach((pl) => {
           let rev = 0, ev = 0;
-          const cmp = { multas: 0, revisoes: 0, recovery: 0, repair: 0, pecas: 0 };
+          const cmp = { multas: 0, revisoes: 0, recovery: 0, repair: 0, pecas: 0, finesIn: 0 };
           // fluxo de caixa MENSAL da placa (M0..M13) — a base da TIR. Cada lançamento cai no mês
           // de vida em que aconteceu, e não no bolo do período: é o QUANDO que a TIR pesa.
           const fluxo = new Array(14).fill(0);
           const dep = (iso, v) => { if (iso) fluxo[moDe(new Date(iso + 'T12:00:00'))] += v; };
-          let revSub = 0;
-          ((((U.pagamentos || {}).placas) || {})[pl] || []).forEach((s) => { const v = s.r != null ? s.r : (s.e != null ? s.e : 0); rev += v; revSub += v; dep(s.v, v); });
-          ((((U.multas || {}).placas) || {})[pl] || []).forEach((x) => { if (x.pago) { rev += x.v; dep(x.d, x.v); } });
-          ((((U.multasBase || {}).placas) || {})[pl] || []).forEach((x) => { const v = (x.liq > 0 ? x.liq : (x.v || 0) / 1.05) * 1.05; ev += v; cmp.multas += v; dep(x.venc, -v); });
-          ((((U.revBase || {}).placas) || {})[pl] || []).forEach((r) => { if (r.valor) { ev += r.valor; cmp.revisoes += r.valor; dep(r.venc, -r.valor); } });
+          let revSub = 0, rev15 = 0, ev15 = 0;
+          const HOJE15 = new Date(hoje.getTime() - 15 * MS);   // para o Δ de 15 dias
+          ((((U.pagamentos || {}).placas) || {})[pl] || []).forEach((s) => { const v = s.r != null ? s.r : (s.e != null ? s.e : 0); rev += v; revSub += v; if (s.v <= HOJE15.toISOString().slice(0, 10)) rev15 += v; dep(s.v, v); });
+          ((((U.multas || {}).placas) || {})[pl] || []).forEach((x) => { if (x.pago) { rev += x.v; cmp.finesIn += x.v; if (x.d <= HOJE15.toISOString().slice(0, 10)) rev15 += x.v; dep(x.d, x.v); } });
+          ((((U.multasBase || {}).placas) || {})[pl] || []).forEach((x) => { const v = (x.liq > 0 ? x.liq : (x.v || 0) / 1.05) * 1.05; ev += v; cmp.multas += v; if (x.venc && x.venc <= HOJE15.toISOString().slice(0, 10)) ev15 += v; dep(x.venc, -v); });
+          ((((U.revBase || {}).placas) || {})[pl] || []).forEach((r) => { if (r.valor) { ev += r.valor; cmp.revisoes += r.valor; if (r.venc && r.venc <= HOJE15.toISOString().slice(0, 10)) ev15 += r.valor; dep(r.venc, -r.valor); } });
           ((((U.judBase || {}).placas) || {})[pl] || []).forEach((c) => {
             cmp.recovery += (c.recovery || 0); cmp.repair += (c.repair || 0);
             if (unitJudOff) return;                       // botão Rec+Rep: fora do caixa e da TIR
-            const v = (c.recovery || 0) + (c.repair || 0); ev += v; dep(c.d, -v);
+            const v = (c.recovery || 0) + (c.repair || 0); ev += v; if (c.d && c.d <= HOJE15.toISOString().slice(0, 10)) ev15 += v; dep(c.d, -v);
           });
-          ((((U.reposicao || {}).placas) || {})[pl] || []).forEach((e2) => { (e2.itens || []).forEach((it) => { if (pc[it]) { ev += pc[it]; cmp.pecas += pc[it]; dep(e2.d, -pc[it]); } }); });
+          ((((U.reposicao || {}).placas) || {})[pl] || []).forEach((e2) => { (e2.itens || []).forEach((it) => { if (pc[it]) { ev += pc[it]; cmp.pecas += pc[it]; if (e2.d && e2.d <= HOJE15.toISOString().slice(0, 10)) ev15 += pc[it]; dep(e2.d, -pc[it]); } }); });
+          // iD LIGADO = a promoção entra no caixa (bônus − desconto, ambos no M0, já realizados)
+          if (!unitIdrOff) { const bo = (ID_BONUS[pl] || 0) - ((((U.idBase || {}).descontos) || {})[pl] || 0); if (bo) { rev += bo; rev15 += bo; fluxo[0] += bo; } }
           const real = (rev - ev - sched) / fx;
+          // Δ 15 dias: o mesmo retorno, com a régua parada em hoje−15 (agenda pró-rata na mesma data)
+          const f15 = Math.min(1, Math.max(0, (HOJE15 - ini) / MS) / Math.max(1, (hoje - ini) / MS));
+          const real15 = (rev15 - ev15 - (sched - schedM0Fix) * f15 - schedM0Fix) / fx;
+          const d15 = real - real15;
+          // km/semana do CARRO: odômetro atual ÷ semanas desde o início da frota (não é a média
+          // do último motorista — é a vida inteira do carro conosco)
+          const odoD = ((U.frota || {}).placas || {})[pl];
+          const kmWk = (odoD && odoD.ok && odoD.odo > 0) ? odoD.odo / Math.max(1, (hoje - ini) / MS / 7) : null;
           // ---- TIR da placa: a MESMA conta do painel do UE, mês a mês ----
           // M0 leva o capital empatado (calção + prêmio INTEIRO do seguro + preparação, adesivo e
           // instalação do GPS); os meses seguintes levam o que entrou menos o que saiu, incluindo
           // subrental e GPS recorrente. A série vai só até a idade atual do carro — é a TIR do que
           // já aconteceu, não de um contrato inteiro que ainda não terminou.
-          const inv = investCar / fx;
+          const inv = (investCar - (unitCauOff ? par('__num_alugueis__') * subr : 0)) / fx;
           let rMo = null;
           const nM = Math.max(1, Math.min(13, Math.round(ageM)));
           if (inv > 0 && ageM >= 1) {
@@ -7668,7 +7681,7 @@
           const vinc = (U.vinculos || []).filter((v) => v.placa === pl);
           const recuperado = cmp.recovery > 0 || vinc.some((v) => v.fim && /recupera/i.test(v.motivo || ''));
           const devolvido = vinc.length > 0 && vinc.every((v) => v.fim);
-          out.push({ pl, fleet: f.id, ageM, real, bud, delta: real - bud, rev: rev / fx, cost: (ev + sched) / fx, inv, rMo, irrUe,
+          out.push({ pl, fleet: f.id, ageM, real, bud, d15, kmWk, delta: real - bud, rev: rev / fx, cost: (ev + sched) / fx, inv, rMo, irrUe,
             cmp: { multas: cmp.multas / fx, revisoes: cmp.revisoes / fx, recovery: cmp.recovery / fx,
                    repair: cmp.repair / fx, pecas: cmp.pecas / fx,
                    subFalta: Math.max(0, revEsp - revSub) / fx },
@@ -7686,10 +7699,10 @@
       const K = finCurK(), cs = finCS();
       const money = (v) => fmtQty(v * K);
       // a varredura do motor do UE roda uma vez por estado do botão iD e fica em cache
-      const idrKey = unitIdrOff ? 'off' : 'on';
+      const idrKey = (unitIdrOff ? 'idrOff' : 'idrOn') + '|' + (unitJudOff ? 'judOff' : 'judOn') + '|' + (unitCauOff ? 'cauOff' : 'cauOn');
       if (ueIrrMaps[idrKey] == null && typeof ueIrrByPlate === 'function' && !_ueIrrLoading) {
         _ueIrrLoading = true;
-        ueIrrByPlate(unitIdrOff).then((m) => { ueIrrMaps[idrKey] = m || {}; ueIrrMap = ueIrrMaps[idrKey]; _unitCache = null; renderUnit(); })
+        ueIrrByPlate(unitIdrOff, unitJudOff, unitCauOff).then((m) => { ueIrrMaps[idrKey] = m || {}; ueIrrMap = ueIrrMaps[idrKey]; _unitCache = null; renderUnit(); })
           .catch(() => { ueIrrMaps[idrKey] = {}; })
           .finally(() => { _ueIrrLoading = false; });
       } else if (ueIrrMaps[idrKey] && ueIrrMap !== ueIrrMaps[idrKey]) {
@@ -7706,6 +7719,8 @@
         fleet: (a, b) => (a.fleet === b.fleet ? b.delta - a.delta : String(a.fleet).localeCompare(String(b.fleet))),
         model: (a, b) => (a.model === b.model ? b.delta - a.delta : String(a.model || '').localeCompare(String(b.model || ''))),
         age: (a, b) => b.ageM - a.ageM,
+        kmwk: (a, b) => (b.kmWk || 0) - (a.kmWk || 0),       // vida inteira do carro, não o último motorista
+        d15: (a, b) => (b.d15 || 0) - (a.d15 || 0),          // quem mais gerou caixa nos últimos 15 dias
       };
       rows.sort(sorters[unitSort] || sorters.delta);
       // ---- controles ----
@@ -7744,6 +7759,8 @@
           `<span class="idr-mark">iD</span><span class="idr-txt">InDrive</span><span class="idr-state">${unitIdrOff ? 'off' : 'on'}</span></button>` +
         `<button type="button" class="ue-fcbtn ue-judbtn${unitJudOff ? '' : ' on'}" id="unitJud" title="${unitJudOff ? 'Recovery + repair are OUT — click to bring them back' : 'Click to take recovery + repair out of the return and the IRR'}">` +
           `<span class="ue-fc-dot"></span>Rec+Rep<span class="ue-fc-state">${unitJudOff ? 'off' : 'on'}</span></button>` +
+        `<button type="button" class="ue-fcbtn ue-caubtn${unitCauOff ? '' : ' on'}" id="unitCau" title="${unitCauOff ? 'Security deposit is OUT of the IRR — click to bring it back' : 'Click to take the security deposit (and its refund) out of the IRR'}">` +
+          `<span class="ue-fc-dot"></span>Deposit<span class="ue-fc-state">${unitCauOff ? 'off' : 'on'}</span></button>` +
         finCurFlags() + '</div>';
       ctl.querySelector('#unitFleetSel').addEventListener('change', (e) => {
         const v = e.target.value;
@@ -7757,11 +7774,12 @@
       }));
       ctl.querySelector('#unitIdr').addEventListener('click', () => { unitIdrOff = !unitIdrOff; renderUnit(); });
       ctl.querySelector('#unitJud').addEventListener('click', () => { unitJudOff = !unitJudOff; _unitCache = null; renderUnit(); });
+      ctl.querySelector('#unitCau').addEventListener('click', () => { unitCauOff = !unitCauOff; _unitCache = null; renderUnit(); });
       // ORDENAÇÃO mora DENTRO do gráfico (é uma propriedade dele, não um filtro da página):
       // pílula discreta no cabeçalho, com o critério escrito sem o prefixo "Sort:" repetido
       const sortWrap = document.getElementById('unitSortWrap');
       if (sortWrap) {
-        const SORTS = [['delta', 'Biggest gap vs budget'], ['real', 'Lowest return'], ['fleet', 'By fleet'], ['model', 'By model'], ['age', 'Oldest first']];
+        const SORTS = [['delta', 'Biggest gap vs budget'], ['real', 'Lowest return'], ['fleet', 'By fleet'], ['model', 'By model'], ['age', 'Oldest first'], ['kmwk', 'Highest km/week'], ['d15', 'Δ last 15 days']];
         sortWrap.className = 'cc-sort';
         sortWrap.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><path d="M7 4v16M7 20l-3-3M7 20l3-3M17 20V4M17 4l-3 3M17 4l3 3"/></svg>` +
           `<select id="unitSortSel">` + SORTS.map(([v, t]) => `<option value="${v}"${unitSort === v ? ' selected' : ''}>${t}</option>`).join('') + `</select>`;
@@ -7802,7 +7820,7 @@
           `<div class="ut-sub">${escH(r.driver ? r.driver.split(' ').slice(0, 3).join(' ') : 'no driver')}` +
             (r.semMotorista && r.driver ? `<em>returned</em>` : '') + `</div>` +
           `<div class="ut-meta">Fleet ${escH(String(r.fleet))} · ${escH(r.model || '')} · ${escH(meses(r.ageM))}</div>` +
-          `<div class="ut-rows">` + dl('Cash in', money(r.rev)) + dl('Cash out', money(r.cost)) + dl('Budget', mNeg(r.bud)) + `</div>` +
+          `<div class="ut-rows">` + dl('Cash in', money(r.rev)) + dl('Cash out', money(r.cost)) + dl('Budget', mNeg(r.bud)) + (r.kmWk ? dl('km/week', Math.round(r.kmWk).toLocaleString('pt-BR')) : '') + (r.d15 != null ? dl('Δ 15 days', (r.d15 >= 0 ? '+' : '−') + money(Math.abs(r.d15))) : '') + `</div>` +
           `<div class="ut-foot">${r.delta >= 0 ? '▲' : '▼'} ${escH(sinal(r.delta))} vs budget · click to open</div>`;
       };
       const externalTip = (destaqueDe) => (ctx) => {
@@ -7971,7 +7989,8 @@
       // mensalidade não recebida) é comparado com a média GERAL da frota inteira, em desvios-padrão.
       // Só entra quem passa de 1,5 sigma e move dinheiro de verdade; no máximo três.
       const todos = unitData() || [];
-      const CMP_LBL = { recovery: 'Recovery', repair: 'Repair', multas: 'Traffic fines', pecas: 'Parts', revisoes: 'Maintenance', subFalta: 'Unpaid subs' };
+      const CMP_LBL = { recovery: 'Recovery', repair: 'Repair', multas: 'Traffic fines paid', pecas: 'Parts', revisoes: 'Maintenance', subFalta: 'Unpaid subs', finesIn: 'Traffic fines charged' };
+      const CMP_REV = { finesIn: true };   // componentes de RECEITA: mais que a média empurra a barra para CIMA
       const stat = {};
       Object.keys(CMP_LBL).forEach((k) => {
         const a = todos.filter((x) => x.cmp).map((x) => x.cmp[k] || 0);
@@ -7980,14 +7999,20 @@
         const sd = Math.sqrt(a.reduce((t, v) => t + (v - m) * (v - m), 0) / n) || 0;
         stat[k] = { m, sd };
       });
+      // efeito no retorno: custo acima da média puxa a barra para BAIXO; receita acima, para CIMA.
+      // Só entram os desvios que explicam o LADO em que a barra descolou — destacar uma multa alta
+      // (efeito negativo) num carro que está ACIMA da média confundia, era movimento oposto.
+      const dirBarra = r.delta >= 0 ? 1 : -1;
       const flags = !r.cmp ? [] : Object.keys(CMP_LBL)
-        .map((k) => { const v = r.cmp[k] || 0, st = stat[k];
-          return { k, lbl: CMP_LBL[k], v, m: st.m, z: st.sd > 0 ? (v - st.m) / st.sd : 0, dif: v - st.m }; })
-        .filter((x) => Math.abs(x.z) >= 1.5 && Math.abs(x.dif) * K >= 12)
+        .map((k) => { const v = r.cmp[k] || 0, st = stat[k] || { m: 0, sd: 0 };
+          const dif = v - st.m;
+          const efeito = (CMP_REV[k] ? 1 : -1) * (dif > 0 ? 1 : -1);   // para onde ESTE desvio empurra a barra
+          return { k, lbl: CMP_LBL[k], v, m: st.m, z: st.sd > 0 ? dif / st.sd : 0, dif, efeito }; })
+        .filter((x) => Math.abs(x.z) >= 1.5 && Math.abs(x.dif) * K >= 12 && x.efeito === dirBarra)
         .sort((a, b) => Math.abs(b.z) - Math.abs(a.z))
         .slice(0, 3);
       const flagChips = flags.map((x) => {
-        const pior = x.dif > 0;   // gastou/deixou de receber mais que a média → puxa o retorno para baixo
+        const pior = x.efeito < 0;   // empurra a barra para baixo
         return `<span class="up-chip up-flag ${pior ? 'bad' : 'good'}" title="fleet-wide average ${money(x.m)} · ${Math.abs(x.z).toFixed(1)} sd from it">` +
           `<i>${escH(x.lbl)}</i><b>${money(x.v)}</b>` +
           `<u>${pior ? '+' : '−'}${money(Math.abs(x.dif))} vs avg</u></span>`;
@@ -8015,7 +8040,7 @@
       const close = document.getElementById('upClose');
       if (close) close.addEventListener('click', () => { unitPlateSel = null; renderUnit(); });
       if (typeof ueDrillPlate !== 'function') { box.querySelector('.up-loading').textContent = 'Open the Unit Economics tab once to load the per-plate engine.'; return; }
-      const d = await ueDrillPlate(r.pl, pnlCur === 'BRL' ? 'BRL' : 'USD', { idrOff: unitIdrOff, judOff: unitJudOff, budget: unitDrillBud });
+      const d = await ueDrillPlate(r.pl, pnlCur === 'BRL' ? 'BRL' : 'USD', { idrOff: unitIdrOff, judOff: unitJudOff, budget: unitDrillBud, cauOff: unitCauOff });
       const alvo = box.querySelector('.up-loading'); if (!alvo) return;   // usuário já fechou
       if (!d) { alvo.textContent = 'No contract data for this plate.'; return; }
       alvo.outerHTML = (d.bar ? `<div class="up-bar">${d.bar}</div>` : '') +
@@ -8404,6 +8429,7 @@
     let showProj = true;    // false = esconde os projetados (roxo) e mostra só o realizado — só visualização
     let idrOff = false;     // true = tira o benefício InDrive da conta do UE (espelha o botão do P&L)
     let judOff = false;     // true = tira recuperação + reparo da conta ("e se este carro não tivesse dado problema?")
+    let cauOff = false;     // true = tira calção e devolução da TIR (pedido da aba Unit)
     let inadimplencia = 0;  // taxa de inadimplência % (slider, global) — desconta a projeção do Subscription
     let latePct = 0;        // % das semanas pagas COM atraso (slider, global) — projeta o Late-payment interest
     let termPct = 50;       // % da cobrança de rescisão (import_jud) que esperamos receber (slider, global)
@@ -10047,7 +10073,9 @@
       }));
     }
     // busca params + entradas manuais de uma frota no store
+    const _fleetValsCache = {};   // toggles de visão não mudam nada no servidor — sem rede
     async function fetchFleetValues(fleetId) {
+      if (_fleetValsCache[fleetId]) return _fleetValsCache[fleetId];
       const p_ = {}, e_ = {};
       try {
         const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(fleetId), { cache: 'no-store' });
@@ -10061,7 +10089,7 @@
           });
         }
       } catch (e) { /* segue com orçado */ }
-      return { params: p_, entered: e_ };
+      return (_fleetValsCache[fleetId] = { params: p_, entered: e_ });
     }
     // contexto derivado de uma frota (eixo de meses, perdas totais) — usado no all-mode
     function buildCtx(ff, vals) {
@@ -10237,6 +10265,7 @@
       if (btnR) btnR.addEventListener('click', async () => {
         btnR.disabled = true; btnR.textContent = '↻ Refreshing…';
         try {
+          Object.keys(_fleetValsCache).forEach((x) => delete _fleetValsCache[x]);   // dados novos, cache fora
           await fetch('/api/refresh');
           const r = await fetch('/api/data', { cache: 'no-store' });
           if (r.ok) { const d = await r.json(); if (d.ue) Object.assign(U, d.ue); if (d.atualizadoEm) OCN.atualizadoEm = d.atualizadoEm; }
@@ -10458,8 +10487,6 @@
         const r = irrOf(a.flows.map((v) => v / Math.max(1, a.cars)));   // volta a por-carro do modelo
         out[m] = { rate: (r != null && isFinite(r)) ? r : null, cars: a.cars, fleets: a.fleets, label: a.label, teorico: acharTeo(a.label, m) };
       });
-      // publica o cache ANTES do loadFleet de volta: é ele que redesenha o painel, e se a trava
-      // ainda estivesse de pé o bloco sairia em "measuring…" e nunca mais seria redesenhado
       modelIrrCache = { key: modelIrrKey(), byModel: out };
       modelIrrLoading = false;
       sweepSnap = null;
@@ -10474,8 +10501,9 @@
           modelIrrLoading = true;        // (a própria computeModelIrr publica o cache e solta a trava)
           computeModelIrr().catch(() => { modelIrrCache = { key, byModel: {} }; modelIrrLoading = false; });
         }
-        return `<div class="irr-mix"><div class="irr-mix-head"><span class="irr-lbl">IRR by model</span></div>` +
-          `<div class="irr-mixrow"><i class="irr-mixchip irr-mixchip-load"><span>measuring…</span></i></div></div>`;
+        // nada de "measuring…": o drill do Unit congela este HTML num snapshot e a pílula ficava
+        // lá para sempre. Enquanto calcula, o bloco não aparece; o re-render o traz quando pronto.
+        return '';
       }
       const byModel = modelIrrCache.byModel;
       const mix = {};
@@ -10544,6 +10572,11 @@
       let insTot = 0;
       for (let p = 0; p <= PMAX; p++) { const v = lineVal('Insurance', p); if (v) { insTot += v; flows[p] -= v; } }
       flows[0] += insTot;
+      // caução fora (botão da aba Unit): o depósito sai do M0 e a devolução sai do M13 — mede a
+      // operação sem o capital de garantia empatado
+      if (cauOff) for (let p = 0; p <= PMAX; p++) {
+        ['Security Deposit', 'Security Deposit Refund'].forEach((Lb) => { const v = lineVal(Lb, p); if (v) flows[p] -= v; });
+      }
       return { flows, insTot, idrTot };
     }
 
@@ -10613,15 +10646,18 @@
     // opts = { idrOff, judOff, budget } — a aba Unit tem os próprios interruptores, e a tabela que
     // abre ao clicar numa barra precisa responder a eles; senão ela fica estática enquanto o
     // gráfico ao lado muda. budget = mostra a linha cinza do orçado (o clean view a esconde).
-    ueDrillPlate = async (placa, cur, opts) => {
+    // o drill entra NA MESMA FILA das varreduras: rodando em paralelo, a varredura trocava o
+    // plateView no meio e a barra saía sem os segmentos de motorista (formato de frota).
+    ueDrillPlate = async (placa, cur, opts) => naFila(async () => {
       const alvo = (U.fleets || []).find((f) => (f.placas || []).includes(placa));
       if (!alvo) return null;
       const o = opts || {};
-      const st = { current, plateView, viewAgg, cleanView, slidersOpen, currency, idrOff, judOff };
+      const st = { current, plateView, viewAgg, cleanView, slidersOpen, currency, idrOff, judOff, cauOff };
       current = alvo.id; plateView = placa; viewAgg = false; slidersOpen = false;
       cleanView = !o.budget;
       if (o.idrOff != null) idrOff = !!o.idrOff;
       if (o.judOff != null) judOff = !!o.judOff;
+      if (o.cauOff != null) cauOff = !!o.cauOff;
       if (cur === 'BRL' || cur === 'USD') currency = cur;
       await loadFleet(true);
       // a barra de progresso não existe no clean view (contractBarHtml devolve '' com ele ligado),
@@ -10637,10 +10673,10 @@
         fleet: alvo.id, model: alvo.modelLabel || alvo.model,
       };
       sweepSnap = null;
-      current = st.current; plateView = st.plateView; viewAgg = st.viewAgg; cleanView = st.cleanView; slidersOpen = st.slidersOpen; currency = st.currency; idrOff = st.idrOff; judOff = st.judOff;
+      current = st.current; plateView = st.plateView; viewAgg = st.viewAgg; cleanView = st.cleanView; slidersOpen = st.slidersOpen; currency = st.currency; idrOff = st.idrOff; judOff = st.judOff; cauOff = st.cauOff;
       await loadFleet(true);
       return out;
-    };
+    });
 
     // ---- TIR mensal de todas as placas, pelo motor do UE ----
     // O gráfico de "Monthly IRR per car" reconstruía o fluxo a partir das bases cruas (pagamentos,
@@ -10648,11 +10684,12 @@
     // UE tem — calção e devolução, taxa de rescisão, compra e venda do veículo — e por isso a
     // mesma placa aparecia com 42,1%/mês no gráfico e 36,7%/mês no painel. Aqui rodamos o motor
     // de verdade: uma chamada de rede por FROTA (6, não 170) e, dentro dela, o cálculo por placa.
-    ueIrrByPlate = async (semIndrive, semJud) => naFila(async () => {
-      const st = { current, plateView, viewAgg, cleanView, slidersOpen, idrOff, judOff };
+    ueIrrByPlate = async (semIndrive, semJud, semCau) => naFila(async () => {
+      const st = { current, plateView, viewAgg, cleanView, slidersOpen, idrOff, judOff, cauOff };
       sweepSnap = st;
       if (semIndrive != null) idrOff = !!semIndrive;   // a aba Unit tem o próprio botão iD
       if (semJud != null) judOff = !!semJud;
+      if (semCau != null) cauOff = !!semCau;
       const out = {};
       for (const f of (U.fleets || [])) {
         if (!f.inicio) continue;
@@ -10670,7 +10707,7 @@
         }
       }
       sweepSnap = null;
-      current = st.current; plateView = st.plateView; viewAgg = st.viewAgg; cleanView = st.cleanView; slidersOpen = st.slidersOpen; idrOff = st.idrOff; judOff = st.judOff;
+      current = st.current; plateView = st.plateView; viewAgg = st.viewAgg; cleanView = st.cleanView; slidersOpen = st.slidersOpen; idrOff = st.idrOff; judOff = st.judOff; cauOff = st.cauOff;
       await loadFleet(true);
       return out;
     });

@@ -2074,8 +2074,8 @@ html.dark .irr-cashtbl tr.neg .ic-v { color: #FCA5A5; }
 .ue-gap { flex: 1 1 auto; min-width: 0; }
 .ue-row-busca { justify-content: flex-end; }
 /* a foto encolhe na visão normal: são três linhas de controles ao lado dela */
-.ue-head-full .ue-car-img { width: 150px; max-height: 84px; }
-.ue-head-full .ue-fleet-head { flex: 0 0 300px; }
+.ue-head-full .ue-car-img { width: 190px; max-height: 106px; }
+.ue-head-full .ue-fleet-head { flex: 0 0 345px; }
 .ue-head-full .ue-fleet-title { font-size: 19px; }
 .ue-head-slim .ue-fleet-head { flex: 0 0 340px; }
 .ue-head-full .ue-search input { width: 148px; }
@@ -2087,3 +2087,29 @@ html.dark .irr-cashtbl tr.neg .ic-v { color: #FCA5A5; }
 /* botão discreto que traz o orçado para dentro da tabela do carro */
 .up-budbtn { font-variant-numeric: tabular-nums; }
 .up-budbtn.on { border-color: var(--accent-ink); color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
+
+/* botões das linhas de controle do UE com a MESMA largura — a fila desalinhada lia mal */
+.ue-head-full .ue-ctrl-row > .idr-btn,
+.ue-head-full .ue-ctrl-row > .ue-fcbtn,
+.ue-head-full .ue-ctrl-row > .ue-tool-btn:not(.ue-info-btn),
+.ue-head-full .ue-ctrl-row > .ue-modelsel { width: 152px; max-width: 152px; justify-content: center; text-align: center; }
+.ue-head-full .ue-ctrl-row > .ue-modelsel { text-align: left; }
+
+/* IRR by model v3: sem a moldura externa — só o nome e as duas caixas, com número GRANDE */
+.irr-mixchip { background: transparent; border: 0; padding: 0; min-width: 0; overflow: visible; }
+.irr-mixchip::after { display: none; }
+.irr-mixname { font-size: 11.5px; opacity: .9; margin-bottom: 8px; }
+.irr-mixname em { font-size: 10px; opacity: .6; }
+.irr-mixboxes { gap: 10px; }
+.irr-mixbox { padding: 10px 16px 11px; min-width: 128px; border-radius: 11px; background: #ffffff14; border: 1px solid #ffffff22; }
+.irr-mixbox.teo { background: #ffffff20; border-color: #C0F11C66; }
+.irr-mixbox u { font-size: 10px; opacity: .75; }
+.irr-mixbox b { font-size: 34px; line-height: 1.1; opacity: 1; }
+.irr-mixbox s { font-size: 11.5px; opacity: .78; }
+.irr-mixrow { gap: 26px; }
+
+/* botão "Deposit": família do Forecast, em azul-aço quando ligado */
+.ue-caubtn.on { border-color: #0369a1; color: #075985; }
+.ue-caubtn.on .ue-fc-dot { background: #38bdf8; }
+.ue-caubtn.on .ue-fc-state { background: #38bdf8; color: #062a3b; }
+html.dark .ue-caubtn.on { border-color: #38bdf8; color: #7dd3fc; }

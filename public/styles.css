@@ -1927,7 +1927,7 @@ html.dark .up-chip.down b { color: #FCA5A5; }
 .cc-sort select option { color: var(--text); background: var(--surface); font-weight: 500; }
 .cc-head .cc-sort + .costs-help { margin-left: 8px; }
 /* 3ª métrica do painel de TIR: a taxa "simples" (FV/PV)^(1/n) − 1, secundária às duas primeiras */
-.irr-kpi-alt .irr-big { font-size: 40px; opacity: .92; }
+.irr-kpi-alt .irr-big { font-size: 40px; opacity: 1; color: #fff; }
 .irr-kpi-alt .irr-lbl { opacity: .85; }
 
 /* ---- Unit: tooltip em fonte monoespaçada para os números alinharem em coluna ---- */
@@ -2042,7 +2042,7 @@ html.dark .ue-judbtn.on { border-color: #f59e0b; color: #FCD34D; }
   letter-spacing: .07em; opacity: .6; }
 .irr-mixbox b { font-family: var(--font-display); font-size: 22px; font-weight: 800; line-height: 1.15;
   font-variant-numeric: tabular-nums; }
-.irr-mixbox.teo b { color: #C0F11C; }
+
 .irr-mixbox s { text-decoration: none; font-size: 10.5px; font-weight: 600; opacity: .66; }
 .irr-mix-blend i { font-weight: 600; }
 
@@ -2101,11 +2101,11 @@ html.dark .irr-cashtbl tr.neg .ic-v { color: #FCA5A5; }
 .irr-mixname { font-size: 11.5px; opacity: .9; margin-bottom: 8px; }
 .irr-mixname em { font-size: 10px; opacity: .6; }
 .irr-mixboxes { gap: 10px; }
-.irr-mixbox { padding: 10px 16px 11px; min-width: 128px; border-radius: 11px; background: #ffffff14; border: 1px solid #ffffff22; }
-.irr-mixbox.teo { background: #ffffff20; border-color: #C0F11C66; }
+.irr-mixbox { padding: 10px 16px 11px; min-width: 128px; border-radius: 11px; background: #ffffff1a; border: 1px solid #ffffff30; }
+.irr-mixbox.teo { border-color: #C0F11C77; }
 .irr-mixbox u { font-size: 10px; opacity: .75; }
-.irr-mixbox b { font-size: 34px; line-height: 1.1; opacity: 1; }
-.irr-mixbox s { font-size: 11.5px; opacity: .78; }
+.irr-mixbox b { font-size: 34px; line-height: 1.1; opacity: 1; color: #C0F11C; }
+.irr-mixbox s { font-size: 11.5px; opacity: 1; color: #fff; font-weight: 700; }
 .irr-mixrow { gap: 26px; }
 
 /* botão "Deposit": família do Forecast, em azul-aço quando ligado */
@@ -2113,3 +2113,26 @@ html.dark .irr-cashtbl tr.neg .ic-v { color: #FCA5A5; }
 .ue-caubtn.on .ue-fc-dot { background: #38bdf8; }
 .ue-caubtn.on .ue-fc-state { background: #38bdf8; color: #062a3b; }
 html.dark .ue-caubtn.on { border-color: #38bdf8; color: #7dd3fc; }
+
+/* ---- painel de break-even da aba Unit ---- */
+.ub-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(260px, 1fr); gap: 22px; align-items: start; }
+.ub-facts { display: grid; gap: 9px; }
+.ub-fact { display: grid; gap: 1px; padding: 10px 13px; border-radius: 10px; background: var(--surface-2, #f8fafc); border: 1px solid var(--border-2); }
+.ub-fact > span { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--text-2); }
+.ub-fact > b { font-size: 17px; font-variant-numeric: tabular-nums; }
+.ub-fact > b.dn { color: #DC2626; }
+.ub-fact > i { font-style: normal; font-size: 10.5px; color: var(--text-2); }
+.ub-be { border-left: 3px solid var(--accent-ink); }
+.ub-be b { color: var(--accent-ink); }
+.ub-be i { display: inline; margin: 0 4px; }
+.ub-sim { display: grid; gap: 13px; padding: 13px 15px; border-radius: 12px; border: 1.5px dashed var(--border-2); }
+.ub-sl label { display: flex; justify-content: space-between; font-size: 11.5px; font-weight: 700; margin-bottom: 4px; }
+.ub-sl label b { font-variant-numeric: tabular-nums; color: var(--accent-ink); }
+.ub-sl input[type=range] { width: 100%; accent-color: var(--accent); }
+.ub-out { display: grid; gap: 1px; text-align: center; padding-top: 4px; }
+.ub-out span { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--text-2); }
+.ub-out b { font-family: var(--font-display); font-size: 27px; font-variant-numeric: tabular-nums; }
+.ub-out b.up { color: #059669; } .ub-out b.dn { color: #DC2626; }
+html.dark .ub-out b.up { color: #6EE7B7; } html.dark .ub-out b.dn { color: #FCA5A5; }
+html.dark .ub-fact > b.dn { color: #FCA5A5; }
+@media (max-width: 900px) { .ub-grid { grid-template-columns: 1fr; } }

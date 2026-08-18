@@ -2595,7 +2595,7 @@
   const UET_LINES = [
     { label: 'Subscription', group: 'inflow' },
     { label: 'Late-payment interest', group: 'inflow' },
-    { label: 'Traffic fines', group: 'inflow' },            // espelho do UE real (sem cálculo teórico ainda)
+    // multas fora do UE (18/08) — a linha-espelho saiu do Theoric junto
     { label: 'Termination fee', group: 'inflow' },
     { label: 'Vehicle Sell', group: 'inflow' },
     { label: 'InDrive bonus', group: 'inflow' },       // espelho (o teórico não modela o InDrive)
@@ -2609,7 +2609,6 @@
     { label: 'Sticker', group: 'outflow' },
     { label: 'Security Deposit', group: 'outflow' },
     { label: 'Vehicle Purchase', group: 'outflow' },
-    { label: 'Traffic fines (out)', group: 'outflow' },     // espelho do UE real
     { label: 'Recovery cost', group: 'outflow' },
     { label: 'Repair cost', group: 'outflow' },
     { label: 'Part Replacement', group: 'outflow' },
@@ -5111,6 +5110,8 @@
       u_ret: { t: 'Return — each car against its budget', d: 'One thin bar per plate, and clicking any of them opens that car\'s full statement below. The tinted bands separate the cars in the black from the ones in the red, and the dotted purple line is the fleet average. Each bar is everything the car has brought in since delivery (subscriptions received, interest, fines charged to the client) minus everything it has cost (sub-rental, insurance accrued to date, GPS, preparation, sticker, maintenance, fines paid, recovery, repair, parts). Security deposit and its refund are OUT — they are cash parked, not result — and so are the car purchase/sale and termination fees. The dashed line is each car\'s BUDGET at its current age: what its fleet\'s contractual economics (weekly fee, rent, insurance, GPS) plus the pooled event rates (fines, maintenance, recovery, repair, parts by car age) say it should have accumulated by now. GREEN bars are at or above budget, RED are below. Cars of different fleets have different ages, so bars are not directly comparable to each other — always compare each bar to the dashed line at its position, or use the "Monthly IRR" chart below, which puts every car on the same scale.' },
       u_ret_old: { t: 'Return per car — vs its budget', d: 'One thin bar per plate: everything the car has brought in since delivery (subscriptions received, interest, fines charged to the client) minus everything it has cost (sub-rental, insurance accrued to date, GPS, preparation, sticker, maintenance, fines paid, recovery, repair, parts). Security deposit and its refund are OUT — they are cash parked, not result — and so are the car purchase/sale and termination fees. The dashed line is each car\'s BUDGET at its current age: what its fleet\'s contractual economics (weekly fee, rent, insurance, GPS) plus the pooled event rates (fines, maintenance, recovery, repair, parts by car age) say it should have accumulated by now. GREEN bars are at or above budget, RED are below. Cars of different fleets have different ages, so bars are not directly comparable to each other — always compare each bar to the dashed line at its position.' },
       u_irr: { t: 'Monthly IRR per car', d: 'Exactly the IRR the Unit Economics panel shows for that plate — same engine, same premises, run once per car. Select any plate in the Unit Economics tab and the monthly rate there is the height of its bar here. Each car gets its own M0..M13 cashflow straight from the UE statement: M0 carries the CAPITAL TIED — the sub-rental deposit, the FULL insurance premium (the policy is signed once and covers the 12 months, so paying it in instalments is financing, not optionality), plus preparation, sticker and the GPS install — and every month after that carries what came in (subscriptions, interest, fines charged, termination fee, vehicle sale) minus what went out (sub-rental, GPS, fines paid to LM, maintenance, recovery, repair, parts, deposit refund, vehicle purchase), each entry landing in the month of life it happened, realized up to today and budgeted from there to the end of the contract. The InDrive promotion leaves the account on BOTH sides — the bonus received and the discount granted — because it was a one-off activation campaign that will not repeat in the next contract; leaving it in would make the plates that caught it look structurally better than the business is. The IRR is the rate that makes that series worth zero today, so unlike a plain multiple it weighs WHEN each real arrives: a car that pays back in month two rates higher than one that pays the same amount spread to month ten. Cars under one month of life have no bar (too little history). A car that has burned its capital with nothing coming back shows −100%. The purple line is the fleet average and the band below zero marks the cars destroying capital. Click any bar to open that car\'s full statement.' },
+      u_break: { t: 'How much bad luck zeroes a car', d: 'Break-even on the two misfortunes that actually happen to a car: being repossessed and sitting idle without a paying driver. The marginal costs are MEASURED, not assumed. One repossession costs the average towing + repair bill of every real case in the base. One idle week costs the weekly fee that does not come in, MINUS the wear the parked car does not burn — maintenance and parts per km (fleet-wide spend divided by fleet-wide km) times the average weekly km. Break-even divides the average return so far by each marginal cost: that many repossessions, or that many unpaid weeks, and the average car of this view is back to zero. The sliders combine the two — set 2 repossessions and 6 idle weeks and read what would be left of the average car. It responds to the filters above (fleet, model, InDrive, Rec+Rep, Deposit).' },
+      u_scat: { t: 'Weeks unpaid × return', d: 'Each dot is a car of the current view: horizontally, how many weekly instalments it failed to collect (expected Mondays minus instalments received, in weeks of fee); vertically, its return so far. The dashed line is a least-squares trend — its slope is the measured cost of one unpaid week in return. The button switches the horizontal axis to the number of repossessions the car has been through, with the same trend logic. Both slopes should be negative: cars that stop paying or get repossessed return less. A dot far ABOVE the trend took the hit and still performs; far BELOW, the car has problems beyond the ones on this axis.' },
       drill: { t: 'Monthly by fleet', d: 'The line you clicked on the Pareto, month by month, stacked by REAL fleet — each fleet in its own colour. This is realized data only (schedules and imported bases per plate); the projection lives in the plan and has no fleet concept. The big number is the average cost per active car per month across the fleets shown, computed over the realized window.' },
       ins: { t: 'Is the insurance paying for itself?', d: 'ACCRUED, NOT PAID. The premium is disbursed in about four installments at the start of each fleet, but it covers the full 12 months of the contract. Comparing the cash of a period against the claims of that same period mismatches the two: a fleet that started in june carries almost all of its cash in 2026 while half of its coverage runs into 2027. So each fleet\'s premium is spread pro-rata, day by day, across its 365 days of coverage, and every month is charged only the risk it actually ran. The footer shows both numbers side by side. CLAIMS are the fleet-site occurrences flagged with a sinistro in the period — collisions, window damage and total loss; mechanical failures never trigger it. BREAK-EVEN PER CLAIM is the accrued premium divided by the number of claims: how much each occurrence would have to cost us out of pocket for "having insurance" and "not having it" to come out the same. The SAVING compares the two worlds: each claim CATEGORY has its own slider (a broken window and a written-off car cost nothing alike), so the out-of-pocket world is the sum of each category\'s claim count × the average cost you set for it — against the accrued premium. We have no workshop quote per occurrence, so the averages are your input. Green means insurance saved money, red means it cost more than the damage would have.' },
       filters: { t: 'View filters', d: 'Everything in this tab is built from the fleets that exist TODAY — realized up to the current month, then each fleet carried to the end of its own 12-month contract. No new fleet enters the projection, so the numbers answer what the current operation costs rather than what a bigger fleet would cost. The calendar picks the period: FULL YEAR is realized plus that projection, YEAR TO DATE stops at the current month, and a single month isolates it (the current month shows its realized value alone). The fleet selector narrows everything to one real fleet.' },
@@ -5276,7 +5277,7 @@
         const addR = (m, vRS) => { if (m != null && m >= 0 && m < FIN_MONTHS) R[m] += vRS / fx; };
         plates.forEach((pl) => {
           ((((U.pagamentos || {}).placas) || {})[pl] || []).forEach((s) => { addR(moOf(s.v), s.r != null ? s.r : (s.e != null ? s.e : 0)); });
-          ((((U.multas || {}).placas) || {})[pl] || []).forEach((x) => { if (x.pago) addR(moOf(x.d), x.v); });
+          // multas fora do UE (18/08): nem as cobradas do motorista nem as repassadas à LM tocam
         });
         const semanal = par('__sub_semanal__'), MOND = MONDAYS_OF(finYear);
         for (let m = curM + 1; m < FIN_MONTHS; m++) {
@@ -7474,6 +7475,7 @@
     let unitIdrOff = true;
     let unitJudOff = false;    // tira recuperação + reparo do retorno e da TIR das barras
     let unitDrillBud = false;  // mostra a linha cinza do orçado na tabela aberta pelo gráfico
+    let unitBeRec = 1, unitBeSem = 4, unitScatX = 'weeks';   // painel de break-even + dispersão
     let unitCauOff = false;    // tira a caução (depósito + devolução) da TIR e do capital
     const ueIrrMaps = {};      // um mapa de TIR por combinação dos dois botões
     let unitPlateSel = null;   // placa aberta no drill do "Per car" (null = nenhuma)
@@ -7559,8 +7561,7 @@
           if (p >= 1 && p <= 12) {
             v += par('__sub_semanal__') * segundas[p];                 // receita contratual: 1 por segunda
             v -= par('__subrental_mensal__') + par('__ins_total__') / 12 + par('__gps_mensal__');
-            v += (FR.gross || 0) * (FR.prem || 1.1) * MESd;            // multas repassadas
-            v -= (FR.net || 0) * MESd;                                 // multas pagas à LM
+            // multas fora do orçado também (18/08) — a régua acompanha o realizado
             v -= (AGf.Maintenance.ok ? AGf.Maintenance.per[p] || 0 : 0);
             if (!unitJudOff) {                            // o orçado segue o mesmo botão Rec+Rep
               v -= (AGf.Recovery.ok ? AGf.Recovery.per[p] || 0 : 0);
@@ -7630,8 +7631,9 @@
           const HOJE15 = new Date(hoje.getTime() - 15 * MS);   // para o Δ de 15 dias
           ((((U.pagamentos || {}).placas) || {})[pl] || []).forEach((s) => { const v = s.r != null ? s.r : (s.e != null ? s.e : 0); rev += v; revSub += v; if (s.v <= HOJE15.toISOString().slice(0, 10)) rev15 += v; dep(s.v, v); });
           ((((U.multas || {}).placas) || {})[pl] || []).forEach((x) => { if (x.pago) { rev += x.v; cmp.finesIn += x.v; if (x.d <= HOJE15.toISOString().slice(0, 10)) rev15 += x.v; dep(x.d, x.v); } });
-          ((((U.multasBase || {}).placas) || {})[pl] || []).forEach((x) => { const v = (x.liq > 0 ? x.liq : (x.v || 0) / 1.05) * 1.05; ev += v; cmp.multas += v; if (x.venc && x.venc <= HOJE15.toISOString().slice(0, 10)) ev15 += v; dep(x.venc, -v); });
+          // o retorno, o Δ15 ou a TIR do carro — elas seguem no P&L e no Costs
           ((((U.revBase || {}).placas) || {})[pl] || []).forEach((r) => { if (r.valor) { ev += r.valor; cmp.revisoes += r.valor; if (r.venc && r.venc <= HOJE15.toISOString().slice(0, 10)) ev15 += r.valor; dep(r.venc, -r.valor); } });
+          const nRec = ((((U.judBase || {}).placas) || {})[pl] || []).length;   // recuperações que este carro já sofreu
           ((((U.judBase || {}).placas) || {})[pl] || []).forEach((c) => {
             cmp.recovery += (c.recovery || 0); cmp.repair += (c.repair || 0);
             if (unitJudOff) return;                       // botão Rec+Rep: fora do caixa e da TIR
@@ -7681,7 +7683,7 @@
           const vinc = (U.vinculos || []).filter((v) => v.placa === pl);
           const recuperado = cmp.recovery > 0 || vinc.some((v) => v.fim && /recupera/i.test(v.motivo || ''));
           const devolvido = vinc.length > 0 && vinc.every((v) => v.fim);
-          out.push({ pl, fleet: f.id, ageM, real, bud, d15, kmWk, delta: real - bud, rev: rev / fx, cost: (ev + sched) / fx, inv, rMo, irrUe,
+          out.push({ pl, fleet: f.id, ageM, real, bud, d15, kmWk, nRec, fee: par('__sub_semanal__') / fx, wUnpaid: par('__sub_semanal__') > 0 ? Math.max(0, revEsp - revSub) / par('__sub_semanal__') : 0, delta: real - bud, rev: rev / fx, cost: (ev + sched) / fx, inv, rMo, irrUe,
             cmp: { multas: cmp.multas / fx, revisoes: cmp.revisoes / fx, recovery: cmp.recovery / fx,
                    repair: cmp.repair / fx, pecas: cmp.pecas / fx,
                    subFalta: Math.max(0, revEsp - revSub) / fx },
@@ -7720,7 +7722,7 @@
         model: (a, b) => (a.model === b.model ? b.delta - a.delta : String(a.model || '').localeCompare(String(b.model || ''))),
         age: (a, b) => b.ageM - a.ageM,
         kmwk: (a, b) => (b.kmWk || 0) - (a.kmWk || 0),       // vida inteira do carro, não o último motorista
-        d15: (a, b) => (b.d15 || 0) - (a.d15 || 0),          // quem mais gerou caixa nos últimos 15 dias
+        d15: (a, b) => (a.d15 || 0) - (b.d15 || 0),          // maiores QUEDAS primeiro, à esquerda
       };
       rows.sort(sorters[unitSort] || sorters.delta);
       // ---- controles ----
@@ -7846,13 +7848,17 @@
       // LEGENDA em HTML no cabeçalho: a do Chart.js caía embaixo do gráfico, com bolinhas grandes
       // e sem a linha da média. Aqui ela fica junto do título, discreta e completa.
       const medRet = rows.length ? rows.reduce((s, r) => s + r.real, 0) / rows.length : 0;
-      document.getElementById('unitRetHint').innerHTML =
-        `<span class="cc-leg">` +
+      document.getElementById('unitRetHint').innerHTML = (unitSort === 'd15'
+        ? `<span class="cc-leg">` +
+          `<i class="cc-leg-i"><span class="sw sw-up"></span>gained in the last 15 days</i>` +
+          `<i class="cc-leg-i"><span class="sw sw-dn"></span>lost in the last 15 days</i>` +
+          `</span>`
+        : `<span class="cc-leg">` +
           `<i class="cc-leg-i"><span class="sw sw-up"></span>above budget</i>` +
           `<i class="cc-leg-i"><span class="sw sw-dn"></span>below budget</i>` +
           `<i class="cc-leg-i"><span class="sw sw-bud"></span>budget at each car's age</i>` +
           `<i class="cc-leg-i"><span class="sw sw-avg"></span>average ${escH(ccK(medRet * K))}</i>` +
-        `</span>` +
+        `</span>`) +
         `<b class="cc-leg-n">${rows.length} cars · click one to open it</b>`;
       // gradiente vertical em cada cor: a barra ganha profundidade sem virar arco-íris
       const grad = (ctx, hexTopo, hexBase) => {
@@ -7863,10 +7869,14 @@
       const corBarra = (ctx) => {
         const r = rows[ctx.dataIndex]; if (!r) return '#9CA3AF';
         if (r.pl === unitPlateSel) return grad(ctx, '#7C3AED', '#4C1D95');
-        return r.delta >= 0 ? grad(ctx, '#34D399', '#047857') : grad(ctx, '#F87171', '#B91C1C');
+        const chave = unitSort === 'd15' ? (r.d15 || 0) : r.delta;   // no modo Δ15, a cor é o sinal do delta
+        return chave >= 0 ? grad(ctx, '#34D399', '#047857') : grad(ctx, '#F87171', '#B91C1C');
       };
+      // visão "Δ last 15 days": a barra vira o PRÓPRIO delta (quanto o retorno andou em 15 dias);
+      // a linha de orçado não se aplica a um delta e sai de cena
+      const modo15 = unitSort === 'd15';
       mk('unitRet', { data: { labels, datasets: [
-          Object.assign({ type: 'bar', label: 'Return', data: rows.map((r) => Math.round(r.real * K)),
+          Object.assign({ type: 'bar', label: modo15 ? 'Δ vs 15 days ago' : 'Return', data: rows.map((r) => Math.round((modo15 ? (r.d15 || 0) : r.real) * K)),
             backgroundColor: corBarra, hoverBackgroundColor: corBarra, borderRadius: 3,
             // a placa aberta ganha contorno escuro: acha-se ela no meio de 170 barras
             borderColor: rows.map((r) => (r.pl === unitPlateSel ? '#2E1065' : 'transparent')),
@@ -7874,9 +7884,9 @@
           // ORÇADO: linha escura POR CIMA das barras (order menor = desenha depois no Chart.js),
           // com um halo claro por baixo. Halo discreto e traço fino — a linha precisa ser lida
           // sem virar o elemento mais pesado do gráfico.
-          { type: 'line', label: 'Budget at each car\'s age', data: rows.map((r) => Math.round(r.bud * K)),
+          { type: 'line', label: 'Budget at each car\'s age', data: rows.map((r) => (modo15 ? null : Math.round(r.bud * K))),
             borderColor: 'rgba(255,255,255,.45)', borderWidth: 3, pointRadius: 0, tension: 0, order: -1 },
-          { type: 'line', label: '__budget__', data: rows.map((r) => Math.round(r.bud * K)),
+          { type: 'line', label: '__budget__', data: rows.map((r) => (modo15 ? null : Math.round(r.bud * K))),
             borderColor: 'rgba(17,24,39,.9)', borderDash: [5, 4], borderWidth: 1.3, pointRadius: 0, tension: 0, order: -2 },
         ] },
         // faixa de fundo separando lucro de prejuízo + marcação da média da carteira
@@ -7915,6 +7925,7 @@
           plugins: { legend: { display: false }, datalabels: { display: false }, tooltip: tip },
           scales: { x: { display: false }, y: { grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } } } } });
       renderUnitPlate(rows);
+      renderUnitBreak(rows, K, money);
       // ---- TAXA MENSAL por placa: (FV/PV)^(1/n) − 1, capital empatado × caixa devolvido ----
       // Substituiu o "Δ vs budget", que repetia a informação do gráfico de cima com outro eixo.
       // Aqui a leitura é de RENTABILIDADE: cada barra é a taxa que aquele carro está rendendo ao
@@ -7974,6 +7985,88 @@
     // ---- drill da placa clicada: o UE COMPLETO dela, na visão limpa, logo abaixo do gráfico ----
     // Todas as linhas continuam lá; o que sai é a comparação com o orçado e os controles de edição,
     // que não fazem sentido num painel de leitura rápida carro a carro.
+    // ---- BREAK-EVEN: quantas recuperações ou semanas parado zeram o retorno de um carro ----
+    // Efeitos MARGINAIS medidos dos próprios dados: uma recuperação custa a média (guincho +
+    // reparo) dos casos reais; uma semana parada custa a semanalidade não recebida MENOS o
+    // desgaste (revisão + peças por km) que o carro parado não queima.
+    function renderUnitBreak(rows, K, money) {
+      const box = document.getElementById('unitBreak'); if (!box) return;
+      const U = OCN.ue || {};
+      const fx = finPar('__fin_fx__') || 5.5;
+      const n = rows.length || 1;
+      const retMed = rows.reduce((s, r) => s + r.real, 0) / n;
+      let recTot = 0, recN = 0;
+      Object.values(((U.judBase || {}).placas) || {}).forEach((a) => a.forEach((cse) => { recTot += (cse.recovery || 0) + (cse.repair || 0); recN++; }));
+      const custoRec = recN ? (recTot / recN) / fx : 0;
+      let gasto = 0;
+      Object.values(((U.revBase || {}).placas) || {}).forEach((a) => a.forEach((r) => { gasto += r.valor || 0; }));
+      const pcB = { pastilhas: 250, disco: 350, pneus: 700 };
+      Object.values(((U.reposicao || {}).placas) || {}).forEach((a) => a.forEach((e) => (e.itens || []).forEach((it) => { gasto += pcB[it] || 0; })));
+      let kmTot = 0;
+      Object.values(((U.frota || {}).placas) || {}).forEach((d) => { if (d && d.ok && d.odo > 0) kmTot += d.odo; });
+      const custoKm = kmTot ? gasto / kmTot : 0;
+      const comKm = rows.filter((r) => r.kmWk);
+      const kmSem = comKm.length ? comKm.reduce((s, r) => s + r.kmWk, 0) / comKm.length : 0;
+      const feeMed = rows.reduce((s, r) => s + (r.fee || 0), 0) / n;
+      const custoSem = feeMed - (kmSem * custoKm) / fx;
+      const be = (cc) => (cc > 0 ? retMed / cc : null);
+      const beRec = be(custoRec), beSem = be(custoSem);
+      const f1 = (v) => (v == null ? '—' : v.toFixed(1));
+      const resultado = () => retMed - unitBeRec * custoRec - unitBeSem * custoSem;
+      box.innerHTML =
+        `<div class="costs-chart ub-box" style="margin-top:14px">` +
+          `<div class="cc-head"><h4>How much bad luck zeroes a car</h4><span class="cc-hint">marginal effects measured from this view (${rows.length} cars)</span><button type="button" class="costs-help" data-h="u_break">?</button></div>` +
+          `<div class="ub-grid">` +
+            `<div class="ub-facts">` +
+              `<div class="ub-fact"><span>Average return so far</span><b>${money(retMed)}</b></div>` +
+              `<div class="ub-fact"><span>One repossession costs</span><b class="dn">−${money(custoRec)}</b><i>towing + repair, average of ${recN} real cases</i></div>` +
+              `<div class="ub-fact"><span>One idle week costs</span><b class="dn">−${money(custoSem)}</b><i>${money(feeMed)} fee not collected − ${money((kmSem * custoKm) / fx)} of wear the parked car skips</i></div>` +
+              `<div class="ub-fact ub-be"><span>Break-even</span><b>${f1(beRec)} repossessions</b><i>or</i><b>${f1(beSem)} idle weeks</b><i>to zero the average car</i></div>` +
+            `</div>` +
+            `<div class="ub-sim">` +
+              `<div class="ub-sl"><label>Repossessions <b id="ubRecV">${unitBeRec}</b></label><input type="range" id="ubRec" min="0" max="8" step="1" value="${unitBeRec}"></div>` +
+              `<div class="ub-sl"><label>Idle weeks (unpaid) <b id="ubSemV">${unitBeSem}</b></label><input type="range" id="ubSem" min="0" max="26" step="1" value="${unitBeSem}"></div>` +
+              `<div class="ub-out"><span>the average car would sit at</span><b id="ubOut"></b></div>` +
+            `</div>` +
+          `</div>` +
+        `</div>`;
+      const outEl = document.getElementById('ubOut');
+      const pinta = () => { const v = resultado(); outEl.textContent = (v < 0 ? '−' : '') + money(Math.abs(v)); outEl.className = v >= 0 ? 'up' : 'dn'; };
+      pinta();
+      box.querySelector('#ubRec').addEventListener('input', (e) => { unitBeRec = +e.target.value; document.getElementById('ubRecV').textContent = unitBeRec; pinta(); });
+      box.querySelector('#ubSem').addEventListener('input', (e) => { unitBeSem = +e.target.value; document.getElementById('ubSemV').textContent = unitBeSem; pinta(); });
+      // ---- dispersão: semanas sem pagar (ou nº de recuperações) × retorno ----
+      const ctl = document.getElementById('unitScatterCtl');
+      if (ctl) {
+        ctl.innerHTML = `<button type="button" class="ccl-btn${unitScatX === 'weeks' ? ' on' : ''}" data-x="weeks">Weeks unpaid</button>` +
+          `<button type="button" class="ccl-btn${unitScatX === 'recs' ? ' on' : ''}" data-x="recs">Repossessions</button>`;
+        ctl.querySelectorAll('.ccl-btn').forEach((b) => b.addEventListener('click', () => { unitScatX = b.dataset.x; renderUnitBreak(rows, K, money); }));
+      }
+      const tit = document.getElementById('unitScatterTitle');
+      if (tit) tit.textContent = (unitScatX === 'weeks' ? 'Weeks unpaid' : 'Repossessions') + ' × return';
+      const pts = rows.map((r) => ({ x: unitScatX === 'weeks' ? +(r.wUnpaid || 0).toFixed(1) : (r.nRec || 0), y: Math.round(r.real * K), pl: r.pl }));
+      const nn = pts.length, sx = pts.reduce((s, q) => s + q.x, 0), sy = pts.reduce((s, q) => s + q.y, 0);
+      const sxx = pts.reduce((s, q) => s + q.x * q.x, 0), sxy = pts.reduce((s, q) => s + q.x * q.y, 0);
+      const den = nn * sxx - sx * sx;
+      const m = den ? (nn * sxy - sx * sy) / den : 0, b0 = nn ? (sy - m * sx) / nn : 0;
+      const xMax = Math.max(1, ...pts.map((q) => q.x));
+      const hint = document.getElementById('unitScatterHint');
+      if (hint) hint.textContent = 'each dot is a car · trend: ' + (m < 0 ? '−' : '+') + money(Math.abs(m) / K) + ' of return per ' + (unitScatX === 'weeks' ? 'unpaid week' : 'repossession');
+      if (costsCharts.unitScatter) { costsCharts.unitScatter.destroy(); delete costsCharts.unitScatter; }
+      const cnv = document.getElementById('unitScatter'); if (!cnv) return;
+      costsCharts.unitScatter = new Chart(cnv.getContext('2d'), { data: {
+          datasets: [
+            { type: 'scatter', label: 'cars', data: pts, pointRadius: 4, pointHoverRadius: 6,
+              backgroundColor: pts.map((q) => (q.y >= 0 ? '#34D399cc' : '#F87171cc')), borderColor: 'transparent' },
+            { type: 'line', label: 'trend', data: [{ x: 0, y: b0 }, { x: xMax, y: b0 + m * xMax }],
+              borderColor: '#6D28D9', borderWidth: 2, borderDash: [6, 4], pointRadius: 0 },
+          ] },
+        options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'nearest', intersect: true },
+          plugins: { legend: { display: false }, datalabels: { display: false },
+            tooltip: { callbacks: { label: (cq) => { const q = cq.raw || {}; return (q.pl ? q.pl + ' — ' : '') + (unitScatX === 'weeks' ? q.x + ' wk unpaid' : q.x + ' repossessions') + ' · return ' + money((q.y || 0) / K); } } } },
+          scales: { x: { title: { display: true, text: unitScatX === 'weeks' ? 'weeks unpaid' : 'repossessions' }, beginAtZero: true },
+                    y: { title: { display: true, text: 'return so far' } } } } });
+    }
     async function renderUnitPlate(rows) {
       const box = document.getElementById('unitPlate'); if (!box) return;
       if (!unitPlateSel) { box.innerHTML = ''; return; }
@@ -7989,8 +8082,8 @@
       // mensalidade não recebida) é comparado com a média GERAL da frota inteira, em desvios-padrão.
       // Só entra quem passa de 1,5 sigma e move dinheiro de verdade; no máximo três.
       const todos = unitData() || [];
-      const CMP_LBL = { recovery: 'Recovery', repair: 'Repair', multas: 'Traffic fines paid', pecas: 'Parts', revisoes: 'Maintenance', subFalta: 'Unpaid subs', finesIn: 'Traffic fines charged' };
-      const CMP_REV = { finesIn: true };   // componentes de RECEITA: mais que a média empurra a barra para CIMA
+      const CMP_LBL = { recovery: 'Recovery', repair: 'Repair', pecas: 'Parts', revisoes: 'Maintenance', subFalta: 'Unpaid subs' };
+      const CMP_REV = {};   // multas saíram do UE; hoje não resta componente de receita nos desvios
       const stat = {};
       Object.keys(CMP_LBL).forEach((k) => {
         const a = todos.filter((x) => x.cmp).map((x) => x.cmp[k] || 0);
@@ -10296,7 +10389,8 @@
       let lines = subIdx < 0 ? baseLines
         : [...baseLines.slice(0, subIdx + 1),
            { label: 'Late-payment interest', group: 'inflow', values: [] },
-           { label: 'Traffic fines', group: 'inflow', values: [] },
+           // multas SAÍRAM do UE (decisão de 18/08): seguem no P&L e no Costs, mas não entram
+           // mais no resultado do carro nem na TIR — nem cobradas, nem repassadas
            // recebimentos AVULSOS do painel (custos extras da aba Adicionais etc.) — a linha
            // só existe quando o endpoint /api/v1/extras devolve itens
            ...(U.extras && U.extras.itens && U.extras.itens.length ? [{ label: 'Others', group: 'inflow', values: [] }] : []),
@@ -10307,7 +10401,6 @@
       const lastOut = lines.map((l) => l.group).lastIndexOf('outflow');
       if (lastOut >= 0) {
         lines = [...lines.slice(0, lastOut + 1),
-          { label: 'Traffic fines (out)', group: 'outflow', values: [] },
           { label: 'Recovery cost', group: 'outflow', values: [] },
           { label: 'Repair cost', group: 'outflow', values: [] },
           { label: 'Part Replacement', group: 'outflow', values: [] },
@@ -10529,7 +10622,7 @@
       const chips = itens.sort((a, b) => b[1] - a[1]).map(([m, n]) => {
         const d = byModel[m];
         return `<i class="irr-mixchip" style="--w:${(n / tot * 100).toFixed(1)}%">` +
-          `<span class="irr-mixname">${esc(d.label)}<em>${d.cars} car${d.cars === 1 ? '' : 's'}${d.fleets > 1 ? ' · ' + d.fleets + ' fleets' : ''}</em></span>` +
+          (itens.length > 1 ? `<span class="irr-mixname">${esc(d.label)}<em>${d.cars} car${d.cars === 1 ? '' : 's'}${d.fleets > 1 ? ' · ' + d.fleets + ' fleets' : ''}</em></span>` : '') +
           `<span class="irr-mixboxes">${caixa('teo', 'Theoretical', teo(m))}${caixa('real', 'Average', d.rate)}</span></i>`;
       }).join('');
       return `<div class="irr-mix">` +

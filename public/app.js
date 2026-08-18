@@ -2402,7 +2402,10 @@
   }
   // Painel de TIR — compartilhado pelo UE real e pelo Teórico, para os dois lerem a mesma conta.
   // `insM0` = quanto de seguro foi antecipado para o M0 (só para explicar no texto).
-  function irrPanelHtml(flows, cur, PMAX, insM0, idrOut) {
+  // idr = { net, on } — quanto a promoção InDrive vale nesta conta e se ela ESTÁ dentro dela.
+  // O fluxo chega aqui já com a decisão tomada (o botão iD do UE zera as linhas na tabela), então
+  // o painel só conta ao leitor o que está valendo. mix = HTML opcional da TIR por modelo.
+  function irrPanelHtml(flows, cur, PMAX, insM0, idr, mix) {
     const rM = irrOf(flows);
     const netTot = flows.reduce((a, b) => a + b, 0);
     const invested = -flows.filter((v) => v < 0).reduce((a, b) => a + b, 0);
@@ -2415,7 +2418,11 @@
     // notas de premissa: curtas e em lista, para não esticarem o parágrafo de leitura
     const notas = [];
     if (insM0) notas.push(`Full insurance premium (${money(insM0)}) charged at M0 — signed once, covers 12 months.`);
-    if (idrOut) notas.push(`InDrive promo out on both sides (${money(idrOut)} net) — one-off, does not repeat.`);
+    if (idr && idr.net) {
+      notas.push(idr.on
+        ? `InDrive promo INSIDE the rate (${money(idr.net)} net, both sides) — one-off, does not repeat: switch iD off to see the recurring business.`
+        : `InDrive promo OUT of the rate (${money(idr.net)} net, both sides) — switch iD on to include it.`);
+    }
     const nota = notas.length ? `<ul class="irr-notes">` + notas.map((n) => `<li>${n}</li>`).join('') + `</ul>` : '';
     if (rM == null) {
       const why = netTot < 0
@@ -2437,23 +2444,29 @@
       const porque = semCalcao
         ? `Almost no cash goes in up front (${money(invested)} against ${money(inflowTot)} of inflows), so the rate that zeroes the NPV runs away from any useful range.`
         : `The upfront outlay is still small next to a full year of subscriptions, so the rate compounds to a number that no longer compares to anything.`;
-      return `<div class="irr-panel irr-thin">` +
+      return `<div class="irr-panel irr-thin irr-2col">` +
+        `<div class="irr-col">` +
           `<div class="irr-main">` +
             `<div class="irr-kpi"><span class="irr-lbl">IRR not meaningful here</span>` +
               `<b class="irr-big irr-year">${money(netTot)}</b>` +
               `<span class="irr-sub">net cash per car over M0–M${PMAX} — use this instead</span></div>` +
           `</div>` +
+          (mix || '') +
           `<div class="irr-side">` +
             `<div class="irr-facts">` +
               `<div><span>Cash invested</span><b>${money(invested)}</b></div>` +
               `<div><span>Return on cash</span><b class="${netTot >= 0 ? 'up' : 'down'}">${mult == null ? '—' : (mult >= 0 ? '' : '−') + Math.abs(mult).toFixed(1) + '×'}</b></div>` +
               `<div><span>Payback</span><b>${payback == null ? 'not reached' : 'M' + payback}</b></div>` +
             `</div>` +
-            `<div class="irr-why">${porque} The IRR would read ${pct(rM)} a month (${pct(Math.pow(1 + rM, 12) - 1)} a year) — a number that big comes from the cash returning EVERY month, not from a big gain: the same money arriving only at M${PMAX} would rate far lower.${nota}</div>` +
           `</div>` +
+        `</div>` +
+        `<div class="irr-why irr-aside">${porque} The IRR would read ${pct(rM)} a month (${pct(rM * 12)} a year) — a number that big comes from the cash returning EVERY month, not from a big gain: the same money arriving only at M${PMAX} would rate far lower.${nota}</div>` +
         `</div>`;
     }
-    const rA = Math.pow(1 + rM, 12) - 1;
+    // TIR ANUAL = mensal × 12, não a capitalização composta ((1+m)^12 − 1). É a convenção que a
+    // empresa usa desde sempre; trocar a régua só aqui faria o número do site não conversar com o
+    // que todo mundo discute na reunião.
+    const rA = rM * 12;
     const good = rM > 0;
     // escala do medidor: −10% a +30% cobre o caso normal, mas com payback de 3 meses a taxa passa
     // disso — a escala estica para a TIR não ficar sempre grudada na ponta direita
@@ -2469,10 +2482,11 @@
     return `<div class="irr-panel irr-2col${good ? '' : ' neg'}">` +
       `<div class="irr-col">` +
         `<div class="irr-main">` +
-          `<div class="irr-kpi"><span class="irr-lbl">Annual IRR</span><b class="irr-big irr-year">${pctA(rA)}</b><span class="irr-sub">(1 + monthly)<sup>12</sup> − 1</span></div>` +
+          `<div class="irr-kpi"><span class="irr-lbl">Annual IRR</span><b class="irr-big irr-year">${pctA(rA)}</b><span class="irr-sub">monthly × 12</span></div>` +
           `<div class="irr-sep"></div>` +
           `<div class="irr-kpi irr-kpi-alt"><span class="irr-lbl">Monthly IRR</span><b class="irr-big">${pct(rM)}</b><span class="irr-sub">per UE month (4.33 weeks)</span></div>` +
         `</div>` +
+        (mix || '') +
         `<div class="irr-side">` +
           `<div class="irr-gauge"><div class="irr-gauge-track"><span class="irr-gauge-zero" style="left:${(10 / (gTop + 10) * 100).toFixed(1)}%"></span>` +
             `<span class="irr-gauge-pin" style="left:${gaugePct.toFixed(1)}%"></span></div>` +
@@ -8105,11 +8119,11 @@
       const T = computeAll(), maint = maintByMonth();
       const flows = [];
       for (let p = 0; p < UET_PERIODS; p++) flows.push(conv(T.net[p]) || 0);
-      // promoção InDrive fora da conta, dos dois lados (mesma regra do UE real)
+      // promoção InDrive DENTRO da conta, como no UE real: o fluxo da TIR é o da tabela em tela
       let idrTot = 0;
       ['InDrive bonus', 'InDrive discount'].forEach((lb) => {
         const ln = UET_LINES.find((l) => l.label === lb); if (!ln) return;
-        for (let p = 0; p < UET_PERIODS; p++) { const v = conv(uetEff(uetVals, uetSel, ln, p, maint)); if (v) { idrTot += v; flows[p] -= v; } }
+        for (let p = 0; p < UET_PERIODS; p++) idrTot += conv(uetEff(uetVals, uetSel, ln, p, maint)) || 0;
       });
       const insLine = UET_LINES.find((l) => l.label === 'Insurance');
       let insTot = 0;
@@ -8118,7 +8132,7 @@
         if (v) { insTot += v; flows[p] -= v; }
       }
       flows[0] += insTot;
-      el.innerHTML = irrPanelHtml(flows, uetCurrency === 'USD' ? 'US$' : 'R$', UET_PERIODS - 1, insTot, idrTot);
+      el.innerHTML = irrPanelHtml(flows, uetCurrency === 'USD' ? 'US$' : 'R$', UET_PERIODS - 1, insTot, { net: idrTot, on: true });
     }
     // override manual de uma célula específica (modo manual): sobrescreve a projeção; vazio volta ao projetado
     function editCell(td) {
@@ -8277,7 +8291,12 @@
     });
     // "All fleets" vem PRIMEIRO, antes das frotas individuais
     fleetsEl.innerHTML =
-      `<button class="ue-fleet-btn" data-id="all"><span class="n">All fleets</span><span class="m">${totalCarsAll} cars</span></button>` +
+      // "All fleets" não é mais uma frota na fila: é o consolidado. Ganha desenho próprio (ícone de
+      // pilha, fundo tingido) e um separador, para o olho não procurar a "frota all" entre as outras.
+      `<button class="ue-fleet-btn ue-fleet-all" data-id="all">` +
+        `<svg class="ue-all-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 4.5-9 4.5-9-4.5L12 3z"/><path d="M3 12l9 4.5 9-4.5"/><path d="M3 16.5L12 21l9-4.5"/></svg>` +
+        `<span class="ue-all-txt"><span class="n">All fleets</span><span class="m">${totalCarsAll} cars · every model</span></span></button>` +
+      `<span class="ue-fleet-div" aria-hidden="true"></span>` +
       U.fleets
         .map((f) => `<button class="ue-fleet-btn" data-id="${f.id}"><span class="n">${f.label}</span><span class="m">${f.modelLabel} · ${f.cars} cars</span></button>`)
         .join('');
@@ -10110,7 +10129,92 @@
     function renderIrr(T) {
       const el = document.getElementById('ueIrr'); if (!el) return;
       const F = irrFlowsOf(T);
-      el.innerHTML = irrPanelHtml(F.flows, currency === 'BRL' ? 'R$' : 'US$', PMAX, F.insTot, F.idrTot);
+      // valor "cheio" da promoção para a nota: com o iD desligado as linhas estão zeradas na
+      // tabela, então o total sai das bases direto — senão a nota sumiria justo quando ela importa
+      const idrCheio = F.idrTot || idrPotencial();
+      el.innerHTML = irrPanelHtml(F.flows, currency === 'BRL' ? 'R$' : 'US$', PMAX, F.insTot,
+        { net: idrCheio, on: !idrOff }, modelMixHtml());
+    }
+    // ---- TIR POR MODELO (Polo / Argo / Tera), com o mix de carros em tela ----
+    // A frota é uma leva; o MODELO é a decisão de compra. Duas frotas de Argo compradas em meses
+    // diferentes têm TIRs diferentes por causa do calendário, mas quem decide "compro mais Argo ou
+    // mais Tera?" quer a taxa do modelo, com todos os carros dele juntos. Em "All fleets" o painel
+    // mostra cada modelo e a média ponderada pelo número de carros de cada um.
+    // O cálculo é uma varredura por frota (6 chamadas), então fica em cache — invalidado quando o
+    // iD ou o Forecast mudam, que são justamente as duas chaves que alteram o fluxo.
+    let modelIrrCache = null, modelIrrLoading = false;
+    const modelIrrKey = () => (idrOff ? '1' : '0') + '|' + (showProj ? '1' : '0');
+    async function computeModelIrr() {
+      const st = { current, plateView, viewAgg, cleanView, slidersOpen };
+      const acc = {};
+      for (const f of (U.fleets || [])) {
+        if (!f.inicio) continue;
+        current = f.id; plateView = null; viewAgg = false;
+        await loadFleet(true);
+        const B = buildT(f); if (!B) continue;
+        const F = irrFlowsOf(B.T);                        // unitário: fluxo POR CARRO da frota
+        const n = f.cars || (f.placas || []).length || 0;
+        const a = acc[f.model] = acc[f.model] || { flows: [], cars: 0, fleets: 0, label: f.modelLabel || f.model };
+        F.flows.forEach((v, i) => { a.flows[i] = (a.flows[i] || 0) + v * n; });
+        a.cars += n; a.fleets++;
+      }
+      const out = {};
+      Object.entries(acc).forEach(([m, a]) => {
+        const r = irrOf(a.flows.map((v) => v / Math.max(1, a.cars)));   // volta a por-carro do modelo
+        out[m] = { rate: (r != null && isFinite(r)) ? r : null, cars: a.cars, fleets: a.fleets, label: a.label };
+      });
+      // publica o cache ANTES do loadFleet de volta: é ele que redesenha o painel, e se a trava
+      // ainda estivesse de pé o bloco sairia em "measuring…" e nunca mais seria redesenhado
+      modelIrrCache = { key: modelIrrKey(), byModel: out };
+      modelIrrLoading = false;
+      current = st.current; plateView = st.plateView; viewAgg = st.viewAgg; cleanView = st.cleanView; slidersOpen = st.slidersOpen;
+      await loadFleet(true);
+      return out;
+    }
+    function modelMixHtml() {
+      const key = modelIrrKey();
+      if (!modelIrrCache || modelIrrCache.key !== key) {
+        if (!modelIrrLoading) {          // o próprio sweep chama loadFleet → renderIrr: sem trava, recursão
+          modelIrrLoading = true;        // (a própria computeModelIrr publica o cache e solta a trava)
+          computeModelIrr().catch(() => { modelIrrCache = { key, byModel: {} }; modelIrrLoading = false; });
+        }
+        return `<div class="irr-mix"><div class="irr-mix-head"><span class="irr-lbl">IRR by model</span></div>` +
+          `<div class="irr-mixrow"><i class="irr-mixchip irr-mixchip-load"><span>measuring…</span></i></div></div>`;
+      }
+      const byModel = modelIrrCache.byModel;
+      const mix = {};
+      const add = (model, n) => { if (model && n > 0) mix[model] = (mix[model] || 0) + n; };
+      if (plateView) { const f = (U.fleets || []).find((x) => (x.placas || []).includes(plateView)); if (f) add(f.model, 1); }
+      else if (allMode) (U.fleets || []).forEach((f) => add(f.model, f.cars || (f.placas || []).length || 0));
+      else { const f = (U.fleets || []).find((x) => x.id === current); if (f) add(f.model, f.cars || (f.placas || []).length || 0); }
+      const itens = Object.entries(mix).filter(([m]) => byModel[m] && byModel[m].rate != null);
+      if (!itens.length) return '';
+      const tot = itens.reduce((s, [, n]) => s + n, 0);
+      const blend = itens.reduce((s, [m, n]) => s + byModel[m].rate * n, 0) / tot;
+      const p1 = (v) => (v * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
+      const p0 = (v) => Math.round(v * 100).toLocaleString('pt-BR') + '%';
+      const chips = itens.sort((a, b) => b[1] - a[1]).map(([m, n]) => {
+        const d = byModel[m];
+        const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        return `<i class="irr-mixchip" style="--w:${(n / tot * 100).toFixed(1)}%">` +
+          `<span>${esc(d.label)}</span><b>${p1(d.rate)}</b>` +
+          `<em>${d.cars} car${d.cars === 1 ? '' : 's'}${d.fleets > 1 ? ' · ' + d.fleets + ' fleets' : ''}</em></i>`;
+      }).join('');
+      return `<div class="irr-mix">` +
+        `<div class="irr-mix-head"><span class="irr-lbl">IRR by model</span>` +
+          (itens.length > 1
+            ? `<b class="irr-mix-blend">${p1(blend)}<i>blended · ${p0(blend * 12)} a year</i></b>`
+            : `<b class="irr-mix-blend irr-mix-one"><i>every car of this model, across all its fleets</i></b>`) +
+        `</div><div class="irr-mixrow">${chips}</div></div>`;
+    }
+    // Quanto a promoção InDrive vale no contexto atual (frota ou placa), independente do botão.
+    function idrPotencial() {
+      const plates = plateView ? [plateView] : (allMode ? (allFleet().placas || []) : ctxPlates);
+      const desc = ((U.idBase || {}).descontos) || {};
+      let tot = 0;
+      plates.forEach((pl) => { tot += (ID_BONUS[pl] || 0) - (desc[pl] || 0); });
+      const k = plateView ? 1 : (viewAgg ? 1 : 1 / Math.max(1, plates.length));
+      return toDisplay({ rs: tot * k }, ORCADO_FX);
     }
 
     // Os fluxos da TIR do UE, isolados da renderização — é esta mesma função que a aba Unit usa
@@ -10124,13 +10228,14 @@
       // adesivo e GPS) e a taxa que zera o VPL disparava para centenas de % ao mês, dizendo mais
       // sobre o tamanho da base do que sobre o negócio.
       const lineVal = (label, p) => { const e = effSplit(label, p); if (e) return (e.real || 0) + (e.proj || 0); const o = orcDisp(label, p); return o == null ? 0 : o; };
-      // A PROMOÇÃO INDRIVE SAI DA CONTA (bônus recebido E desconto concedido): foi uma campanha
-      // pontual de ativação, uma vez por placa, que não se repete no próximo contrato. Deixá-la
-      // dentro faria a TIR de quem pegou a promoção parecer estruturalmente melhor do que o
-      // negócio é. Os dois lados saem juntos — tirar só o bônus penalizaria essas placas.
+      // A PROMOÇÃO INDRIVE SEGUE O BOTÃO iD. Antes ela saía SEMPRE da TIR, o que fazia o botão
+      // parecer quebrado: ligava e desligava e a taxa não se mexia. Agora o fluxo é o da tabela —
+      // com o iD ligado a promoção conta, desligado a tabela já zera as linhas e ela não conta.
+      // Quem quer ver o negócio recorrente (a campanha é uma vez por placa, não se repete no
+      // próximo contrato) desliga o iD e lê a taxa sem ela.
       let idrTot = 0;
       for (let p = 0; p <= PMAX; p++) {
-        ['InDrive bonus', 'InDrive discount'].forEach((L) => { const v = lineVal(L, p); if (v) { idrTot += v; flows[p] -= v; } });
+        ['InDrive bonus', 'InDrive discount'].forEach((L) => { idrTot += lineVal(L, p); });
       }
       let insTot = 0;
       for (let p = 0; p <= PMAX; p++) { const v = lineVal('Insurance', p); if (v) { insTot += v; flows[p] -= v; } }

@@ -115,6 +115,16 @@ button { font-family: inherit; cursor: pointer; }
 .ue-fleet-btn .n { font-weight: 600; font-size: 13px; color: var(--text); }
 .ue-fleet-btn .m { font-size: 11px; color: var(--text-2); }
 .ue-fleet-btn.active .n, .ue-fleet-btn.active .m { color: #fff; }
+/* consolidado: ícone de pilha, fundo tingido e um separador — não é "mais uma frota" na fila */
+.ue-fleet-all { flex-direction: row; align-items: center; gap: 9px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border-2)); }
+.ue-fleet-all .ue-all-txt { display: flex; flex-direction: column; gap: 1px; align-items: flex-start; }
+.ue-all-ico { width: 19px; height: 19px; flex: none; color: var(--accent-ink); opacity: .85; }
+.ue-fleet-all:hover { background: color-mix(in srgb, var(--accent) 15%, var(--surface)); }
+.ue-fleet-all.active { background: var(--accent); }
+.ue-fleet-all.active .ue-all-ico { color: #fff; opacity: 1; }
+.ue-fleet-div { width: 1px; align-self: stretch; margin: 5px 4px; background: var(--border-2); flex: none; }
 .ue-head { margin-bottom: 12px; }
 .ue-plates { margin-top: 18px; }
 .ue-plates-label { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px; }
@@ -1274,12 +1284,31 @@ html { scrollbar-gutter: stable; }
   box-shadow: 0 4px 18px #23004e2e;
 }
 .irr-panel.neg { background: linear-gradient(135deg, #7f1d1d 0%, #3f0d0d 100%); box-shadow: 0 4px 18px #7f1d1d2e; }
-.irr-main { display: flex; align-items: center; gap: 26px; }
+.irr-main { display: flex; align-items: center; gap: 30px; }
 .irr-kpi { display: flex; flex-direction: column; gap: 3px; }
-.irr-lbl { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; opacity: .85; }
-.irr-big { font-family: var(--font-display); font-size: 44px; font-weight: 800; line-height: 1.05; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.irr-lbl { font-size: 12.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; opacity: .85; }
+.irr-big { font-family: var(--font-display); font-size: 56px; font-weight: 800; line-height: 1.02; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
 .irr-year { color: #C0F11C; }
-.irr-sub { font-size: 11.5px; opacity: .74; }
+.irr-sub { font-size: 12px; opacity: .74; }
+
+/* TIR por modelo: uma faixa de pastilhas entre os KPIs e o medidor. A barrinha de baixo de cada
+   pastilha é o peso daquele modelo no mix em tela — dá para ver de relance quem manda na média. */
+.irr-mix { border-top: 1px solid #ffffff24; padding-top: 12px; display: flex; flex-direction: column; gap: 9px; }
+.irr-mix-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.irr-mix-blend { font-family: var(--font-display); font-size: 22px; font-weight: 800; color: #C0F11C; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.irr-mix-blend i { font-family: var(--font); font-size: 11px; font-weight: 600; font-style: normal; color: #ffffffa8; margin-left: 7px; letter-spacing: 0; }
+.irr-mix-one { color: transparent; font-size: 0; }
+.irr-mixrow { display: flex; gap: 9px; flex-wrap: wrap; }
+.irr-mixchip { position: relative; overflow: hidden; font-style: normal; display: grid; gap: 1px;
+  padding: 7px 13px 9px; border-radius: 10px; background: #ffffff14; border: 1px solid #ffffff1f; min-width: 104px; }
+.irr-mixchip::after { content: ''; position: absolute; left: 0; bottom: 0; height: 2.5px; width: var(--w, 0%); background: #C0F11C; opacity: .75; }
+.irr-mixchip > span { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; opacity: .72; }
+.irr-mixchip > b { font-family: var(--font-display); font-size: 21px; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.irr-mixchip > em { font-size: 10px; font-style: normal; opacity: .6; }
+.irr-mixchip-load { min-width: 0; }
+.irr-mixchip-load > span { opacity: .5; text-transform: none; letter-spacing: 0; }
+.irr-panel.neg .irr-mixchip::after, .irr-panel.neg .irr-mix-blend { background: #fca5a5; color: #fca5a5; }
+.irr-panel.neg .irr-mix-blend { background: none; }
 .irr-sep { width: 1px; align-self: stretch; background: #ffffff2b; }
 .irr-side { display: flex; align-items: center; gap: 24px; margin-left: auto; flex-wrap: wrap; }
 .irr-gauge { min-width: 190px; }
@@ -1858,7 +1887,7 @@ html.dark .up-chip.down b { color: #FCA5A5; }
 .cc-sort select option { color: var(--text); background: var(--surface); font-weight: 500; }
 .cc-head .cc-sort + .costs-help { margin-left: 8px; }
 /* 3ª métrica do painel de TIR: a taxa "simples" (FV/PV)^(1/n) − 1, secundária às duas primeiras */
-.irr-kpi-alt .irr-big { font-size: 31px; opacity: .9; }
+.irr-kpi-alt .irr-big { font-size: 40px; opacity: .92; }
 .irr-kpi-alt .irr-lbl { opacity: .85; }
 
 /* ---- Unit: tooltip em fonte monoespaçada para os números alinharem em coluna ---- */

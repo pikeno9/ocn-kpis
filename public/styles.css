@@ -125,14 +125,9 @@ button { font-family: inherit; cursor: pointer; }
 .ue-fleet-all.active { background: var(--accent); }
 .ue-fleet-all.active .ue-all-ico { color: #fff; opacity: 1; }
 .ue-fleet-div { width: 1px; align-self: stretch; margin: 5px 4px; background: var(--border-2); flex: none; }
-/* MODELO: mesma família visual das frotas, com borda tracejada — é um recorte, não uma leva */
-.ue-fleet-model { border-style: dashed; }
-.ue-fleet-model.active { border-style: solid; }
 
 /* busca por placa ou motorista */
-.ue-plates-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; }
-.ue-plates-top .ue-plates-label { margin-bottom: 0; }
-.ue-search { position: relative; display: flex; align-items: center; gap: 7px; margin-left: auto;
+.ue-search { position: relative; display: flex; align-items: center; gap: 7px;
   padding: 0 12px; height: 34px; border: 1.5px solid var(--border-2); border-radius: 999px; background: var(--surface); }
 .ue-search:focus-within { border-color: var(--accent-ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
 .ue-search svg { width: 14px; height: 14px; color: var(--text-2); flex: none; }
@@ -532,27 +527,6 @@ html.dark .cc-sel option, html.dark .cc-sort select option { background: #15161b
 .unit-chip.on { border-color: var(--accent-ink); background: var(--accent); color: #fff; }
 .unit-chip.on i { background: #ffffff2e; color: #fff; }
 
-/* "por que este carro está fora da curva" — acima da tabela do UE no drill */
-.up-why { margin: 2px 0 14px; padding: 12px 14px; border-radius: 12px;
-  border: 1px solid var(--border-2); background: var(--surface-2, #f8fafc); }
-.up-why-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 9px; }
-.up-why-head b { font-size: 13px; }
-.up-why-head span { font-size: 11.5px; color: var(--text-2); }
-.up-why-rows { display: grid; gap: 5px; }
-.up-why-row { display: grid; grid-template-columns: minmax(120px, 1.4fr) auto 1fr auto; align-items: baseline; gap: 10px;
-  padding: 7px 11px; border-radius: 9px; background: var(--surface); border: 1px solid var(--border-2);
-  border-left: 3px solid var(--border-2); }
-.up-why-row.bad { border-left-color: #DC2626; }
-.up-why-row.good { border-left-color: #059669; }
-.uw-lbl { font-size: 12.5px; font-weight: 700; }
-.uw-val { font-size: 12.5px; font-variant-numeric: tabular-nums; }
-.uw-vs { font-size: 11px; color: var(--text-2); }
-.uw-dif { font-size: 13.5px; font-variant-numeric: tabular-nums; text-align: right; }
-.up-why-row.bad .uw-dif { color: #DC2626; }
-.up-why-row.good .uw-dif { color: #059669; }
-html.dark .up-why-row.bad .uw-dif { color: #FCA5A5; }
-html.dark .up-why-row.good .uw-dif { color: #6EE7B7; }
-@media (max-width: 720px) { .up-why-row { grid-template-columns: 1fr auto; } .uw-vs { display: none; } }
 /* seletor de período: botão de calendário + o escolhido em itálico, e a grade 4x3 de meses */
 .costs-cal { position: relative; display: flex; align-items: center; gap: 8px; }
 /* botão da agenda + rótulo do período viraram um conjunto: botão em pílula com gradiente suave
@@ -2026,3 +2000,35 @@ html.dark .cc-leg .sw-avg { border-top-color: #B49BFF; }
 .irr-notes li::before { content: '·'; position: absolute; left: 3px; font-weight: 800; color: #ffffff5c; }
 .cc-leg .sw-bud { width: 16px; height: 0; border-radius: 0; border-top: 2.2px dashed #111827; }
 html.dark .cc-leg .sw-bud { border-top-color: #E7E8EC; }
+
+/* ---- TIR por modelo: teórico como número principal, realizado embaixo ---- */
+.irr-mixchip > u { display: block; text-decoration: none; font-size: 9.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em; opacity: .55; margin-top: -2px; }
+.irr-mixchip > s { display: block; text-decoration: none; font-size: 11.5px; font-weight: 600;
+  opacity: .82; margin-top: 4px; padding-top: 4px; border-top: 1px solid #ffffff1f; }
+.irr-mixchip > s k { font-weight: 800; }
+.irr-mixchip > s k.up { color: #C0F11C; }
+.irr-mixchip > s k.dn { color: #FCA5A5; }
+.irr-mixchip-noteo > b { opacity: .45; }
+.irr-mix-alt { font-size: 11.5px; font-weight: 600; color: #ffffffa8; }
+
+/* recorte por modelo no cabeçalho do UE — discreto, ao lado do refresh */
+.ue-modelsel { font: inherit; font-size: 11.5px; font-weight: 600; height: 32px; padding: 0 26px 0 11px;
+  border: 1px solid var(--border-2); border-radius: 999px; background: var(--surface); color: var(--text-2);
+  cursor: pointer; max-width: 178px; appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 9px center; background-size: 12px; }
+.ue-modelsel:hover, .ue-modelsel:focus { border-color: var(--accent-ink); color: var(--accent-ink); outline: none; }
+.ue-modelsel option { font-size: 12.5px; font-weight: 600; color: var(--text); background: var(--surface); }
+html.dark .ue-modelsel option { background: #15161b; color: #E7E8EC; }
+
+/* pastilhas de DESVIO no painel de números do carro: mesma família das outras, com a barra
+   colorida à esquerda dizendo se o desvio ajuda ou atrapalha o retorno */
+.up-flag { border-left: 3px solid var(--border-2); }
+.up-flag.bad { border-left-color: #DC2626; }
+.up-flag.good { border-left-color: #059669; }
+.up-flag u { display: block; text-decoration: none; font-size: 10px; font-weight: 700; margin-top: 1px; }
+.up-flag.bad u { color: #B91C1C; }
+.up-flag.good u { color: #047857; }
+html.dark .up-flag.bad u { color: #FCA5A5; }
+html.dark .up-flag.good u { color: #6EE7B7; }

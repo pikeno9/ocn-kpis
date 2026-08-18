@@ -2402,6 +2402,50 @@
   }
   // Painel de TIR — compartilhado pelo UE real e pelo Teórico, para os dois lerem a mesma conta.
   // `insM0` = quanto de seguro foi antecipado para o M0 (só para explicar no texto).
+  // ---- TIR TEÓRICA de um modelo do UE Theoric ----
+  // Mesma conta do painel do Theoric (fluxo M0..M13 do modelo, seguro inteiro no M0), mas isolada
+  // da tela: recebe os valores salvos do modelo e devolve a taxa. É o que permite mostrar, lado a
+  // lado, "o que este modelo DEVERIA render" (teórico) e "o que a frota dele está rendendo" (real).
+  const UET_FKEY = (id) => '__theoric_' + id + '__';
+  function uetIrrOf(vals, modelId) {
+    const maint = uetMaint(vals, modelId);
+    const flows = [];
+    for (let p = 0; p < UET_PERIODS; p++) {
+      let net = 0;
+      UET_LINES.forEach((l) => {
+        if (l.group !== 'inflow' && l.group !== 'outflow') return;
+        const v = uetEff(vals, modelId, l, p, maint);
+        if (v != null) net += v;
+      });
+      flows.push(net);
+    }
+    const insLine = UET_LINES.find((l) => l.label === 'Insurance');
+    if (insLine) {
+      let insTot = 0;
+      for (let p = 0; p < UET_PERIODS; p++) { const v = uetEff(vals, modelId, insLine, p, maint); if (v) { insTot += v; flows[p] -= v; } }
+      flows[0] += insTot;
+    }
+    const r = irrOf(flows);
+    return (r != null && isFinite(r)) ? r : null;
+  }
+  // busca os valores de TODOS os modelos teóricos e devolve { <nome do modelo>: taxa mensal }
+  async function uetIrrTodos() {
+    let modelos = uetModels;
+    if (!modelos || !modelos.length) {
+      try { const r = await fetch('/api/theoric/models', { credentials: 'include' }); const d = await r.json(); modelos = d.models || []; } catch (e) { modelos = []; }
+    }
+    const out = {};
+    await Promise.all(modelos.map(async (m) => {
+      const vals = {};
+      try {
+        const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(UET_FKEY(m.id)), { credentials: 'include' });
+        const d = await r.json();
+        (d.values || []).forEach((v) => { const lbl = v.line === 'Initial Fee / Vehicle Sell' ? 'Vehicle Sell' : v.line; if (vals[lbl + '@@' + v.period] == null) vals[lbl + '@@' + v.period] = v.value; });
+      } catch (e) {}
+      out[m.name] = { rate: uetIrrOf(vals, m.id), id: m.id, name: m.name };
+    }));
+    return out;
+  }
   // idr = { net, on } — quanto a promoção InDrive vale nesta conta e se ela ESTÁ dentro dela.
   // O fluxo chega aqui já com a decisão tomada (o botão iD do UE zera as linhas na tabela), então
   // o painel só conta ao leitor o que está valendo. mix = HTML opcional da TIR por modelo.
@@ -7875,32 +7919,33 @@
       // sinal ANTES da moeda: fmtQty devolveria "US$ -48", que lê mal
       const money = (v) => (v < 0 ? '−' : '') + finCS() + ' ' + fmtQty(Math.abs(v) * K);
       const chip = (t, v, cl) => `<span class="up-chip${cl ? ' ' + cl : ''}"><i>${escH(t)}</i><b>${v}</b></span>`;
-      // ---- POR QUE esta barra está fora da curva ----
-      // A pergunta que se faz olhando o gráfico é "por que este carro está tão abaixo/acima dos
-      // outros?". A resposta é quase sempre uma linha específica do UE — guincho, reparo, multa,
-      // peça — ou mensalidade que não entrou. Comparo cada componente com a MEDIANA dos carros da
-      // mesma frota (mesma idade, mesmo modelo, mesmo calendário) e mostro os que mais destoam.
-      const peers = (unitData() || []).filter((x) => x.fleet === r.fleet && x.pl !== r.pl && x.cmp);
-      const med = (k) => { const a = peers.map((x) => x.cmp[k]).sort((p, q) => p - q); return a.length ? a[Math.floor(a.length / 2)] : 0; };
-      const CMP_LBL = { recovery: 'Recovery cost', repair: 'Repair cost', multas: 'Traffic fines paid', pecas: 'Part replacement', revisoes: 'Maintenance', subFalta: 'Subscriptions not received' };
-      const motivos = !r.cmp || !peers.length ? [] : Object.keys(CMP_LBL)
-        .map((k) => ({ k, lbl: CMP_LBL[k], v: r.cmp[k] || 0, ref: med(k), dif: (r.cmp[k] || 0) - med(k) }))
-        .filter((x) => Math.abs(x.dif) * K >= 12)              // ruído abaixo disso não explica nada
-        .sort((a, b) => Math.abs(b.dif) - Math.abs(a.dif))
+      // ---- O QUE DESTOA NESTE CARRO ----
+      // Em vez de uma seção à parte, os desvios entram como pastilhas no MESMO painel dos números
+      // grandes. Cada componente REALIZADO do carro (guincho, reparo, multa, peça, revisão e
+      // mensalidade não recebida) é comparado com a média GERAL da frota inteira, em desvios-padrão.
+      // Só entra quem passa de 1,5 sigma e move dinheiro de verdade; no máximo três.
+      const todos = unitData() || [];
+      const CMP_LBL = { recovery: 'Recovery', repair: 'Repair', multas: 'Traffic fines', pecas: 'Parts', revisoes: 'Maintenance', subFalta: 'Unpaid subs' };
+      const stat = {};
+      Object.keys(CMP_LBL).forEach((k) => {
+        const a = todos.filter((x) => x.cmp).map((x) => x.cmp[k] || 0);
+        const n = a.length || 1;
+        const m = a.reduce((t, v) => t + v, 0) / n;
+        const sd = Math.sqrt(a.reduce((t, v) => t + (v - m) * (v - m), 0) / n) || 0;
+        stat[k] = { m, sd };
+      });
+      const flags = !r.cmp ? [] : Object.keys(CMP_LBL)
+        .map((k) => { const v = r.cmp[k] || 0, st = stat[k];
+          return { k, lbl: CMP_LBL[k], v, m: st.m, z: st.sd > 0 ? (v - st.m) / st.sd : 0, dif: v - st.m }; })
+        .filter((x) => Math.abs(x.z) >= 1.5 && Math.abs(x.dif) * K >= 12)
+        .sort((a, b) => Math.abs(b.z) - Math.abs(a.z))
         .slice(0, 3);
-      const somaExpl = motivos.reduce((s, x) => s + x.dif, 0);
-      const porQue = !motivos.length ? '' :
-        `<div class="up-why">` +
-          `<div class="up-why-head"><b>Why this car stands out</b>` +
-            `<span>${r.delta >= 0 ? 'above' : 'below'} budget by ${money(Math.abs(r.delta))} · these lines are worth ${money(Math.abs(somaExpl))} ${somaExpl > 0 ? 'against' : 'in favour of'} it, measured against the median car of fleet ${escH(String(r.fleet))}</span></div>` +
-          `<div class="up-why-rows">` + motivos.map((x) => {
-            const pior = x.dif > 0;   // gastou/deixou de receber MAIS que os pares → puxa a barra para baixo
-            return `<div class="up-why-row ${pior ? 'bad' : 'good'}">` +
-              `<span class="uw-lbl">${escH(x.lbl)}</span>` +
-              `<span class="uw-val">${money(x.v)}</span>` +
-              `<span class="uw-vs">${x.ref ? 'vs ' + money(x.ref) + ' median' : 'no other car in the fleet has it'}</span>` +
-              `<b class="uw-dif">${pior ? '+' : '−'}${money(Math.abs(x.dif))}</b></div>`;
-          }).join('') + `</div></div>`;
+      const flagChips = flags.map((x) => {
+        const pior = x.dif > 0;   // gastou/deixou de receber mais que a média → puxa o retorno para baixo
+        return `<span class="up-chip up-flag ${pior ? 'bad' : 'good'}" title="fleet-wide average ${money(x.m)} · ${Math.abs(x.z).toFixed(1)} sd from it">` +
+          `<i>${escH(x.lbl)}</i><b>${money(x.v)}</b>` +
+          `<u>${pior ? '+' : '−'}${money(Math.abs(x.dif))} vs avg</u></span>`;
+      }).join('');
       box.innerHTML =
         `<div class="costs-chart up-box" style="margin-top:14px">` +
           `<div class="cc-head"><h4>${escH(r.pl)} — Unit Economics</h4>` +
@@ -7913,8 +7958,8 @@
             chip('Budget at this age', money(r.bud)) +
             chip('Δ vs budget', (r.delta >= 0 ? '+' : '−') + money(Math.abs(r.delta)), r.delta >= 0 ? 'up' : 'down') +
             chip('Cash in', money(r.rev)) +
-            chip('Cash out', money(r.cost)) +
-          `</div>` + porQue +
+            chip('Cash out', money(r.cost)) + flagChips +
+          `</div>` +
           `<div class="up-loading">Loading the full statement…</div>` +
         `</div>`;
       const close = document.getElementById('upClose');
@@ -8398,16 +8443,7 @@
       // pilha, fundo tingido) e um separador, para o olho não procurar a "frota all" entre as outras.
       `<button class="ue-fleet-btn ue-fleet-all" data-id="all">` +
         `<svg class="ue-all-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 4.5-9 4.5-9-4.5L12 3z"/><path d="M3 12l9 4.5 9-4.5"/><path d="M3 16.5L12 21l9-4.5"/></svg>` +
-        `<span class="ue-all-txt"><span class="n">All fleets</span><span class="m">${totalCarsAll} cars · every model</span></span></button>` +
-      `<span class="ue-fleet-div" aria-hidden="true"></span>` +
-      // MODELO: todas as frotas do mesmo carro juntas. Usa a mesma máquina do "All fleets",
-      // trocando só o conjunto de frotas — o modelo é a decisão de compra, a frota é a leva.
-      [...new Set(U.fleets.map((f) => f.model))].map((m) => {
-        const fs = U.fleets.filter((x) => x.model === m);
-        const n = fs.reduce((s, x) => s + (x.cars || (x.placas || []).length || 0), 0);
-        return `<button class="ue-fleet-btn ue-fleet-model" data-id="m:${m}">` +
-          `<span class="n">${fs[0].modelLabel || m}</span><span class="m">${n} cars · ${fs.length} fleet${fs.length === 1 ? '' : 's'}</span></button>`;
-      }).join('') +
+        `<span class="ue-all-txt"><span class="n">All fleets</span><span class="m">${totalCarsAll} cars</span></span></button>` +
       `<span class="ue-fleet-div" aria-hidden="true"></span>` +
       U.fleets
         .map((f) => `<button class="ue-fleet-btn" data-id="${f.id}"><span class="n">${f.label}</span><span class="m">${f.modelLabel} · ${f.cars} cars</span></button>`)
@@ -9896,21 +9932,23 @@
       });
       const motoristaDe = (pl) => drvAgora[pl] || (drvUltimo[pl] ? drvUltimo[pl].nome : '');
       platesEl.innerHTML =
-        `<div class="ue-plates-top">` +
-          `<div class="ue-plates-label">View by plate</div>` +
-          `<div class="ue-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>` +
-            `<input type="search" id="ueSearch" placeholder="Plate or driver…" autocomplete="off" spellcheck="false" />` +
-            `<div class="ue-search-res" id="ueSearchRes" hidden></div></div>` +
-        `</div>` +
+        `<div class="ue-plates-label">View by plate</div>` +
         `<div class="ue-plates-grid">` +
         `<button class="ue-plate-btn${(!plateView && !viewAgg) ? ' active' : ''}" data-view="unit">Fleet (unitary)</button>` +
         `<button class="ue-plate-btn${(!plateView && viewAgg) ? ' active' : ''}" data-view="agg">Fleet (aggregate)</button>` +
         plates.map((p) => `<button class="ue-plate-btn${plateView === p ? ' active' : ''}" data-plate="${p}" data-drv="${escHU(motoristaDe(p).toLowerCase())}">${p}</button>`).join('') +
         `</div>`;
-      // índice global: placa → frota + motorista, para achar carro de qualquer frota
+      wireBusca(f, motoristaDe);
+    }
+    // BUSCA por placa ou motorista — vive no CABEÇALHO (aparece também no clean view, que é onde
+    // mais se usa: tabela limpa e um campo para achar o carro). Filtra as pastilhas da frota em
+    // tela e procura em TODAS as frotas ao mesmo tempo.
+    function wireBusca(f, motoristaDe) {
+      const platesEl = document.getElementById('uePlates');
       const idx = [];
       U.fleets.forEach((ff) => (ff.placas || []).forEach((pl) => idx.push({ pl, fid: ff.id, flabel: ff.label, model: ff.modelLabel || ff.model, drv: motoristaDe(pl) })));
       const inp = document.getElementById('ueSearch'), res = document.getElementById('ueSearchRes');
+      if (!inp || !res || !platesEl) return;
       const buscar = () => {
         const q = (inp.value || '').trim().toLowerCase();
         // filtra as pastilhas da frota em tela
@@ -10039,11 +10077,11 @@
           `<button class="ue-tool-btn" id="ueParts" title="Replacement intervals and cost per part">⚙ Parts</button>` +
         `</div>` +
         `<div class="ue-ctrl-row">` +
-          `<button class="idr-btn${indriveOn() && !idrOff ? ' on' : (indriveOn() ? ' off' : '')}" id="ueIndrive" title="Edit the InDrive batches">` +
+          // Interruptor simples: os valores da InDrive vêm da base (import_baseID), não há mais
+          // nada para editar aqui — o botão inteiro liga e desliga o efeito.
+          `<button class="idr-btn${idrOff ? ' off' : ' on'}" id="ueIndrive" title="${idrOff ? 'InDrive is OUT of the UE — click to bring it back' : 'Click to take the InDrive effect out of the UE'}">` +
             `<span class="idr-mark">iD</span><span class="idr-txt">InDrive</span>` +
-            (indriveOn()
-              ? `<span class="idr-state" id="ueIdrToggle" title="${idrOff ? 'InDrive is OUT of the UE — click to bring it back' : 'Click to remove the InDrive benefit from the UE'}">${idrOff ? 'off' : 'on'}</span>`
-              : '') +
+            `<span class="idr-state">${idrOff ? 'off' : 'on'}</span>` +
           `</button>` +
           // Forecast: mesmo interruptor de antes ("Actuals + projection"), agora com nome curto e
           // estado explícito — pílula acesa/apagada no MESMO desenho do iD ao lado
@@ -10062,9 +10100,23 @@
               `<div class="ue-fleet-model" id="ueTitleModel"${plateView ? '' : ' hidden'}>${allMode ? '' : f.modelLabel}</div>` +
             `</div>` +
           `</div>` +
-          `<div class="ue-head-ctrls">${ctrlRows}</div>` +
+          `<div class="ue-head-ctrls">` +
+            `<div class="ue-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>` +
+              `<input type="search" id="ueSearch" placeholder="Plate or driver…" autocomplete="off" spellcheck="false" />` +
+              `<div class="ue-search-res" id="ueSearchRes" hidden></div></div>` +
+            ctrlRows + `</div>` +
           `<div class="ue-actstack ue-actv2">` +
             `<div class="ue-ctrl-row ue-row-right">` +
+              // recorte por MODELO: dropdown pequeno, ao lado do refresh. A fila de botões é das
+              // FROTAS (as levas); o modelo é outro eixo e não precisa ocupar a mesma régua.
+              `<select class="ue-modelsel" id="ueModelSel" title="Look at every fleet of one model together">` +
+                `<option value="">All fleets</option>` +
+                [...new Set(U.fleets.map((x) => x.model))].map((m) => {
+                  const fs2 = U.fleets.filter((x) => x.model === m);
+                  const n2 = fs2.reduce((t, x) => t + (x.cars || (x.placas || []).length || 0), 0);
+                  return `<option value="m:${m}"${current === 'm:' + m ? ' selected' : ''}>${fs2[0].modelLabel || m} · ${n2} cars</option>`;
+                }).join('') +
+              `</select>` +
               (cleanView ? '' : `<button class="ue-round-btn" id="ueRefresh" title="Re-fetches the spreadsheet data">${SVG_REFRESH}</button>`) +
               `<div class="ue-cur-toggle" id="ueCurToggle">${CUR_FLAGS(currency)}</div>` +
               `<button class="ue-tool-btn ue-info-btn" id="ueInfo" title="Where each line comes from and how it updates">?</button>` +
@@ -10093,12 +10145,8 @@
       if (infoBtn) infoBtn.addEventListener('click', openInfoModal);
       const partsBtn = document.getElementById('ueParts');
       if (partsBtn) partsBtn.addEventListener('click', () => openPartsModal(f));
-      // o mesmo botão faz as duas coisas: a pílula on/off liga e desliga o efeito, o resto abre o painel
       const idrBtn = document.getElementById('ueIndrive');
-      if (idrBtn) idrBtn.addEventListener('click', (ev) => {
-        if (ev.target && ev.target.id === 'ueIdrToggle') { ev.stopPropagation(); idrOff = !idrOff; loadFleet(true); return; }
-        openIndriveModal(f);
-      });
+      if (idrBtn) idrBtn.addEventListener('click', () => { idrOff = !idrOff; loadFleet(true); });
       const projBtn = document.getElementById('ueProj');
       if (projBtn) projBtn.addEventListener('click', () => { showProj = !showProj; loadFleet(true); });
       const cleanBtn = document.getElementById('ueClean');
@@ -10118,6 +10166,8 @@
         renderTable(f);
       }));
       // Atualizar dados: re-busca a planilha no servidor e re-renderiza
+      const mSel = document.getElementById('ueModelSel');
+      if (mSel) mSel.addEventListener('change', (e) => { current = e.target.value || 'all'; loadFleet(); });
       const btnR = document.getElementById('ueRefresh');
       if (btnR) btnR.addEventListener('click', async () => {
         btnR.disabled = true; btnR.textContent = '↻ Refreshing…';
@@ -10323,10 +10373,18 @@
         F.flows.forEach((v, i) => { a.flows[i] = (a.flows[i] || 0) + v * n; });
         a.cars += n; a.fleets++;
       }
+      // TIR TEÓRICA de cada modelo (aba UE Theoric), casada pelo rótulo do modelo
+      let teo = {};
+      try { teo = await uetIrrTodos(); } catch (e) { teo = {}; }
+      const acharTeo = (label, model) => {
+        const alvo = String(label || '').toLowerCase(), alvo2 = String(model || '').toLowerCase();
+        const k = Object.keys(teo).find((n) => { const x = n.toLowerCase(); return x === alvo || x === alvo2 || x.startsWith(alvo2) || alvo.startsWith(x); });
+        return k ? teo[k].rate : null;
+      };
       const out = {};
       Object.entries(acc).forEach(([m, a]) => {
         const r = irrOf(a.flows.map((v) => v / Math.max(1, a.cars)));   // volta a por-carro do modelo
-        out[m] = { rate: (r != null && isFinite(r)) ? r : null, cars: a.cars, fleets: a.fleets, label: a.label };
+        out[m] = { rate: (r != null && isFinite(r)) ? r : null, cars: a.cars, fleets: a.fleets, label: a.label, teorico: acharTeo(a.label, m) };
       });
       // publica o cache ANTES do loadFleet de volta: é ele que redesenha o painel, e se a trava
       // ainda estivesse de pé o bloco sairia em "measuring…" e nunca mais seria redesenhado
@@ -10352,24 +10410,33 @@
       if (plateView) { const f = (U.fleets || []).find((x) => (x.placas || []).includes(plateView)); if (f) add(f.model, 1); }
       else if (allMode) ctxFleets().forEach((f) => add(f.model, f.cars || (f.placas || []).length || 0));
       else { const f = (U.fleets || []).find((x) => x.id === current); if (f) add(f.model, f.cars || (f.placas || []).length || 0); }
-      const itens = Object.entries(mix).filter(([m]) => byModel[m] && byModel[m].rate != null);
+      const itens = Object.entries(mix).filter(([m]) => byModel[m]);
       if (!itens.length) return '';
       const tot = itens.reduce((s, [, n]) => s + n, 0);
-      const blend = itens.reduce((s, [m, n]) => s + byModel[m].rate * n, 0) / tot;
-      const p1 = (v) => (v * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
-      const p0 = (v) => Math.round(v * 100).toLocaleString('pt-BR') + '%';
+      // TEÓRICO é o número principal: é o contrato como ele foi desenhado, a régua contra a qual a
+      // rua é medida. O REALIZADO (média dos carros daquele modelo) vem embaixo, menor. O blend usa
+      // o teórico, ponderado pelo mix de carros que temos hoje — "quanto esta frota deveria render".
+      const teo = (m) => { const d = byModel[m]; return d && d.teorico != null ? d.teorico : null; };
+      const comTeo = itens.filter(([m]) => teo(m) != null);
+      const blendT = comTeo.length ? comTeo.reduce((s, [m, n]) => s + teo(m) * n, 0) / comTeo.reduce((s, [, n]) => s + n, 0) : null;
+      const comReal = itens.filter(([m]) => byModel[m].rate != null);
+      const blendR = comReal.length ? comReal.reduce((s, [m, n]) => s + byModel[m].rate * n, 0) / comReal.reduce((s, [, n]) => s + n, 0) : null;
+      const p1 = (v) => (v == null ? '—' : (v * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%');
+      const p0 = (v) => (v == null ? '—' : Math.round(v * 100).toLocaleString('pt-BR') + '%');
+      const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
       const chips = itens.sort((a, b) => b[1] - a[1]).map(([m, n]) => {
-        const d = byModel[m];
-        const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-        return `<i class="irr-mixchip" style="--w:${(n / tot * 100).toFixed(1)}%">` +
-          `<span>${esc(d.label)}</span><b>${p1(d.rate)}</b>` +
+        const d = byModel[m], t = teo(m);
+        const gap = (t != null && d.rate != null) ? d.rate - t : null;
+        return `<i class="irr-mixchip${t == null ? ' irr-mixchip-noteo' : ''}" style="--w:${(n / tot * 100).toFixed(1)}%">` +
+          `<span>${esc(d.label)}</span>` +
+          `<b>${p1(t)}</b><u>theoretical</u>` +
+          `<s>${p1(d.rate)} actual${gap == null ? '' : ` <k class="${gap >= 0 ? 'up' : 'dn'}">${gap >= 0 ? '+' : '−'}${p1(Math.abs(gap))}</k>`}</s>` +
           `<em>${d.cars} car${d.cars === 1 ? '' : 's'}${d.fleets > 1 ? ' · ' + d.fleets + ' fleets' : ''}</em></i>`;
       }).join('');
       return `<div class="irr-mix">` +
         `<div class="irr-mix-head"><span class="irr-lbl">IRR by model</span>` +
-          (itens.length > 1
-            ? `<b class="irr-mix-blend">${p1(blend)}<i>blended · ${p0(blend * 12)} a year</i></b>`
-            : `<b class="irr-mix-blend irr-mix-one"><i>every car of this model, across all its fleets</i></b>`) +
+          `<b class="irr-mix-blend">${p1(blendT)}<i>theoretical blend · ${p0(blendT == null ? null : blendT * 12)} a year</i></b>` +
+          `<span class="irr-mix-alt">actual ${p1(blendR)} a month</span>` +
         `</div><div class="irr-mixrow">${chips}</div></div>`;
     }
     // Quanto a promoção InDrive vale no contexto atual (frota ou placa), independente do botão.

@@ -127,15 +127,15 @@ button { font-family: inherit; cursor: pointer; }
 .ue-fleet-div { width: 1px; align-self: stretch; margin: 5px 4px; background: var(--border-2); flex: none; }
 
 /* busca por placa ou motorista */
-.ue-search { position: relative; display: flex; align-items: center; gap: 7px;
-  padding: 0 12px; height: 34px; border: 1.5px solid var(--border-2); border-radius: 999px; background: var(--surface); }
+.ue-search { position: relative; display: flex; align-items: center; gap: 7px; flex: none;
+  padding: 0 12px; height: 32px; border: 1.5px solid var(--border-2); border-radius: 999px; background: var(--surface); }
 .ue-search:focus-within { border-color: var(--accent-ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
 .ue-search svg { width: 14px; height: 14px; color: var(--text-2); flex: none; }
 .ue-search input { font: inherit; font-size: 12.5px; font-weight: 600; border: 0; outline: 0; background: transparent;
-  color: var(--text); width: 168px; }
+  color: var(--text); width: 132px; }
 .ue-search input::placeholder { color: var(--text-2); font-weight: 500; }
 .ue-search input::-webkit-search-cancel-button { cursor: pointer; }
-.ue-search-res { position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; min-width: 288px; max-height: 320px; overflow: auto;
+.ue-search-res { position: absolute; top: calc(100% + 6px); left: 0; z-index: 40; min-width: 288px; max-height: 320px; overflow: auto;
   background: var(--surface); border: 1px solid var(--border-2); border-radius: 12px; box-shadow: 0 10px 28px rgba(16,24,40,.16); padding: 5px; }
 .ue-search-hit { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; width: 100%; text-align: left;
   font: inherit; padding: 7px 10px; border: 0; border-radius: 9px; background: transparent; cursor: pointer; }
@@ -2001,16 +2001,6 @@ html.dark .cc-leg .sw-avg { border-top-color: #B49BFF; }
 .cc-leg .sw-bud { width: 16px; height: 0; border-radius: 0; border-top: 2.2px dashed #111827; }
 html.dark .cc-leg .sw-bud { border-top-color: #E7E8EC; }
 
-/* ---- TIR por modelo: teórico como número principal, realizado embaixo ---- */
-.irr-mixchip > u { display: block; text-decoration: none; font-size: 9.5px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: .06em; opacity: .55; margin-top: -2px; }
-.irr-mixchip > s { display: block; text-decoration: none; font-size: 11.5px; font-weight: 600;
-  opacity: .82; margin-top: 4px; padding-top: 4px; border-top: 1px solid #ffffff1f; }
-.irr-mixchip > s k { font-weight: 800; }
-.irr-mixchip > s k.up { color: #C0F11C; }
-.irr-mixchip > s k.dn { color: #FCA5A5; }
-.irr-mixchip-noteo > b { opacity: .45; }
-.irr-mix-alt { font-size: 11.5px; font-weight: 600; color: #ffffffa8; }
 
 /* recorte por modelo no cabeçalho do UE — discreto, ao lado do refresh */
 .ue-modelsel { font: inherit; font-size: 11.5px; font-weight: 600; height: 32px; padding: 0 26px 0 11px;
@@ -2032,3 +2022,50 @@ html.dark .ue-modelsel option { background: #15161b; color: #E7E8EC; }
 .up-flag.good u { color: #047857; }
 html.dark .up-flag.bad u { color: #FCA5A5; }
 html.dark .up-flag.good u { color: #6EE7B7; }
+
+/* botão "Rec+Rep": mesma família do Forecast, em âmbar quando desligado */
+.ue-judbtn:not(.on) .ue-fc-dot { background: transparent; border: 1.5px dashed #94a3b8; }
+.ue-judbtn.on { border-color: #b45309; color: #92400e; }
+.ue-judbtn.on .ue-fc-dot { background: #f59e0b; }
+.ue-judbtn.on .ue-fc-state { background: #f59e0b; color: #3b2400; }
+html.dark .ue-judbtn.on { border-color: #f59e0b; color: #FCD34D; }
+
+/* ---- TIR por modelo: duas caixas por modelo (teórico | médio), anual em destaque ---- */
+.irr-mixchip { grid-template-columns: none; }
+.irr-mixname { display: block; font-size: 10.5px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .05em; opacity: .78; margin-bottom: 7px; }
+.irr-mixname em { display: block; font-style: normal; font-size: 9.5px; font-weight: 600;
+  text-transform: none; letter-spacing: 0; opacity: .62; margin-top: 1px; }
+.irr-mixboxes { display: flex; gap: 7px; }
+.irr-mixbox { display: grid; gap: 0; padding: 6px 10px 7px; border-radius: 8px; min-width: 92px;
+  background: #ffffff12; border: 1px solid #ffffff1c; }
+.irr-mixbox.teo { background: #ffffff1f; border-color: #C0F11C55; }
+.irr-mixbox u { text-decoration: none; font-size: 9px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .07em; opacity: .6; }
+.irr-mixbox b { font-family: var(--font-display); font-size: 22px; font-weight: 800; line-height: 1.15;
+  font-variant-numeric: tabular-nums; }
+.irr-mixbox.teo b { color: #C0F11C; }
+.irr-mixbox s { text-decoration: none; font-size: 10.5px; font-weight: 600; opacity: .66; }
+.irr-mix-blend i { font-weight: 600; }
+
+/* botão discreto que abre o fluxo de caixa por trás da taxa */
+.irr-cash { display: inline-flex; align-items: center; gap: 6px; align-self: center; margin-left: 4px;
+  font: inherit; font-size: 11px; font-weight: 700; padding: 6px 11px; cursor: pointer;
+  border: 1px solid #ffffff33; border-radius: 999px; background: #ffffff12; color: #fff; opacity: .8; }
+.irr-cash svg { width: 13px; height: 13px; }
+.irr-cash:hover { opacity: 1; background: #ffffff20; border-color: #ffffff5c; }
+.irr-cashmodal { max-width: 520px; }
+.irr-cashtbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.irr-cashtbl th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--text-2); padding: 0 8px 6px; font-weight: 800; }
+.irr-cashtbl th:nth-child(3), .irr-cashtbl th:nth-child(4) { text-align: right; }
+.irr-cashtbl td { padding: 4px 8px; border-top: 1px solid var(--border-2); font-variant-numeric: tabular-nums; }
+.irr-cashtbl .ic-m { font-weight: 700; width: 42px; }
+.irr-cashtbl .ic-bar { width: 40%; }
+.irr-cashtbl .ic-bar i { display: block; height: 7px; border-radius: 3px; background: var(--border-2); }
+.irr-cashtbl tr.neg .ic-bar i { background: #F87171; }
+.irr-cashtbl tr.pos .ic-bar i { background: #34D399; }
+.irr-cashtbl .ic-v, .irr-cashtbl .ic-a { text-align: right; }
+.irr-cashtbl tr.neg .ic-v { color: #B91C1C; }
+.irr-cashtbl .ic-a { font-weight: 700; }
+html.dark .irr-cashtbl tr.neg .ic-v { color: #FCA5A5; }

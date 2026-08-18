@@ -2449,6 +2449,36 @@
   // idr = { net, on } — quanto a promoção InDrive vale nesta conta e se ela ESTÁ dentro dela.
   // O fluxo chega aqui já com a decisão tomada (o botão iD do UE zera as linhas na tabela), então
   // o painel só conta ao leitor o que está valendo. mix = HTML opcional da TIR por modelo.
+  // Fluxo de caixa por trás de uma TIR: mês a mês, com o acumulado, para conferir de onde a taxa
+  // saiu sem precisar reconstruir a tabela na mão.
+  function irrCashModal(flows, cur) {
+    const money = (v) => (v < 0 ? '−' : '') + cur + ' ' + Math.round(Math.abs(v)).toLocaleString('pt-BR');
+    const mx = Math.max.apply(null, flows.map((x) => Math.abs(x))) || 1;
+    let acc = 0, virou = null;
+    const linhas = flows.map((v, i) => {
+      acc += v; if (virou == null && acc > 0) virou = i;
+      return '<tr class="' + (v < 0 ? 'neg' : v > 0 ? 'pos' : '') + '">' +
+        '<td class="ic-m">M' + i + '</td>' +
+        '<td class="ic-bar"><i style="width:' + (Math.abs(v) / mx * 100).toFixed(1) + '%"></i></td>' +
+        '<td class="ic-v">' + money(v) + '</td>' +
+        '<td class="ic-a">' + money(acc) + '</td></tr>';
+    }).join('');
+    const ov = document.createElement('div');
+    ov.className = 'ue-modal-overlay';
+    ov.innerHTML = '<div class="ue-modal irr-cashmodal">' +
+      '<div class="ue-modal-title" style="margin:0">Cashflow behind the IRR</div>' +
+      '<div class="ue-modal-sub" style="margin:4px 0 12px">Per car, M0 to M' + (flows.length - 1) + ' — realized up to today, budgeted from there. ' +
+        'The whole insurance premium sits at M0, and the accumulated turns positive at ' + (virou == null ? 'no point in the contract' : 'M' + virou) + '.</div>' +
+      '<table class="irr-cashtbl"><thead><tr><th>Month</th><th></th><th>Net</th><th>Accumulated</th></tr></thead><tbody>' + linhas + '</tbody></table>' +
+      '<div class="ue-modal-actions"><button type="button" class="ue-btn" data-close="1">Close</button></div></div>';
+    document.body.appendChild(ov);
+    ov.addEventListener('click', (e) => { if (e.target === ov || (e.target.dataset && e.target.dataset.close)) ov.remove(); });
+  }
+  document.addEventListener('click', (e) => {
+    const b = e.target && e.target.closest && e.target.closest('.irr-cash');
+    if (!b) return;
+    irrCashModal(String(b.dataset.flows || '').split(',').map(Number), b.dataset.cur || 'R$');
+  });
   function irrPanelHtml(flows, cur, PMAX, insM0, idr, mix) {
     const rM = irrOf(flows);
     const netTot = flows.reduce((a, b) => a + b, 0);
@@ -2529,6 +2559,9 @@
           `<div class="irr-kpi"><span class="irr-lbl">Annual IRR</span><b class="irr-big irr-year">${pctA(rA)}</b><span class="irr-sub">monthly × 12</span></div>` +
           `<div class="irr-sep"></div>` +
           `<div class="irr-kpi irr-kpi-alt"><span class="irr-lbl">Monthly IRR</span><b class="irr-big">${pct(rM)}</b><span class="irr-sub">per UE month (4.33 weeks)</span></div>` +
+          // atalho para AUDITAR a taxa: abre o fluxo mês a mês que entrou nesta conta
+          `<button type="button" class="irr-cash" data-flows="${flows.map((v) => Math.round(v)).join(',')}" data-cur="${cur}" title="See the cashflow behind this rate">` +
+            `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 19V9M9.3 19V5M14.7 19v-7M20 19v-4"/></svg>Cashflow</button>` +
         `</div>` +
         (mix || '') +
         `<div class="irr-side">` +
@@ -7436,8 +7469,11 @@
     let unitSort = 'fleet', unitFleet = null, _unitCache = null, _ueIrrLoading = false;
     let unitModel = null;      // filtro por MODELO (Polo/Argo/Tera) — cruza com o de frota
     let unitFilter = null;     // null | 'back' (recuperados/devolvidos) | 'below' (abaixo do budget)
-    let unitIdrOff = false;    // botão iD do gráfico: tira a promoção InDrive da TIR das barras
-    const ueIrrMaps = { on: null, off: null };   // um mapa de TIR por estado do botão iD
+    // PADRÃO: promoção InDrive FORA. A campanha foi uma vez por placa e não se repete no próximo
+    // contrato — com ela ligada, a leitura normal do gráfico virava a da exceção.
+    let unitIdrOff = true;
+    let unitJudOff = false;    // tira recuperação + reparo do retorno e da TIR das barras
+    const ueIrrMaps = {};      // um mapa de TIR por combinação dos dois botões
     let unitPlateSel = null;   // placa aberta no drill do "Per car" (null = nenhuma)
     // linha horizontal de referência CHEIA + rótulo numa pílula opaca encostada à direita.
     // Texto solto sobre as barras é ilegível; a pílula garante contraste em qualquer fundo.
@@ -7524,8 +7560,10 @@
             v += (FR.gross || 0) * (FR.prem || 1.1) * MESd;            // multas repassadas
             v -= (FR.net || 0) * MESd;                                 // multas pagas à LM
             v -= (AGf.Maintenance.ok ? AGf.Maintenance.per[p] || 0 : 0);
-            v -= (AGf.Recovery.ok ? AGf.Recovery.per[p] || 0 : 0);
-            v -= (AGf.Repair.ok ? AGf.Repair.per[p] || 0 : 0);
+            if (!unitJudOff) {                            // o orçado segue o mesmo botão Rec+Rep
+              v -= (AGf.Recovery.ok ? AGf.Recovery.per[p] || 0 : 0);
+              v -= (AGf.Repair.ok ? AGf.Repair.per[p] || 0 : 0);
+            }
             v -= (AGf.Parts.ok ? AGf.Parts.per[p] || 0 : 0);
           }
           return v;
@@ -7590,7 +7628,11 @@
           ((((U.multas || {}).placas) || {})[pl] || []).forEach((x) => { if (x.pago) { rev += x.v; dep(x.d, x.v); } });
           ((((U.multasBase || {}).placas) || {})[pl] || []).forEach((x) => { const v = (x.liq > 0 ? x.liq : (x.v || 0) / 1.05) * 1.05; ev += v; cmp.multas += v; dep(x.venc, -v); });
           ((((U.revBase || {}).placas) || {})[pl] || []).forEach((r) => { if (r.valor) { ev += r.valor; cmp.revisoes += r.valor; dep(r.venc, -r.valor); } });
-          ((((U.judBase || {}).placas) || {})[pl] || []).forEach((c) => { const v = (c.recovery || 0) + (c.repair || 0); ev += v; cmp.recovery += (c.recovery || 0); cmp.repair += (c.repair || 0); dep(c.d, -v); });
+          ((((U.judBase || {}).placas) || {})[pl] || []).forEach((c) => {
+            cmp.recovery += (c.recovery || 0); cmp.repair += (c.repair || 0);
+            if (unitJudOff) return;                       // botão Rec+Rep: fora do caixa e da TIR
+            const v = (c.recovery || 0) + (c.repair || 0); ev += v; dep(c.d, -v);
+          });
           ((((U.reposicao || {}).placas) || {})[pl] || []).forEach((e2) => { (e2.itens || []).forEach((it) => { if (pc[it]) { ev += pc[it]; cmp.pecas += pc[it]; dep(e2.d, -pc[it]); } }); });
           const real = (rev - ev - sched) / fx;
           // ---- TIR da placa: a MESMA conta do painel do UE, mês a mês ----
@@ -7699,6 +7741,8 @@
         // botão iD no mesmo desenho do UE: liga e desliga a promoção dentro da TIR das barras
         `<button type="button" class="idr-btn${unitIdrOff ? ' off' : ' on'}" id="unitIdr" title="${unitIdrOff ? 'InDrive is OUT of the IRR — click to bring it back' : 'Click to take the InDrive promo out of the IRR'}">` +
           `<span class="idr-mark">iD</span><span class="idr-txt">InDrive</span><span class="idr-state">${unitIdrOff ? 'off' : 'on'}</span></button>` +
+        `<button type="button" class="ue-fcbtn ue-judbtn${unitJudOff ? '' : ' on'}" id="unitJud" title="${unitJudOff ? 'Recovery + repair are OUT — click to bring them back' : 'Click to take recovery + repair out of the return and the IRR'}">` +
+          `<span class="ue-fc-dot"></span>Rec+Rep<span class="ue-fc-state">${unitJudOff ? 'off' : 'on'}</span></button>` +
         finCurFlags() + '</div>';
       ctl.querySelector('#unitFleetSel').addEventListener('change', (e) => {
         const v = e.target.value;
@@ -7711,6 +7755,7 @@
         unitFilter = unitFilter === b.dataset.fl ? null : b.dataset.fl; unitPlateSel = null; renderUnit();
       }));
       ctl.querySelector('#unitIdr').addEventListener('click', () => { unitIdrOff = !unitIdrOff; renderUnit(); });
+      ctl.querySelector('#unitJud').addEventListener('click', () => { unitJudOff = !unitJudOff; _unitCache = null; renderUnit(); });
       // ORDENAÇÃO mora DENTRO do gráfico (é uma propriedade dele, não um filtro da página):
       // pílula discreta no cabeçalho, com o critério escrito sem o prefixo "Sort:" repetido
       const sortWrap = document.getElementById('unitSortWrap');
@@ -8353,6 +8398,7 @@
     let cleanView = true;   // visão limpa é o PADRÃO: só o total (real+proj), sem orçado nem controles
     let showProj = true;    // false = esconde os projetados (roxo) e mostra só o realizado — só visualização
     let idrOff = false;     // true = tira o benefício InDrive da conta do UE (espelha o botão do P&L)
+    let judOff = false;     // true = tira recuperação + reparo da conta ("e se este carro não tivesse dado problema?")
     let inadimplencia = 0;  // taxa de inadimplência % (slider, global) — desconta a projeção do Subscription
     let latePct = 0;        // % das semanas pagas COM atraso (slider, global) — projeta o Late-payment interest
     let termPct = 50;       // % da cobrança de rescisão (import_jud) que esperamos receber (slider, global)
@@ -8449,7 +8495,7 @@
         .map((f) => `<button class="ue-fleet-btn" data-id="${f.id}"><span class="n">${f.label}</span><span class="m">${f.modelLabel} · ${f.cars} cars</span></button>`)
         .join('');
     fleetsEl.querySelectorAll('.ue-fleet-btn').forEach((b) =>
-      b.addEventListener('click', () => { current = b.dataset.id; loadFleet(); })
+      b.addEventListener('click', () => { current = vista('current', b.dataset.id); loadFleet(); })
     );
 
     // média dos meses realizados de uma linha (base da projeção automática)
@@ -9036,6 +9082,13 @@
       for (let p = 0; p <= PMAX; p++) { subsRS[p] = 0; subsJurosRS[p] = 0; }
       plates.forEach((pl) => (pag[pl] || []).forEach((s) => {
         const venc = new Date(s.v + 'T12:00:00');
+        // PAGAMENTO ADIANTADO NAO E REALIZADO DE UMA SEMANA QUE AINDA NAO CHEGOU. Algumas placas
+        // tem parcelas de vencimento futuro ja marcadas como recebidas na planilha (a UDG5A66
+        // tinha cinco, ate 21/09). Contadas aqui, o mes vigente aparecia com 4 semanas realizadas
+        // enquanto os outros carros da mesma frota mostravam 1 - sem nada ter acontecido. A semana
+        // futura fica com a projecao (mondaysAvg conta so as segundas depois de hoje), entao ela
+        // nao some da conta: muda de lado. O caixa da aba Unit segue contando o que entrou.
+        if (venc > hoje) return;
         let mo = Math.ceil(((venc - ini) / 86400000) / (SEMANAS_MES * 7));
         if (mo < 1) mo = 1;
         if (mo > U.periods) return;
@@ -9136,10 +9189,12 @@
         return period === PMAX ? { rs: 0, rsProj: judTermRS, perActive: true } : { rs: 0, perActive: true };
       }
       if (line === 'Recovery cost') {
+        if (judOff) return { rs: 0, perActive: true };   // botão Rec+Rep
         if (period === 0 || !judReady) return period === 0 ? { rs: 0, perActive: true } : null;
         return { rs: -(judRecRealRS[period] || 0), rsProj: -(judRecProjRS[period] || 0), perActive: true };
       }
       if (line === 'Repair cost') {
+        if (judOff) return { rs: 0, perActive: true };   // botão Rec+Rep
         if (period === 0 || !judReady) return period === 0 ? { rs: 0, perActive: true } : null;
         return { rs: -(judRepRealRS[period] || 0), rsProj: -(judRepProjRS[period] || 0), perActive: true };
       }
@@ -9973,8 +10028,8 @@
       inp.addEventListener('focus', buscar);
       inp.addEventListener('blur', () => setTimeout(() => { res.hidden = true; }, 150));
       platesEl.querySelectorAll('.ue-plate-btn').forEach((b) => b.addEventListener('click', () => {
-        if (b.dataset.view) { plateView = null; viewAgg = b.dataset.view === 'agg'; }
-        else { plateView = b.dataset.plate; viewAgg = false; }
+        if (b.dataset.view) { plateView = vista('plateView', null); viewAgg = vista('viewAgg', b.dataset.view === 'agg'); }
+        else { plateView = vista('plateView', b.dataset.plate); viewAgg = vista('viewAgg', false); }
         platesEl.querySelectorAll('.ue-plate-btn').forEach((x) => x.classList.toggle('active', x === b));
         const titleEl = document.querySelector('#ueHead .ue-fleet-title');
         if (titleEl) titleEl.textContent = plateView ? plateView : (allMode ? f.label : f.modelLabel) + (viewAgg ? ' · aggregate' : '');
@@ -10021,7 +10076,11 @@
       }
       return { f: ff, params: vals.params, entered: vals.entered, partCfg: mergedParts(vals.params), ini, elapsed: el, realizedFull: Math.min(PMAX, Math.ceil(el)), lossMonthByPlate: lmp, activeFracArr: afa, subsRS: [], subsReady: false };
     }
-    async function loadFleet(keepView) {
+    // quiet = carrega os dados da frota SEM tocar na tela. As varreduras (TIR por placa, TIR por
+    // modelo) percorrem as 6 frotas e, sem isto, o painel piscava de frota em frota na cara do
+    // usuario - parecia recarregamento quebrado. Agora elas rodam mudas e a tela so e repintada
+    // no fim, uma vez.
+    async function loadFleet(keepView, quiet) {
       allMode = current === 'all' || String(current).startsWith('m:');
       const f = allMode ? allFleet() : U.fleets.find((x) => x.id === current);
       model = f.model;
@@ -10066,13 +10125,21 @@
       }
       // barra do contrato: início ——[quanto já correu]—— início + 52 semanas (só com data de início;
       // em "All fleets" cada frota tem um começo diferente, então a barra não aparece)
+      if (quiet) return;   // varredura: os dados ja estao carregados, a tela nao muda
       const contractBar = contractBarHtml(f);
       // ícones em SVG inline (a fonte de ícones já falhou uma vez e deixou botão em branco)
       const SVG_ADJ = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h9.6M18.4 6H20M4 12h3.6M12.4 12H20M4 18h12.6"/><circle cx="16" cy="6" r="2.2"/><circle cx="10" cy="12" r="2.2"/><circle cx="18.8" cy="18" r="2.2"/></svg>`;
       const SVG_REFRESH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.7A8.1 8.1 0 1 0 18.4 16.3"/><path d="M20.3 6.4v5.3H15"/></svg>`;
       // no modo limpo some tudo que é controle — ficam moeda, Clean view e o "?"
-      const ctrlRows = cleanView ? '' :
+      // busca no MEIO do cabeçalho, na mesma linha dos controles — em linha própria ela esticava
+      // o painel em ~40px de vão. No clean view ela é a única coisa que sobra.
+      const BUSCA_HTML =
+        `<div class="ue-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>` +
+          `<input type="search" id="ueSearch" placeholder="Plate or driver…" autocomplete="off" spellcheck="false" />` +
+          `<div class="ue-search-res" id="ueSearchRes" hidden></div></div>`;
+      const ctrlRows = cleanView ? (`<div class="ue-ctrl-row">` + BUSCA_HTML + `</div>`) :
         `<div class="ue-ctrl-row">` +
+          BUSCA_HTML +
           `<button type="button" class="ue-tool-btn ue-assump-btn${slidersOpen ? ' on' : ''}" id="ueSlidersBtn">${SVG_ADJ} Assumptions <span>${slidersOpen ? '▴' : '▾'}</span></button>` +
           `<button class="ue-tool-btn" id="ueParts" title="Replacement intervals and cost per part">⚙ Parts</button>` +
         `</div>` +
@@ -10085,6 +10152,10 @@
           `</button>` +
           // Forecast: mesmo interruptor de antes ("Actuals + projection"), agora com nome curto e
           // estado explícito — pílula acesa/apagada no MESMO desenho do iD ao lado
+          // "Rec+Rep": tira guincho e reparo da conta. É a pergunta que sempre aparece na reunião
+          // — "e se este carro não tivesse dado problema?" — e agora ela tem um interruptor.
+          `<button class="ue-fcbtn ue-judbtn${judOff ? '' : ' on'}" id="ueJud" title="${judOff ? 'Recovery + repair are OUT — click to bring them back' : 'Click to take recovery + repair costs out of the account'}">` +
+            `<span class="ue-fc-dot"></span>Rec+Rep<span class="ue-fc-state">${judOff ? 'off' : 'on'}</span></button>` +
           `<button class="ue-fcbtn${showProj ? ' on' : ''}" id="ueProj" title="${showProj ? 'Hide the projected numbers (purple) and show actuals only' : 'Bring the projections back'}">` +
             `<span class="ue-fc-dot"></span>Forecast<span class="ue-fc-state">${showProj ? 'on' : 'off'}</span></button>` +
         `</div>`;
@@ -10100,11 +10171,7 @@
               `<div class="ue-fleet-model" id="ueTitleModel"${plateView ? '' : ' hidden'}>${allMode ? '' : f.modelLabel}</div>` +
             `</div>` +
           `</div>` +
-          `<div class="ue-head-ctrls">` +
-            `<div class="ue-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>` +
-              `<input type="search" id="ueSearch" placeholder="Plate or driver…" autocomplete="off" spellcheck="false" />` +
-              `<div class="ue-search-res" id="ueSearchRes" hidden></div></div>` +
-            ctrlRows + `</div>` +
+          `<div class="ue-head-ctrls">` + ctrlRows + `</div>` +
           `<div class="ue-actstack ue-actv2">` +
             `<div class="ue-ctrl-row ue-row-right">` +
               // recorte por MODELO: dropdown pequeno, ao lado do refresh. A fila de botões é das
@@ -10146,11 +10213,13 @@
       const partsBtn = document.getElementById('ueParts');
       if (partsBtn) partsBtn.addEventListener('click', () => openPartsModal(f));
       const idrBtn = document.getElementById('ueIndrive');
-      if (idrBtn) idrBtn.addEventListener('click', () => { idrOff = !idrOff; loadFleet(true); });
+      if (idrBtn) idrBtn.addEventListener('click', () => { idrOff = vista('idrOff', !idrOff); loadFleet(true); });
+      const judBtn = document.getElementById('ueJud');
+      if (judBtn) judBtn.addEventListener('click', () => { judOff = vista('judOff', !judOff); loadFleet(true); });
       const projBtn = document.getElementById('ueProj');
       if (projBtn) projBtn.addEventListener('click', () => { showProj = !showProj; loadFleet(true); });
       const cleanBtn = document.getElementById('ueClean');
-      if (cleanBtn) cleanBtn.addEventListener('click', () => { cleanView = !cleanView; loadFleet(true); });
+      if (cleanBtn) cleanBtn.addEventListener('click', () => { cleanView = vista('cleanView', !cleanView); loadFleet(true); });
       const inadHist = document.getElementById('ueInadHist');
       if (inadHist) inadHist.addEventListener('click', async () => {
         const r = churnRate(); if (r == null) return;
@@ -10167,7 +10236,7 @@
       }));
       // Atualizar dados: re-busca a planilha no servidor e re-renderiza
       const mSel = document.getElementById('ueModelSel');
-      if (mSel) mSel.addEventListener('change', (e) => { current = e.target.value || 'all'; loadFleet(); });
+      if (mSel) mSel.addEventListener('change', (e) => { current = vista('current', e.target.value || 'all'); loadFleet(); });
       const btnR = document.getElementById('ueRefresh');
       if (btnR) btnR.addEventListener('click', async () => {
         btnR.disabled = true; btnR.textContent = '↻ Refreshing…';
@@ -10347,12 +10416,18 @@
     // O cálculo é uma varredura por frota (6 chamadas), então fica em cache — invalidado quando o
     // iD ou o Forecast mudam, que são justamente as duas chaves que alteram o fluxo.
     let modelIrrCache = null, modelIrrLoading = false;
-    const modelIrrKey = () => (idrOff ? '1' : '0') + '|' + (showProj ? '1' : '0');
+    const modelIrrKey = () => (idrOff ? '1' : '0') + '|' + (showProj ? '1' : '0') + '|' + (judOff ? '1' : '0');
     // FILA das varreduras. Tanto a TIR por modelo quanto a TIR por placa (aba Unit) dirigem o MESMO
     // motor global — current, params, plateView, subsRS... Rodando juntas, uma trocava a frota no
     // meio da outra e o resultado saía com a semanalidade zerada (o carro aparecia com a receita
     // inteira sumida e TIR de −52%/mês). Aqui elas passam a esperar a vez.
     let sweepLock = Promise.resolve();
+    // O snapshot que a varredura restaura no fim fica VISÍVEL aqui. Sem isso, um clique dado
+    // durante a varredura (trocar de frota, ligar o clean view, mexer no iD) era desfeito quando
+    // ela terminava — a tela "voltava sozinha", que era o bug relatado. Agora quem clica também
+    // atualiza o snapshot, e a varredura devolve o estado que o usuário quer, não o que havia antes.
+    let sweepSnap = null;
+    const vista = (k, v) => { if (sweepSnap) sweepSnap[k] = v; return v; };
     function naFila(fn) {
       const p = sweepLock.then(fn, fn);
       sweepLock = p.then(() => {}, () => {});
@@ -10361,11 +10436,12 @@
     async function computeModelIrr() { return naFila(computeModelIrrRaw); }
     async function computeModelIrrRaw() {
       const st = { current, plateView, viewAgg, cleanView, slidersOpen };
+      sweepSnap = st;
       const acc = {};
       for (const f of (U.fleets || [])) {
         if (!f.inicio) continue;
         current = f.id; plateView = null; viewAgg = false;
-        await loadFleet(true);
+        await loadFleet(true, true);
         const B = buildT(f); if (!B) continue;
         const F = irrFlowsOf(B.T);                        // unitário: fluxo POR CARRO da frota
         const n = f.cars || (f.placas || []).length || 0;
@@ -10390,6 +10466,7 @@
       // ainda estivesse de pé o bloco sairia em "measuring…" e nunca mais seria redesenhado
       modelIrrCache = { key: modelIrrKey(), byModel: out };
       modelIrrLoading = false;
+      sweepSnap = null;
       current = st.current; plateView = st.plateView; viewAgg = st.viewAgg; cleanView = st.cleanView; slidersOpen = st.slidersOpen;
       await loadFleet(true);
       return out;
@@ -10413,9 +10490,9 @@
       const itens = Object.entries(mix).filter(([m]) => byModel[m]);
       if (!itens.length) return '';
       const tot = itens.reduce((s, [, n]) => s + n, 0);
-      // TEÓRICO é o número principal: é o contrato como ele foi desenhado, a régua contra a qual a
-      // rua é medida. O REALIZADO (média dos carros daquele modelo) vem embaixo, menor. O blend usa
-      // o teórico, ponderado pelo mix de carros que temos hoje — "quanto esta frota deveria render".
+      // Duas caixas por modelo: TEÓRICO (o contrato como foi desenhado) e MÉDIO (o que a rua está
+      // rendendo). Em cada uma o ANUAL é o número grande — é a régua que a empresa usa — e o mensal
+      // fica embaixo. O blend só aparece em "All fleets": com um modelo só, misturar não diz nada.
       const teo = (m) => { const d = byModel[m]; return d && d.teorico != null ? d.teorico : null; };
       const comTeo = itens.filter(([m]) => teo(m) != null);
       const blendT = comTeo.length ? comTeo.reduce((s, [m, n]) => s + teo(m) * n, 0) / comTeo.reduce((s, [, n]) => s + n, 0) : null;
@@ -10424,19 +10501,18 @@
       const p1 = (v) => (v == null ? '—' : (v * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%');
       const p0 = (v) => (v == null ? '—' : Math.round(v * 100).toLocaleString('pt-BR') + '%');
       const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const caixa = (cls, rot, r) => `<span class="irr-mixbox ${cls}"><u>${rot}</u><b>${p0(r == null ? null : r * 12)}</b><s>${p1(r)} a month</s></span>`;
       const chips = itens.sort((a, b) => b[1] - a[1]).map(([m, n]) => {
-        const d = byModel[m], t = teo(m);
-        const gap = (t != null && d.rate != null) ? d.rate - t : null;
-        return `<i class="irr-mixchip${t == null ? ' irr-mixchip-noteo' : ''}" style="--w:${(n / tot * 100).toFixed(1)}%">` +
-          `<span>${esc(d.label)}</span>` +
-          `<b>${p1(t)}</b><u>theoretical</u>` +
-          `<s>${p1(d.rate)} actual${gap == null ? '' : ` <k class="${gap >= 0 ? 'up' : 'dn'}">${gap >= 0 ? '+' : '−'}${p1(Math.abs(gap))}</k>`}</s>` +
-          `<em>${d.cars} car${d.cars === 1 ? '' : 's'}${d.fleets > 1 ? ' · ' + d.fleets + ' fleets' : ''}</em></i>`;
+        const d = byModel[m];
+        return `<i class="irr-mixchip" style="--w:${(n / tot * 100).toFixed(1)}%">` +
+          `<span class="irr-mixname">${esc(d.label)}<em>${d.cars} car${d.cars === 1 ? '' : 's'}${d.fleets > 1 ? ' · ' + d.fleets + ' fleets' : ''}</em></span>` +
+          `<span class="irr-mixboxes">${caixa('teo', 'Theoretical', teo(m))}${caixa('real', 'Average', d.rate)}</span></i>`;
       }).join('');
       return `<div class="irr-mix">` +
         `<div class="irr-mix-head"><span class="irr-lbl">IRR by model</span>` +
-          `<b class="irr-mix-blend">${p1(blendT)}<i>theoretical blend · ${p0(blendT == null ? null : blendT * 12)} a year</i></b>` +
-          `<span class="irr-mix-alt">actual ${p1(blendR)} a month</span>` +
+          (itens.length > 1
+            ? `<b class="irr-mix-blend">${p0(blendT == null ? null : blendT * 12)}<i>theoretical blend · actual ${p0(blendR == null ? null : blendR * 12)}</i></b>`
+            : '') +
         `</div><div class="irr-mixrow">${chips}</div></div>`;
     }
     // Quanto a promoção InDrive vale no contexto atual (frota ou placa), independente do botão.
@@ -10558,6 +10634,7 @@
         bar: barra,
         fleet: alvo.id, model: alvo.modelLabel || alvo.model,
       };
+      sweepSnap = null;
       current = st.current; plateView = st.plateView; viewAgg = st.viewAgg; cleanView = st.cleanView; slidersOpen = st.slidersOpen; currency = st.currency;
       await loadFleet(true);
       return out;
@@ -10569,14 +10646,16 @@
     // UE tem — calção e devolução, taxa de rescisão, compra e venda do veículo — e por isso a
     // mesma placa aparecia com 42,1%/mês no gráfico e 36,7%/mês no painel. Aqui rodamos o motor
     // de verdade: uma chamada de rede por FROTA (6, não 170) e, dentro dela, o cálculo por placa.
-    ueIrrByPlate = async (semIndrive) => naFila(async () => {
-      const st = { current, plateView, viewAgg, cleanView, slidersOpen, idrOff };
+    ueIrrByPlate = async (semIndrive, semJud) => naFila(async () => {
+      const st = { current, plateView, viewAgg, cleanView, slidersOpen, idrOff, judOff };
+      sweepSnap = st;
       if (semIndrive != null) idrOff = !!semIndrive;   // a aba Unit tem o próprio botão iD
+      if (semJud != null) judOff = !!semJud;
       const out = {};
       for (const f of (U.fleets || [])) {
         if (!f.inicio) continue;
         current = f.id; plateView = null; viewAgg = false;
-        await loadFleet(true);
+        await loadFleet(true, true);
         for (const pl of (f.placas || [])) {
           plateView = pl;
           const B = buildT(f);
@@ -10588,7 +10667,8 @@
           out[pl] = (r != null && isFinite(r)) ? r : null;
         }
       }
-      current = st.current; plateView = st.plateView; viewAgg = st.viewAgg; cleanView = st.cleanView; slidersOpen = st.slidersOpen; idrOff = st.idrOff;
+      sweepSnap = null;
+      current = st.current; plateView = st.plateView; viewAgg = st.viewAgg; cleanView = st.cleanView; slidersOpen = st.slidersOpen; idrOff = st.idrOff; judOff = st.judOff;
       await loadFleet(true);
       return out;
     });

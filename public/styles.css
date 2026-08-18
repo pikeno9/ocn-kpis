@@ -125,6 +125,31 @@ button { font-family: inherit; cursor: pointer; }
 .ue-fleet-all.active { background: var(--accent); }
 .ue-fleet-all.active .ue-all-ico { color: #fff; opacity: 1; }
 .ue-fleet-div { width: 1px; align-self: stretch; margin: 5px 4px; background: var(--border-2); flex: none; }
+/* MODELO: mesma família visual das frotas, com borda tracejada — é um recorte, não uma leva */
+.ue-fleet-model { border-style: dashed; }
+.ue-fleet-model.active { border-style: solid; }
+
+/* busca por placa ou motorista */
+.ue-plates-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; }
+.ue-plates-top .ue-plates-label { margin-bottom: 0; }
+.ue-search { position: relative; display: flex; align-items: center; gap: 7px; margin-left: auto;
+  padding: 0 12px; height: 34px; border: 1.5px solid var(--border-2); border-radius: 999px; background: var(--surface); }
+.ue-search:focus-within { border-color: var(--accent-ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.ue-search svg { width: 14px; height: 14px; color: var(--text-2); flex: none; }
+.ue-search input { font: inherit; font-size: 12.5px; font-weight: 600; border: 0; outline: 0; background: transparent;
+  color: var(--text); width: 168px; }
+.ue-search input::placeholder { color: var(--text-2); font-weight: 500; }
+.ue-search input::-webkit-search-cancel-button { cursor: pointer; }
+.ue-search-res { position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; min-width: 288px; max-height: 320px; overflow: auto;
+  background: var(--surface); border: 1px solid var(--border-2); border-radius: 12px; box-shadow: 0 10px 28px rgba(16,24,40,.16); padding: 5px; }
+.ue-search-hit { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; width: 100%; text-align: left;
+  font: inherit; padding: 7px 10px; border: 0; border-radius: 9px; background: transparent; cursor: pointer; }
+.ue-search-hit:hover { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+.ue-search-hit b { font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.ue-search-hit span { font-size: 12px; color: var(--text); }
+.ue-search-hit em { grid-column: 1 / -1; font-style: normal; font-size: 10.5px; color: var(--text-2); }
+/* [hidden] sozinho não vence o display do botão — a busca precisa deste reforço */
+.ue-plate-btn[hidden] { display: none !important; }
 .ue-head { margin-bottom: 12px; }
 .ue-plates { margin-top: 18px; }
 .ue-plates-label { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px; }
@@ -489,12 +514,12 @@ html { scrollbar-gutter: stable; }
    optgroups (os títulos "Fleets" / "Models"), que sem isto saem em serifada cinza do sistema */
 .cc-sel { max-width: 230px; }
 .cc-sel:focus { border-color: var(--accent-ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
-.cc-sel optgroup { font: inherit; font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em;
+.cc-sel optgroup, .cc-sort select optgroup { font: inherit; font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em;
   color: var(--text-2); background: var(--surface-2, #f1f5f9); padding: 4px 0; }
-.cc-sel option { font: inherit; font-size: 12.5px; font-weight: 600; color: var(--text); background: var(--surface); padding: 7px 10px; }
-.cc-sel option:checked { background: color-mix(in srgb, var(--accent) 18%, var(--surface)); color: var(--accent-ink); }
-html.dark .cc-sel optgroup { background: #1b1c22; color: #9aa0ac; }
-html.dark .cc-sel option { background: #15161b; color: #E7E8EC; }
+.cc-sel option, .cc-sort select option { font: inherit; font-size: 12.5px; font-weight: 600; color: var(--text); background: var(--surface); padding: 7px 10px; }
+.cc-sel option:checked, .cc-sort select option:checked { background: color-mix(in srgb, var(--accent) 18%, var(--surface)); color: var(--accent-ink); }
+html.dark .cc-sel optgroup, html.dark .cc-sort select optgroup { background: #1b1c22; color: #9aa0ac; }
+html.dark .cc-sel option, html.dark .cc-sort select option { background: #15161b; color: #E7E8EC; }
 
 /* recortes rápidos do gráfico de Unit */
 .unit-chips { display: inline-flex; gap: 7px; }

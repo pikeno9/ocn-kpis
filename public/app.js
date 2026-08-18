@@ -8376,12 +8376,22 @@
 
     const totalCarsAll = U.fleets.reduce((a, x) => a + (x.cars || 0), 0);
     // frota sintética "All fleets": todas as placas, início = mais antigo, orçado = média ponderada por carros
-    const allFleet = () => ({
-      id: 'all', label: 'All fleets', model: U.fleets[0].model, modelLabel: 'all models',
-      cars: totalCarsAll,
-      inicio: U.fleets.map((x) => x.inicio).filter(Boolean).sort()[0] || null,
-      placas: U.fleets.flatMap((x) => x.placas || []).sort(),
-    });
+    // current = 'all' (tudo), 'm:<modelo>' (todas as frotas de um modelo) ou o id de uma frota.
+    // A visão por MODELO reusa toda a máquina do all-mode, só trocando o conjunto de frotas: o
+    // modelo é a decisão de compra, e uma leva de Argo comprada em maio e outra em junho são o
+    // mesmo carro com calendários diferentes.
+    const modelOf = () => (String(current).startsWith('m:') ? String(current).slice(2) : null);
+    const ctxFleets = () => { const m = modelOf(); return m ? U.fleets.filter((x) => x.model === m) : U.fleets; };
+    const allFleet = () => {
+      const fs = ctxFleets(), m = modelOf();
+      const lbl = m ? ((fs[0] || {}).modelLabel || m) : 'All fleets';
+      return {
+        id: current, label: lbl, model: m || U.fleets[0].model, modelLabel: m ? (fs.length + ' fleets') : 'all models',
+        cars: fs.reduce((s, x) => s + (x.cars || (x.placas || []).length || 0), 0),
+        inicio: fs.map((x) => x.inicio).filter(Boolean).sort()[0] || null,
+        placas: fs.flatMap((x) => x.placas || []).sort(),
+      };
+    };
     // "All fleets" vem PRIMEIRO, antes das frotas individuais
     fleetsEl.innerHTML =
       // "All fleets" não é mais uma frota na fila: é o consolidado. Ganha desenho próprio (ícone de
@@ -8389,6 +8399,15 @@
       `<button class="ue-fleet-btn ue-fleet-all" data-id="all">` +
         `<svg class="ue-all-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 4.5-9 4.5-9-4.5L12 3z"/><path d="M3 12l9 4.5 9-4.5"/><path d="M3 16.5L12 21l9-4.5"/></svg>` +
         `<span class="ue-all-txt"><span class="n">All fleets</span><span class="m">${totalCarsAll} cars · every model</span></span></button>` +
+      `<span class="ue-fleet-div" aria-hidden="true"></span>` +
+      // MODELO: todas as frotas do mesmo carro juntas. Usa a mesma máquina do "All fleets",
+      // trocando só o conjunto de frotas — o modelo é a decisão de compra, a frota é a leva.
+      [...new Set(U.fleets.map((f) => f.model))].map((m) => {
+        const fs = U.fleets.filter((x) => x.model === m);
+        const n = fs.reduce((s, x) => s + (x.cars || (x.placas || []).length || 0), 0);
+        return `<button class="ue-fleet-btn ue-fleet-model" data-id="m:${m}">` +
+          `<span class="n">${fs[0].modelLabel || m}</span><span class="m">${n} cars · ${fs.length} fleet${fs.length === 1 ? '' : 's'}</span></button>`;
+      }).join('') +
       `<span class="ue-fleet-div" aria-hidden="true"></span>` +
       U.fleets
         .map((f) => `<button class="ue-fleet-btn" data-id="${f.id}"><span class="n">${f.label}</span><span class="m">${f.modelLabel} · ${f.cars} cars</span></button>`)
@@ -9288,7 +9307,7 @@
       const k = viewMult();
       if (allMode && !plateView) {
         let sum = 0, any = false;
-        U.fleets.forEach((ff) => {
+        ctxFleets().forEach((ff) => {
           const l = U.orcado[ff.model] && U.orcado[ff.model].lines.find((x) => x.label === (ORC_ALIAS[line] || line));
           const v = l ? l.values[srcP] : null;
           if (v != null) { sum += v * ff.cars; any = true; }
@@ -9868,12 +9887,53 @@
       // O grid de placas fica visível TAMBÉM no clean view: sem ele não dava para usar o modo
       // limpo olhando uma placa ou uma visão específica.
       const plates = f.placas || [];
+      // busca por PLACA ou pelo MOTORISTA — varre a frota inteira, não só a que está em tela: quem
+      // recebe uma reclamação tem o nome do motorista na mão, não o número da leva
+      const drvAgora = {}, drvUltimo = {};
+      (U.vinculos || []).forEach((v) => {
+        if (!v.fim) drvAgora[v.placa] = v.nome;
+        else if (!drvUltimo[v.placa] || v.fim > drvUltimo[v.placa].fim) drvUltimo[v.placa] = { nome: v.nome, fim: v.fim };
+      });
+      const motoristaDe = (pl) => drvAgora[pl] || (drvUltimo[pl] ? drvUltimo[pl].nome : '');
       platesEl.innerHTML =
-        `<div class="ue-plates-label">View by plate</div>` + `<div class="ue-plates-grid">` +
+        `<div class="ue-plates-top">` +
+          `<div class="ue-plates-label">View by plate</div>` +
+          `<div class="ue-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>` +
+            `<input type="search" id="ueSearch" placeholder="Plate or driver…" autocomplete="off" spellcheck="false" />` +
+            `<div class="ue-search-res" id="ueSearchRes" hidden></div></div>` +
+        `</div>` +
+        `<div class="ue-plates-grid">` +
         `<button class="ue-plate-btn${(!plateView && !viewAgg) ? ' active' : ''}" data-view="unit">Fleet (unitary)</button>` +
         `<button class="ue-plate-btn${(!plateView && viewAgg) ? ' active' : ''}" data-view="agg">Fleet (aggregate)</button>` +
-        plates.map((p) => `<button class="ue-plate-btn${plateView === p ? ' active' : ''}" data-plate="${p}">${p}</button>`).join('') +
+        plates.map((p) => `<button class="ue-plate-btn${plateView === p ? ' active' : ''}" data-plate="${p}" data-drv="${escHU(motoristaDe(p).toLowerCase())}">${p}</button>`).join('') +
         `</div>`;
+      // índice global: placa → frota + motorista, para achar carro de qualquer frota
+      const idx = [];
+      U.fleets.forEach((ff) => (ff.placas || []).forEach((pl) => idx.push({ pl, fid: ff.id, flabel: ff.label, model: ff.modelLabel || ff.model, drv: motoristaDe(pl) })));
+      const inp = document.getElementById('ueSearch'), res = document.getElementById('ueSearchRes');
+      const buscar = () => {
+        const q = (inp.value || '').trim().toLowerCase();
+        // filtra as pastilhas da frota em tela
+        platesEl.querySelectorAll('.ue-plate-btn[data-plate]').forEach((b) => {
+          b.hidden = !!q && !(b.dataset.plate.toLowerCase().includes(q) || (b.dataset.drv || '').includes(q));
+        });
+        if (!q) { res.hidden = true; res.innerHTML = ''; return; }
+        const hits = idx.filter((x) => x.pl.toLowerCase().includes(q) || (x.drv || '').toLowerCase().includes(q)).slice(0, 8);
+        res.hidden = !hits.length;
+        res.innerHTML = hits.map((x) => `<button type="button" class="ue-search-hit" data-pl="${x.pl}" data-f="${escHU(x.fid)}">` +
+          `<b>${x.pl}</b><span>${escHU(x.drv || 'no driver')}</span><em>${escHU(x.flabel)} · ${escHU(x.model)}</em></button>`).join('');
+        res.querySelectorAll('.ue-search-hit').forEach((b) => b.addEventListener('mousedown', (ev) => {
+          ev.preventDefault();
+          const irPara = b.dataset.f, pl = b.dataset.pl;
+          plateView = pl; viewAgg = false;
+          if (current !== irPara && !(allMode && (f.placas || []).includes(pl))) { current = irPara; loadFleet(true); }
+          else renderPlates(f), renderTable(f);
+          res.hidden = true;
+        }));
+      };
+      inp.addEventListener('input', buscar);
+      inp.addEventListener('focus', buscar);
+      inp.addEventListener('blur', () => setTimeout(() => { res.hidden = true; }, 150));
       platesEl.querySelectorAll('.ue-plate-btn').forEach((b) => b.addEventListener('click', () => {
         if (b.dataset.view) { plateView = null; viewAgg = b.dataset.view === 'agg'; }
         else { plateView = b.dataset.plate; viewAgg = false; }
@@ -9924,7 +9984,7 @@
       return { f: ff, params: vals.params, entered: vals.entered, partCfg: mergedParts(vals.params), ini, elapsed: el, realizedFull: Math.min(PMAX, Math.ceil(el)), lossMonthByPlate: lmp, activeFracArr: afa, subsRS: [], subsReady: false };
     }
     async function loadFleet(keepView) {
-      allMode = current === 'all';
+      allMode = current === 'all' || String(current).startsWith('m:');
       const f = allMode ? allFleet() : U.fleets.find((x) => x.id === current);
       model = f.model;
       // trocar de FROTA reseta a visão; toggles (clean view, moeda, InDrive, projeção) preservam —
@@ -9936,8 +9996,9 @@
       // carrega valores (entradas manuais + params) — all-mode busca de todas as frotas em paralelo
       entered = {}; params = {};
       if (allMode) {
-        const valsList = await Promise.all(U.fleets.map((ff) => fetchFleetValues(ff.id)));
-        fleetCtx = U.fleets.map((ff, i) => buildCtx(ff, valsList[i]));
+        const fsCtx = ctxFleets();
+        const valsList = await Promise.all(fsCtx.map((ff) => fetchFleetValues(ff.id)));
+        fleetCtx = fsCtx.map((ff, i) => buildCtx(ff, valsList[i]));
       } else {
         fleetCtx = null;
         const vals = await fetchFleetValues(current);
@@ -10289,7 +10350,7 @@
       const mix = {};
       const add = (model, n) => { if (model && n > 0) mix[model] = (mix[model] || 0) + n; };
       if (plateView) { const f = (U.fleets || []).find((x) => (x.placas || []).includes(plateView)); if (f) add(f.model, 1); }
-      else if (allMode) (U.fleets || []).forEach((f) => add(f.model, f.cars || (f.placas || []).length || 0));
+      else if (allMode) ctxFleets().forEach((f) => add(f.model, f.cars || (f.placas || []).length || 0));
       else { const f = (U.fleets || []).find((x) => x.id === current); if (f) add(f.model, f.cars || (f.placas || []).length || 0); }
       const itens = Object.entries(mix).filter(([m]) => byModel[m] && byModel[m].rate != null);
       if (!itens.length) return '';

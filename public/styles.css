@@ -485,6 +485,49 @@ html { scrollbar-gutter: stable; }
   transition: border-color .12s, box-shadow .12s;
 }
 .costs-mini:hover, .costs-mini:focus { border-color: var(--accent-ink); outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent); }
+/* dropdown aberto: a lista nativa herda cor do <select>, então o cuidado vai nas OPTIONS e nos
+   optgroups (os títulos "Fleets" / "Models"), que sem isto saem em serifada cinza do sistema */
+.cc-sel { max-width: 230px; }
+.cc-sel:focus { border-color: var(--accent-ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
+.cc-sel optgroup { font: inherit; font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--text-2); background: var(--surface-2, #f1f5f9); padding: 4px 0; }
+.cc-sel option { font: inherit; font-size: 12.5px; font-weight: 600; color: var(--text); background: var(--surface); padding: 7px 10px; }
+.cc-sel option:checked { background: color-mix(in srgb, var(--accent) 18%, var(--surface)); color: var(--accent-ink); }
+html.dark .cc-sel optgroup { background: #1b1c22; color: #9aa0ac; }
+html.dark .cc-sel option { background: #15161b; color: #E7E8EC; }
+
+/* recortes rápidos do gráfico de Unit */
+.unit-chips { display: inline-flex; gap: 7px; }
+.unit-chip { font: inherit; font-size: 12px; font-weight: 700; padding: 8px 13px; border-radius: 999px; cursor: pointer;
+  border: 1.5px solid var(--border-2); background: var(--surface); color: var(--text-2);
+  display: inline-flex; align-items: center; gap: 6px; transition: all .12s; }
+.unit-chip i { font-style: normal; font-size: 10.5px; font-weight: 800; padding: 1px 6px; border-radius: 999px;
+  background: var(--surface-2, #f1f5f9); color: var(--text-2); }
+.unit-chip:hover { border-color: var(--accent-ink); color: var(--accent-ink); }
+.unit-chip.on { border-color: var(--accent-ink); background: var(--accent); color: #fff; }
+.unit-chip.on i { background: #ffffff2e; color: #fff; }
+
+/* "por que este carro está fora da curva" — acima da tabela do UE no drill */
+.up-why { margin: 2px 0 14px; padding: 12px 14px; border-radius: 12px;
+  border: 1px solid var(--border-2); background: var(--surface-2, #f8fafc); }
+.up-why-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 9px; }
+.up-why-head b { font-size: 13px; }
+.up-why-head span { font-size: 11.5px; color: var(--text-2); }
+.up-why-rows { display: grid; gap: 5px; }
+.up-why-row { display: grid; grid-template-columns: minmax(120px, 1.4fr) auto 1fr auto; align-items: baseline; gap: 10px;
+  padding: 7px 11px; border-radius: 9px; background: var(--surface); border: 1px solid var(--border-2);
+  border-left: 3px solid var(--border-2); }
+.up-why-row.bad { border-left-color: #DC2626; }
+.up-why-row.good { border-left-color: #059669; }
+.uw-lbl { font-size: 12.5px; font-weight: 700; }
+.uw-val { font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.uw-vs { font-size: 11px; color: var(--text-2); }
+.uw-dif { font-size: 13.5px; font-variant-numeric: tabular-nums; text-align: right; }
+.up-why-row.bad .uw-dif { color: #DC2626; }
+.up-why-row.good .uw-dif { color: #059669; }
+html.dark .up-why-row.bad .uw-dif { color: #FCA5A5; }
+html.dark .up-why-row.good .uw-dif { color: #6EE7B7; }
+@media (max-width: 720px) { .up-why-row { grid-template-columns: 1fr auto; } .uw-vs { display: none; } }
 /* seletor de período: botão de calendário + o escolhido em itálico, e a grade 4x3 de meses */
 .costs-cal { position: relative; display: flex; align-items: center; gap: 8px; }
 /* botão da agenda + rótulo do período viraram um conjunto: botão em pílula com gradiente suave

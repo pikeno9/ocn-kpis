@@ -23,7 +23,8 @@ const TABS = {
   jud: 'import_jud',                       // casos judiciais/recuperação: custos + cobrança de rescisão
   carrosEsperados: 'CarrosEsperados',
   insurance: 'insurance',                  // parcelas reais do seguro por frota (valor + vencimento)
-  baseID: 'import_baseID',                 // promoção inDrive: desconto na semanalidade por placa (col E/M)
+  baseID: 'import_baseID',
+  indrive: 'indrive_promo',                       // promoção inDrive por placa: valor+data do desconto e do bônus                 // promoção inDrive: desconto na semanalidade por placa (col E/M)
 };
 
 // gviz tipa a coluna e descarta células cujo conteúdo não bate com o tipo inferido

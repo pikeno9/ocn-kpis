@@ -63,6 +63,9 @@ async function refresh(force) {
     catch (e) { console.error('[insurance] falhou:', e.message); data.ue.insurancePay = null; }
     try { data.ue.judBase = compute.parseJudBase(sheets.jud); }
     catch (e) { console.error('[import_jud] falhou:', e.message); data.ue.judBase = null; }
+    // aba 'indrive' (opcional): quando existir, é ELA que manda no bônus e no desconto — com data
+    try { data.ue.indrive = compute.parseIndrive(sheets.indriveTab); }
+    catch (e) { console.error('[indrive] falhou:', e.message); data.ue.indrive = null; }
     try { data.ue.idBase = compute.parseBaseID(sheets.baseID); }
     catch (e) { console.error('[import_baseID] falhou:', e.message); data.ue.idBase = null; }
     try { data.ue.reposicao = await reposicao.fetchReposicao(); }

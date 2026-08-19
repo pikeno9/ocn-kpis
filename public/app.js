@@ -2360,6 +2360,16 @@
     GDV3F82: 7500, QSW4A66: 7500, GHY5I61: 7500, TYZ2G64: 3600, TJE4J05: 7500, TJH1F43: 7500,
     TYZ2D25: 7500, TYZ2G63: 3600, TYZ0I54: 3600, TYZ2D36: 3600, UDG5A66: 7500,
   };
+  // Fonte única da promoção por placa: a aba "indrive" quando existir (valor + DATA do bônus e do
+  // desconto), senão o par antigo tabela-fixa + import_baseID, ambos sem data. Usado também pelo
+  // P&L e pela aba Unit, para as três leituras contarem a mesma história.
+  const IDR_DE = (pl) => {
+    const T = ((OCN.ue || {}).indrive || {}).placas;
+    if (T) return T[pl] || null;
+    const d = (((OCN.ue || {}).idBase) || {}).descontos || {};
+    const b = ID_BONUS[pl] || 0, dd = d[pl] || 0;
+    return (b || dd) ? { bonus: b, bonusEm: null, desconto: dd, descontoEm: null } : null;
+  };
   // TIR (IRR) dos fluxos M0..Mn — taxa POR PERÍODO (o "mês" de 4,333 semanas do UE).
   //
   // O fluxo do UE NÃO é convencional: M0 negativo, M1..M12 positivos e o M13 volta a ser negativo
@@ -3282,15 +3292,17 @@
       // "InDrive" do P&L está desligado — bônus e desconto são os dois lados da mesma promoção.
       let indriveTot = 0;
       if (!opts.noIndrive && !opts.budget) {
-        const descs = (((OCN.ue || {}).idBase) || {}).descontos || {};
+        const mesDe = (iso, fb) => { if (!iso || String(iso).slice(0, 4) !== String(finYear)) return fb; const mm = parseInt(String(iso).slice(5, 7), 10) - 1; return (mm >= 0 && mm < FIN_MONTHS) ? mm : fb; };
         (((OCN.ue || {}).fleets) || []).forEach((ff) => {
           if (!ff.inicio || String(ff.inicio).slice(0, 4) !== String(finYear)) return;
           const m = parseInt(String(ff.inicio).slice(5, 7), 10) - 1;
           if (!(m >= 0 && m < FIN_MONTHS)) return;
-          let v = 0, d = 0;
-          (ff.placas || []).forEach((pl) => { v += ID_BONUS[pl] || 0; d += descs[pl] || 0; });
-          if (v) { rev['InDrive bonus'][m] += v / fx; indriveTot += v / fx; }
-          if (d) { rev['InDrive discount'][m] -= d / fx; indriveTot -= d / fx; }
+          (ff.placas || []).forEach((pl) => {
+            const o = IDR_DE(pl); if (!o) return;
+            // com data, o lançamento cai no MÊS dela; sem data, no mês de entrega da frota
+            if (o.bonus) { const mb = mesDe(o.bonusEm, m); rev['InDrive bonus'][mb] += o.bonus / fx; indriveTot += o.bonus / fx; }
+            if (o.desconto) { const md = mesDe(o.descontoEm, m); rev['InDrive discount'][md] -= o.desconto / fx; indriveTot -= o.desconto / fx; }
+          });
         });
       }
       // visão "sem sub-rental security deposit": zera o calção E a devolução dele (refund) — os dois
@@ -7824,7 +7836,7 @@
           });
           ((((U.reposicao || {}).placas) || {})[pl] || []).forEach((e2) => { (e2.itens || []).forEach((it) => { if (pc[it]) { ev += pc[it]; cmp.pecas += pc[it]; if (e2.d && e2.d <= HOJE15.toISOString().slice(0, 10)) ev15 += pc[it]; dep(e2.d, -pc[it]); } }); });
           // iD LIGADO = a promoção entra no caixa (bônus − desconto, ambos no M0, já realizados)
-          if (!unitIdrOff) { const bo = (ID_BONUS[pl] || 0) - ((((U.idBase || {}).descontos) || {})[pl] || 0); if (bo) { rev += bo; rev15 += bo; fluxo[0] += bo; } }
+          if (!unitIdrOff) { const oI = IDR_DE(pl); const bo = oI ? (oI.bonus || 0) - (oI.desconto || 0) : 0; if (bo) { rev += bo; rev15 += bo; fluxo[0] += bo; } }
           // ---- CAIXA: o do MOTOR DO UE manda ----
           // A reconstrução a partir das bases cruas não fechava com a tabela: não tinha a caução
           // do M0 nem a devolução do M13, apropriava o seguro por dia (a tabela lança a parcela) e
@@ -9003,24 +9015,42 @@
       const frac = activeFracArr[m] != null ? activeFracArr[m] : 1;
       return Math.max(1, Math.round(frac * (ctxCars || 1)));
     }
+    // Período do UE em que uma DATA cai, no eixo da frota em contexto. Sem data (ou sem eixo),
+    // devolve 0 = M0, que é o comportamento antigo de tudo cair na largada.
+    function moDoUE(iso) {
+      if (!iso || !curIni) return 0;
+      const d = new Date(iso + 'T12:00:00');
+      if (isNaN(d)) return 0;
+      const p2 = Math.floor((d - curIni) / 86400000 / (SEMANAS_MES * 7)) + 1;
+      return Math.max(0, Math.min(PMAX, p2));
+    }
+    // Fonte da promoção: a aba "indrive" quando existir (valor + data por placa), senão a
+    // tabela fixa ID_BONUS (bônus) + import_baseID (desconto), ambas sem data, no M0.
+    const idrTab = () => ((U.indrive || {}).placas) || null;
+    function idrDaPlaca(pl) {
+      const T = idrTab();
+      if (T) return T[pl] || null;
+      const d = ((U.idBase || {}).descontos) || {};
+      const b = ID_BONUS[pl] || 0, dd = d[pl] || 0;
+      return (b || dd) ? { bonus: b, bonusEm: null, desconto: dd, descontoEm: null } : null;
+    }
     // InDrive: R$ TOTAL que cai no período `p` do UE, contando só as placas do contexto (frota ou
-    // placa selecionada). O recebimento é 1x por placa, pela tabela real (ID_BONUS), SEMPRE no M0 —
-    // não mais "valor único × placas da leva" datado pelo mês de cada leva.
+    // placa selecionada). O recebimento é 1x por placa e cai no mês da DATA em que o dinheiro
+    // entrou (aba "indrive"); sem data, no M0, como era antes.
     function indriveRS(p) {
-      if (idrOff || p !== 0) return 0;
+      if (idrOff) return 0;
       const plates = plateView ? [plateView] : ctxPlates;
       let tot = 0;
-      plates.forEach((pl) => { tot += ID_BONUS[pl] || 0; });
+      plates.forEach((pl) => { const o = idrDaPlaca(pl); if (o && o.bonus && moDoUE(o.bonusEm) === p) tot += o.bonus; });
       return tot;
     }
     // Desconto na semanalidade dado às placas que aderiram à promoção (aba import_baseID, col M por
     // placa da col E, só desconto CREDITADO) — dedução de receita, lançada junto do bônus no M0.
     function indriveDescRS(p) {
-      if (idrOff || p !== 0) return 0;
-      const desc = ((U.idBase || {}).descontos) || {};
+      if (idrOff) return 0;
       const plates = plateView ? [plateView] : ctxPlates;
       let tot = 0;
-      plates.forEach((pl) => { tot += desc[pl] || 0; });
+      plates.forEach((pl) => { const o = idrDaPlaca(pl); if (o && o.desconto && moDoUE(o.descontoEm) === p) tot += o.desconto; });
       return tot;
     }
     // Maintenance por dados reais: REALIZADO = revisões concluídas (API da frota: última revisão com data;

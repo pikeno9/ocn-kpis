@@ -7993,6 +7993,10 @@
     // Efeitos MARGINAIS medidos dos próprios dados: uma recuperação custa a média (guincho +
     // reparo) dos casos reais; uma semana parada custa a semanalidade não recebida MENOS o
     // desgaste (revisão + peças por km) que o carro parado não queima.
+    // tons neutros do gráfico, lidos do tema (o site tem claro e escuro)
+    const MUTED = () => (document.documentElement.classList.contains('dark') ? '#9AA0AC' : '#737373');
+    const GRID_LINE = () => (document.documentElement.classList.contains('dark') ? 'rgba(255,255,255,.07)' : '#e5e5e5');
+    const INK_LINE = () => (document.documentElement.classList.contains('dark') ? '#E7E8EC' : '#0a0a0a');
     function renderUnitBreak(rows, K, money) {
       const box = document.getElementById('unitBreak'); if (!box) return;
       const U = OCN.ue || {};
@@ -8021,20 +8025,23 @@
       const f1 = (v) => (v == null ? '—' : v.toFixed(1));
       const resultado = () => retMed - unitBeRec * custoRec - unitBeSem * custoSem;
       box.innerHTML =
-        `<div class="costs-chart ub-box" style="margin-top:14px">` +
-          `<div class="cc-head"><h4>How much bad luck zeroes a car</h4><span class="cc-hint">marginal effects measured from this view (${rows.length} cars)</span><button type="button" class="costs-help" data-h="u_break">?</button></div>` +
-          `<div class="ub-grid">` +
-            `<div class="ub-facts">` +
-              `<div class="ub-fact"><span>Average full-contract return</span><b>${money(retMed)}</b></div>` +
-              `<div class="ub-fact"><span>One repossession costs</span><b class="dn">−${money(custoRec)}</b><i>towing + repair, average of ${recN} real cases</i></div>` +
-              `<div class="ub-fact"><span>One idle week costs</span><b class="dn">−${money(custoSem)}</b><i>${money(feeMed)} fee not collected − ${money((kmSem * custoKm) / fx)} of wear the parked car skips</i></div>` +
-              `<div class="ub-fact ub-be"><span>Break-even</span><b>${f1(beRec)} repossessions</b><i>or</i><b>${f1(beSem)} idle weeks</b><i>over the full contract to zero the average car</i></div>` +
-            `</div>` +
-            `<div class="ub-sim">` +
-              `<div class="ub-sl"><label>Repossessions <b id="ubRecV">${unitBeRec}</b></label><input type="range" id="ubRec" min="0" max="8" step="1" value="${unitBeRec}"></div>` +
-              `<div class="ub-sl"><label>Idle weeks (unpaid) <b id="ubSemV">${unitBeSem}</b></label><input type="range" id="ubSem" min="0" max="26" step="1" value="${unitBeSem}"></div>` +
-              `<div class="ub-out"><span>the average car would sit at</span><b id="ubOut"></b></div>` +
-            `</div>` +
+        `<div class="ub-card">` +
+          `<div class="ub-top"><h4>Break-even</h4><span>${rows.length} cars · full contract</span>` +
+            `<button type="button" class="costs-help ub-help" data-h="u_break">?</button></div>` +
+          `<div class="ub-hero">` +
+            `<div class="ub-h"><b>${f1(beRec)}</b><span>repossessions</span></div>` +
+            `<div class="ub-h-or">or</div>` +
+            `<div class="ub-h"><b>${f1(beSem)}</b><span>idle weeks</span></div>` +
+          `</div>` +
+          `<div class="ub-row">` +
+            `<div class="ub-k"><span>Full-contract return</span><b>${money(retMed)}</b></div>` +
+            `<div class="ub-k"><span>Per repossession</span><b class="dn">−${money(custoRec)}</b><i>${recN} cases</i></div>` +
+            `<div class="ub-k"><span>Per idle week</span><b class="dn">−${money(custoSem)}</b><i>fee − wear skipped</i></div>` +
+          `</div>` +
+          `<div class="ub-sim">` +
+            `<div class="ub-sl"><label>Repossessions<b id="ubRecV">${unitBeRec}</b></label><input type="range" id="ubRec" min="0" max="12" step="1" value="${unitBeRec}"></div>` +
+            `<div class="ub-sl"><label>Idle weeks<b id="ubSemV">${unitBeSem}</b></label><input type="range" id="ubSem" min="0" max="30" step="1" value="${unitBeSem}"></div>` +
+            `<div class="ub-out"><span>ends at</span><b id="ubOut"></b></div>` +
           `</div>` +
         `</div>`;
       const outEl = document.getElementById('ubOut');
@@ -8051,7 +8058,7 @@
       }
       const tit = document.getElementById('unitScatterTitle');
       if (tit) tit.textContent = (unitScatX === 'weeks' ? 'Weeks unpaid' : 'Repossessions') + ' × return';
-      const pts = rows.map((r) => ({ x: unitScatX === 'weeks' ? +(r.wUnpaid || 0).toFixed(1) : (r.nRec || 0), y: Math.round(r.real * K), pl: r.pl }));
+      const pts = rows.map((r) => ({ x: unitScatX === 'weeks' ? +(r.wUnpaid || 0).toFixed(1) : (r.nRec || 0), y: Math.round((r.retFull != null ? r.retFull : r.real) * K), pl: r.pl }));
       const nn = pts.length, sx = pts.reduce((s, q) => s + q.x, 0), sy = pts.reduce((s, q) => s + q.y, 0);
       const sxx = pts.reduce((s, q) => s + q.x * q.x, 0), sxy = pts.reduce((s, q) => s + q.x * q.y, 0);
       const den = nn * sxx - sx * sx;
@@ -8063,16 +8070,25 @@
       const cnv = document.getElementById('unitScatter'); if (!cnv) return;
       costsCharts.unitScatter = new Chart(cnv.getContext('2d'), { data: {
           datasets: [
-            { type: 'scatter', label: 'cars', data: pts, pointRadius: 4, pointHoverRadius: 6,
-              backgroundColor: pts.map((q) => (q.y >= 0 ? '#34D399cc' : '#F87171cc')), borderColor: 'transparent' },
+            { type: 'scatter', label: 'cars', data: pts, pointRadius: 3.5, pointHoverRadius: 6,
+              // ponto vazado com anel: 170 bolinhas cheias viram mancha; o anel deixa ver a densidade
+              backgroundColor: pts.map((q) => (q.y >= 0 ? 'rgba(52,211,153,.22)' : 'rgba(248,113,113,.22)')),
+              borderColor: pts.map((q) => (q.y >= 0 ? '#059669' : '#DC2626')), borderWidth: 1.2 },
             { type: 'line', label: 'trend', data: [{ x: 0, y: b0 }, { x: xMax, y: b0 + m * xMax }],
-              borderColor: '#6D28D9', borderWidth: 2, borderDash: [6, 4], pointRadius: 0 },
+              borderColor: INK_LINE(), borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0 },
           ] },
         options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'nearest', intersect: true },
           plugins: { legend: { display: false }, datalabels: { display: false },
-            tooltip: { callbacks: { label: (cq) => { const q = cq.raw || {}; return (q.pl ? q.pl + ' — ' : '') + (unitScatX === 'weeks' ? q.x + ' wk unpaid' : q.x + ' repossessions') + ' · return ' + money((q.y || 0) / K); } } } },
-          scales: { x: { title: { display: true, text: unitScatX === 'weeks' ? 'weeks unpaid' : 'repossessions' }, beginAtZero: true },
-                    y: { title: { display: true, text: 'return so far' } } } } });
+            tooltip: { callbacks: { label: (cq) => { const q = cq.raw || {}; return (q.pl ? q.pl + ' — ' : '') + (unitScatX === 'weeks' ? q.x + ' wk unpaid' : q.x + ' repossessions') + ' · ' + money((q.y || 0) / K) + ' full contract'; } } } },
+          scales: {
+            x: { beginAtZero: true, border: { display: false },
+                 grid: { color: GRID_LINE(), drawTicks: false },
+                 title: { display: true, text: unitScatX === 'weeks' ? 'WEEKS UNPAID' : 'REPOSSESSIONS', color: MUTED(), font: { size: 11, weight: '600' } },
+                 ticks: { color: MUTED(), font: { size: 11 }, padding: 6 } },
+            y: { border: { display: false },
+                 grid: { color: GRID_LINE(), drawTicks: false },
+                 title: { display: true, text: 'FULL-CONTRACT RETURN', color: MUTED(), font: { size: 11, weight: '600' } },
+                 ticks: { color: MUTED(), font: { size: 11 }, padding: 6 } } } } });
     }
     async function renderUnitPlate(rows) {
       const box = document.getElementById('unitPlate'); if (!box) return;
@@ -10276,14 +10292,24 @@
       // Clean view: uma linha só (busca, modelo, moeda, Clean view, "?").
       // Normal: a busca no alto à direita e duas linhas de controles — iD/Rec+Rep/modelo de um
       // lado, refresh/moeda/"?" do outro; embaixo Forecast/Parts/Assumptions e Manual/Clean.
+      // Dropdown PRÓPRIO: a lista do <select> nativo não aceita estilo e saía com a cara do
+      // sistema. Nome curto do modelo + contagem, no mesmo desenho de pílula do resto.
+      const curto = (m, lbl) => String(lbl || m).split(' ')[0];
+      const modelosLista = [...new Set(U.fleets.map((x) => x.model))].map((m) => {
+        const fs2 = U.fleets.filter((x) => x.model === m);
+        return { v: 'm:' + m, curto: curto(m, fs2[0].modelLabel), n: fs2.reduce((t, x) => t + (x.cars || (x.placas || []).length || 0), 0) };
+      });
+      const escolhido = modelosLista.find((o) => o.v === current);
       const MODELSEL =
-        `<select class="ue-modelsel" id="ueModelSel" title="Look at every fleet of one model together">` +
-          `<option value="">All fleets</option>` +
-          [...new Set(U.fleets.map((x) => x.model))].map((m) => {
-            const fs2 = U.fleets.filter((x) => x.model === m);
-            const n2 = fs2.reduce((t, x) => t + (x.cars || (x.placas || []).length || 0), 0);
-            return `<option value="m:${m}"${current === 'm:' + m ? ' selected' : ''}>${fs2[0].modelLabel || m} · ${n2} cars</option>`;
-          }).join('') + `</select>`;
+        `<div class="ue-dd" id="ueModelDD">` +
+          `<button type="button" class="ue-dd-btn${escolhido ? ' on' : ''}" id="ueModelSel" aria-haspopup="listbox" aria-expanded="false">` +
+            `<span>${escolhido ? escolhido.curto : 'All fleets'}</span>${escolhido ? `<i>${escolhido.n}</i>` : ''}` +
+            `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>` +
+          `<div class="ue-dd-list" role="listbox" hidden>` +
+            `<button type="button" class="ue-dd-opt${escolhido ? '' : ' sel'}" data-v=""><span>All fleets</span><i>${totalCarsAll}</i></button>` +
+            modelosLista.map((o) => `<button type="button" class="ue-dd-opt${o.v === current ? ' sel' : ''}" data-v="${o.v}"><span>${o.curto}</span><i>${o.n}</i></button>`).join('') +
+          `</div>` +
+        `</div>`;
       const REFRESH = cleanView ? '' : `<button class="ue-round-btn" id="ueRefresh" title="Re-fetches the spreadsheet data">${SVG_REFRESH}</button>`;
       const MOEDA = `<div class="ue-cur-toggle" id="ueCurToggle">${CUR_FLAGS(currency)}</div>`;
       const INFO = `<button class="ue-tool-btn ue-info-btn" id="ueInfo" title="Where each line comes from and how it updates">?</button>`;
@@ -10359,8 +10385,15 @@
         renderTable(f);
       }));
       // Atualizar dados: re-busca a planilha no servidor e re-renderiza
-      const mSel = document.getElementById('ueModelSel');
-      if (mSel) mSel.addEventListener('change', (e) => { current = vista('current', e.target.value || 'all'); loadFleet(); });
+      const dd = document.getElementById('ueModelDD');
+      if (dd) {
+        const btn = dd.querySelector('.ue-dd-btn'), lista = dd.querySelector('.ue-dd-list');
+        const fechar = () => { lista.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
+        btn.addEventListener('click', (ev) => { ev.stopPropagation(); const abrir = lista.hidden; lista.hidden = !abrir; btn.setAttribute('aria-expanded', String(abrir)); });
+        lista.querySelectorAll('.ue-dd-opt').forEach((o) => o.addEventListener('click', () => { fechar(); current = vista('current', o.dataset.v || 'all'); loadFleet(); }));
+        document.addEventListener('click', fechar);
+        dd.addEventListener('click', (ev) => ev.stopPropagation());
+      }
       const btnR = document.getElementById('ueRefresh');
       if (btnR) btnR.addEventListener('click', async () => {
         btnR.disabled = true; btnR.textContent = '↻ Refreshing…';
@@ -10630,7 +10663,7 @@
         const d = byModel[m];
         return `<i class="irr-mixchip" style="--w:${(n / tot * 100).toFixed(1)}%">` +
           (itens.length > 1 ? `<span class="irr-mixname">${esc(d.label)}<em>${d.cars} car${d.cars === 1 ? '' : 's'}${d.fleets > 1 ? ' · ' + d.fleets + ' fleets' : ''}</em></span>` : '') +
-          `<span class="irr-mixboxes">${caixa('teo', 'Theoretical', teo(m))}${caixa('real', 'Average', d.rate)}</span></i>`;
+          `<span class="irr-mixboxes">${caixa('teo', 'Theoretical', teo(m))}${itens.length > 1 ? caixa('real', 'Average', d.rate) : ''}</span></i>`;
       }).join('');
       return `<div class="irr-mix">` +
         `<div class="irr-mix-head"><span class="irr-lbl">IRR by model</span>` +

@@ -5114,7 +5114,7 @@
       u_ret: { t: 'Return — each car against its budget', d: 'One thin bar per plate, and clicking any of them opens that car\'s full statement below. The tinted bands separate the cars in the black from the ones in the red, and the dotted purple line is the fleet average. Each bar is everything the car has brought in since delivery (subscriptions received, interest, fines charged to the client) minus everything it has cost (sub-rental, insurance accrued to date, GPS, preparation, sticker, maintenance, fines paid, recovery, repair, parts). Security deposit and its refund are OUT — they are cash parked, not result — and so are the car purchase/sale and termination fees. The dashed line is each car\'s BUDGET at its current age: what its fleet\'s contractual economics (weekly fee, rent, insurance, GPS) plus the pooled event rates (fines, maintenance, recovery, repair, parts by car age) say it should have accumulated by now. GREEN bars are at or above budget, RED are below. Cars of different fleets have different ages, so bars are not directly comparable to each other — always compare each bar to the dashed line at its position, or use the "Monthly IRR" chart below, which puts every car on the same scale.' },
       u_ret_old: { t: 'Return per car — vs its budget', d: 'One thin bar per plate: everything the car has brought in since delivery (subscriptions received, interest, fines charged to the client) minus everything it has cost (sub-rental, insurance accrued to date, GPS, preparation, sticker, maintenance, fines paid, recovery, repair, parts). Security deposit and its refund are OUT — they are cash parked, not result — and so are the car purchase/sale and termination fees. The dashed line is each car\'s BUDGET at its current age: what its fleet\'s contractual economics (weekly fee, rent, insurance, GPS) plus the pooled event rates (fines, maintenance, recovery, repair, parts by car age) say it should have accumulated by now. GREEN bars are at or above budget, RED are below. Cars of different fleets have different ages, so bars are not directly comparable to each other — always compare each bar to the dashed line at its position.' },
       u_irr: { t: 'Monthly IRR per car', d: 'Exactly the IRR the Unit Economics panel shows for that plate — same engine, same premises, run once per car. Select any plate in the Unit Economics tab and the monthly rate there is the height of its bar here. Each car gets its own M0..M13 cashflow straight from the UE statement: M0 carries the CAPITAL TIED — the sub-rental deposit, the FULL insurance premium (the policy is signed once and covers the 12 months, so paying it in instalments is financing, not optionality), plus preparation, sticker and the GPS install — and every month after that carries what came in (subscriptions, interest, fines charged, termination fee, vehicle sale) minus what went out (sub-rental, GPS, fines paid to LM, maintenance, recovery, repair, parts, deposit refund, vehicle purchase), each entry landing in the month of life it happened, realized up to today and budgeted from there to the end of the contract. The InDrive promotion leaves the account on BOTH sides — the bonus received and the discount granted — because it was a one-off activation campaign that will not repeat in the next contract; leaving it in would make the plates that caught it look structurally better than the business is. The IRR is the rate that makes that series worth zero today, so unlike a plain multiple it weighs WHEN each real arrives: a car that pays back in month two rates higher than one that pays the same amount spread to month ten. Cars under one month of life have no bar (too little history). A car that has burned its capital with nothing coming back shows −100%. The purple line is the fleet average and the band below zero marks the cars destroying capital. Click any bar to open that car\'s full statement.' },
-      u_break: { t: 'How much bad luck zeroes a car', d: 'Break-even on the two misfortunes that actually happen to a car: being repossessed and sitting idle without a paying driver. The marginal costs are MEASURED, not assumed. One repossession costs the average towing + repair bill of every real case in the base. One unpaid week costs the weekly fee that does not come in, MINUS the wear the parked car does not burn — maintenance and parts per km (fleet-wide spend divided by fleet-wide km) times the average weekly km. The base is the FULL-CONTRACT return: what the average car has already made plus what the budget says the remaining months bring, M0 to M13. Break-even divides that by each marginal cost: that many repossessions over the whole cycle, or that many unpaid weeks, and the average car ends its contract at zero. The sliders combine the two — set 2 repossessions and 6 unpaid weeks and read what would be left of the average car. It responds to the filters above (fleet, model, InDrive, Rec+Rep, Deposit).' },
+      u_break: { t: 'How much bad luck zeroes a car', d: 'Break-even on the two misfortunes that actually happen to a car: being repossessed and sitting idle without a paying driver. The marginal costs are MEASURED, not assumed. One repossession costs the average towing + repair bill of every real case in the base. One unpaid week costs the weekly fee that does not come in, MINUS the wear the parked car does not burn — maintenance and parts per km (fleet-wide spend divided by fleet-wide km) times the average weekly km. The base is the FULL-CONTRACT return: what the average car has already made plus what the budget says the remaining months bring, M0 to M13. A REPOSSESSION EVENT bundles what really happens together: the towing + repair bill AND one unpaid week — a car never gets repossessed while the driver is paying, so the two costs always arrive as a pair; the repossessions break-even and the slider use the full event. The unpaid-week number shows its two vectors separately: the fee that does not come in, minus the wear (maintenance + parts per km) the parked car does not burn. Break-even divides that by each marginal cost: that many repossessions over the whole cycle, or that many unpaid weeks, and the average car ends its contract at zero. The sliders combine the two — set 2 repossessions and 6 unpaid weeks and read what would be left of the average car. It responds to the filters above (fleet, model, InDrive, Rec+Rep, Deposit).' },
       u_scat: { t: 'Weeks unpaid × return', d: 'Each dot is a car of the current view: horizontally, how many weekly instalments it failed to collect (expected Mondays minus instalments received, in weeks of fee); vertically, its return so far. The dashed line is a least-squares trend — its slope is the measured cost of one unpaid week in return. The button switches the horizontal axis to the number of repossessions the car has been through, with the same trend logic. Both slopes should be negative: cars that stop paying or get repossessed return less. A dot far ABOVE the trend took the hit and still performs; far BELOW, the car has problems beyond the ones on this axis.' },
       drill: { t: 'Monthly by fleet', d: 'The line you clicked on the Pareto, month by month, stacked by REAL fleet — each fleet in its own colour. This is realized data only (schedules and imported bases per plate); the projection lives in the plan and has no fleet concept. The big number is the average cost per active car per month across the fleets shown, computed over the realized window.' },
       ins: { t: 'Is the insurance paying for itself?', d: 'ACCRUED, NOT PAID. The premium is disbursed in about four installments at the start of each fleet, but it covers the full 12 months of the contract. Comparing the cash of a period against the claims of that same period mismatches the two: a fleet that started in june carries almost all of its cash in 2026 while half of its coverage runs into 2027. So each fleet\'s premium is spread pro-rata, day by day, across its 365 days of coverage, and every month is charged only the risk it actually ran. The footer shows both numbers side by side. CLAIMS are the fleet-site occurrences flagged with a sinistro in the period — collisions, window damage and total loss; mechanical failures never trigger it. BREAK-EVEN PER CLAIM is the accrued premium divided by the number of claims: how much each occurrence would have to cost us out of pocket for "having insurance" and "not having it" to come out the same. The SAVING compares the two worlds: each claim CATEGORY has its own slider (a broken window and a written-off car cost nothing alike), so the out-of-pocket world is the sum of each category\'s claim count × the average cost you set for it — against the accrued premium. We have no workshop quote per occurrence, so the averages are your input. Green means insurance saved money, red means it cost more than the damage would have.' },
@@ -7825,7 +7825,9 @@
           // encerrado por recuperação) e devolvido (contrato encerrado, seja qual for o motivo)
           const vinc = (U.vinculos || []).filter((v) => v.placa === pl);
           const recuperado = cmp.recovery > 0 || vinc.some((v) => v.fim && /recupera/i.test(v.motivo || ''));
-          const devolvido = vinc.length > 0 && vinc.every((v) => v.fim);
+          // "Back in" cobre também a DEVOLUÇÃO voluntária: rescisão (pelo motorista ou pela OCN)
+          // em qualquer vínculo conta, além do carro parado sem motorista
+          const devolvido = vinc.some((v) => v.fim && /rescis|devolu/i.test(v.motivo || '')) || (vinc.length > 0 && vinc.every((v) => v.fim));
           out.push({ pl, fleet: f.id, ageM, real, bud, retFull: real + Math.max(0, budFull - bud), budFull, d15, kmWk, nRec, fee: par('__sub_semanal__') / fx, wUnpaid: par('__sub_semanal__') > 0 ? Math.max(0, revEsp - revSub) / par('__sub_semanal__') : 0, delta: real - bud, rev: rev / fx, cost: (ev + sched) / fx, inv, rMo, irrUe,
             cmp: { multas: cmp.multas / fx, revisoes: cmp.revisoes / fx, recovery: cmp.recovery / fx,
                    repair: cmp.repair / fx, pecas: cmp.pecas / fx,
@@ -8172,23 +8174,28 @@
       const kmSem = comKm.length ? comKm.reduce((s, r) => s + r.kmWk, 0) / comKm.length : 0;
       const feeMed = rows.reduce((s, r) => s + (r.fee || 0), 0) / n;
       const custoSem = feeMed - (kmSem * custoKm) / fx;
+      const wearSaved = (kmSem * custoKm) / fx;            // o que o carro parado NÃO queima numa semana
+      // uma recuperação nunca vem sozinha: o motorista parou de pagar — o EVENTO carrega o
+      // guincho + reparo E pelo menos uma semanalidade não recebida
+      const custoEvento = custoRec + custoSem;
       const be = (cc) => (cc > 0 ? retMed / cc : null);
-      const beRec = be(custoRec), beSem = be(custoSem);
+      const beRec = be(custoEvento), beSem = be(custoSem);   // recuperação = EVENTO (com a semana perdida)
       const f1 = (v) => (v == null ? '—' : v.toFixed(1));
-      const resultado = () => retMed - unitBeRec * custoRec - unitBeSem * custoSem;
+      const resultado = () => retMed - unitBeRec * custoEvento - unitBeSem * custoSem;   // slider de rec = evento completo
       box.innerHTML =
         `<div class="ub-card">` +
           `<div class="ub-top"><h4>Break-even</h4><span>${rows.length} cars · full contract</span>` +
             `<button type="button" class="costs-help ub-help" data-h="u_break">?</button></div>` +
           `<div class="ub-hero">` +
-            `<div class="ub-h"><b>${f1(beRec)}</b><span>repossessions</span></div>` +
+            `<div class="ub-h"><b>${f1(beRec)}</b><span>repossession events</span></div>` +
             `<div class="ub-h-or">or</div>` +
             `<div class="ub-h"><b>${f1(beSem)}</b><span>weeks unpaid</span></div>` +
           `</div>` +
           `<div class="ub-row">` +
-            `<div class="ub-k"><span>Full-contract return</span><b>${money(retMed)}</b></div>` +
-            `<div class="ub-k"><span>Per repossession</span><b class="dn">−${money(custoRec)}</b><i>${recN} cases</i></div>` +
-            `<div class="ub-k"><span>Per unpaid week</span><b class="dn">−${money(custoSem)}</b><i>fee − wear skipped</i></div>` +
+            `<div class="ub-k"><span>Full-contract return</span><b>${money(retMed)}</b><i>average car of this view</i></div>` +
+            `<div class="ub-k"><span>Towing + repair</span><b class="dn">−${money(custoRec)}</b><i>average of ${recN} real cases</i></div>` +
+            `<div class="ub-k"><span>Per unpaid week</span><b class="dn">−${money(custoSem)}</b><i>−${money(feeMed)} fee · +${money(wearSaved)} wear the parked car skips</i></div>` +
+            `<div class="ub-k ub-ev"><span>Repossession event</span><b class="dn">−${money(custoEvento)}</b><i>towing + repair + one unpaid week</i></div>` +
           `</div>` +
           `<div class="ub-sim">` +
             `<div class="ub-sl"><label>Repossessions<b id="ubRecV">${unitBeRec}</b></label><input type="range" id="ubRec" min="0" max="12" step="1" value="${unitBeRec}"></div>` +
@@ -9242,31 +9249,42 @@
       const RM = recoveryModel();
       const nSem = Math.ceil((PMAX + 1) * SEMANAS_MES) + 2;
       const EV = RM.eventosPorSemana(plates, nSem);       // eventos INTEIROS, não valor esperado
+      // eventos projetados DEPOIS do fim do contrato eram grampeados (Math.min PMAX) para dentro
+      // do M13 — a simulação corre ~63 semanas a partir de hoje, e com a frota no M4-5 a cauda
+      // inteira caía no último mês. Era o salto de Recovery/Repair no M13. Agora: descartados.
       EV.rec.forEach((qtd, s) => {
         if (!qtd) return;
         const quando = new Date(hoje.getTime() + s * 7 * MS);
-        const p = Math.min(Math.max(moOf(quando), 1), PMAX);
-        judRecProjRS[p] += qtd * RM.costRec;              // valor CHEIO da recuperação
+        const p = moOf(quando);
+        if (p > PMAX) return;   // evento depois do fim do contrato não existe (carro vendido no M13)
+        judRecProjRS[Math.max(p, 1)] += qtd * RM.costRec;              // valor CHEIO da recuperação
       });
       EV.rep.forEach((qtd, s) => {
         if (!qtd) return;
         const quando = new Date(hoje.getTime() + s * 7 * MS);
-        const p = Math.min(Math.max(moOf(quando), 1), PMAX);
-        judRepProjRS[p] += qtd * RM.costRep;              // valor CHEIO do reparo
+        const p = moOf(quando);
+        if (p > PMAX) return;   // evento depois do fim do contrato não existe (carro vendido no M13)
+        judRepProjRS[Math.max(p, 1)] += qtd * RM.costRep;              // valor CHEIO do reparo
       });
       // DEVOLUÇÃO antecipada: o motorista entrega o carro, não há guincho, mas o reparo acontece
       // do mesmo jeito (em ~1/3 dos casos, e mais barato que na recuperação).
       EV.repRet.forEach((qtd, s) => {
         if (!qtd) return;
         const quando = new Date(hoje.getTime() + s * 7 * MS);
-        const p = Math.min(Math.max(moOf(quando), 1), PMAX);
-        judRepProjRS[p] += qtd * RM.costRepRet;
+        const p = moOf(quando);
+        if (p > PMAX) return;   // evento depois do fim do contrato não existe (carro vendido no M13)
+        judRepProjRS[Math.max(p, 1)] += qtd * RM.costRepRet;
       });
       // TERMINATION FEE: toda saída antecipada (recuperação OU devolução) gera multa de rescisão.
       // Antes era R$/dia flat do histórico; agora sai dos MESMOS eventos projetados — cada
       // recuperação soma o ticket médio de multa de recuperação, cada devolução o de devolução.
       let termProj = 0;
-      EV.term.forEach((rs) => { termProj += rs; });
+      EV.term.forEach((rs, s) => {
+        if (!rs) return;
+        const quando = new Date(hoje.getTime() + s * 7 * MS);
+        if (moOf(quando) > PMAX) return;   // saída depois do fim do contrato não gera rescisão
+        termProj += rs;
+      });
       // rescisão: conhecidos + eventos projetados, tudo no M13, escalado pelo slider de recebimento
       judTermRS = (totTerm + termProj) * (termPct / 100);
       if (!plateView) {

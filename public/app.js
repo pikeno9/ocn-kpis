@@ -8782,6 +8782,13 @@
     let fleetCtx = null;   // all-mode: contexto por frota (params/entradas/derivados) p/ combinar célula a célula
     const viewMult = () => (plateView ? 1 : (viewAgg ? (curCars || 1) : 1)); // usado só pelo orçado (referência por modelo)
     let entered = {}; // "line@@period" -> {value, kind} — valores manuais em R$ (moeda principal)
+    // Valor digitado com uma PLACA aberta pertence àquela placa, não à frota inteira. Guardado
+    // no mesmo documento da frota sob o rótulo `linha##placa`, e indexado aqui por
+    // "placa@@linha@@período". Sem isto, um valor digitado numa placa virava o valor POR CARRO
+    // de todos os carros da frota: aparecia igual no unitary e multiplicado por 30 no aggregate.
+    let enteredPlate = {};
+    const pkey = (pl, l, per) => pl + '@@' + l + '@@' + per;
+    const PLATE_SEP = '##';
     let manualMode = false; // edição manual desligada por padrão
     let currency = 'BRL';   // moeda de exibição: R$ (principal) ou US$ (toggle no cabeçalho)
     let cotacao = 5.5;      // câmbio futuro R$/US$ (slider, global) — converte os PROJETADOS
@@ -9700,7 +9707,8 @@
       // Car Preparation/Sticker: valor fixo literal por moeda, sem nenhum cálculo/câmbio/exceção
       if (line === 'Car Preparation (wash + delivery)') return period === 0 ? { real: currency === 'BRL' ? -50 : -10, proj: 0, status: 'real' } : null;
       if (line === 'Sticker') return period === 0 ? { real: currency === 'BRL' ? -15 : -3, proj: 0, status: 'real' } : null;
-      const m = entered[ekey(line, period)]; // entradas manuais são em R$
+      // com uma placa aberta, o override DELA vence o da frota (que é um valor por carro)
+      const m = (plateView && enteredPlate[pkey(plateView, line, period)]) || entered[ekey(line, period)];
       if (m) {
         const val = toDisplay({ rs: m.value }, m.kind === 'proj' ? cotacao : ORCADO_FX);
         // man: valor DIGITADO por alguém, não medido pelas bases — a célula fica verde para
@@ -9719,9 +9727,34 @@
         ? { real: toDisplay(v, ORCADO_FX), proj: 0, status: 'real', perActive: !!v.perActive }
         : { real: 0, proj: toDisplay(v, cotacao), status: 'proj', perActive: !!v.perActive };
     }
+    // Overrides por placa das placas DESTE contexto, já convertidos para a moeda de exibição.
+    // `n` é quantas placas foram sobrescritas: na conta da frota elas TROCAM a própria fatia do
+    // valor nativo por carro (total = nativo × carros − nativo × n + digitado).
+    function plateManualSum(line, period) {
+      let real = 0, proj = 0, n = 0;
+      (ctxPlates || []).forEach((pl) => {
+        const e = enteredPlate[pkey(pl, line, period)];
+        if (!e) return;
+        n++;
+        if (e.kind === 'proj') proj += toDisplay({ rs: e.value }, cotacao);
+        else real += toDisplay({ rs: e.value }, ORCADO_FX);
+      });
+      return n ? { real, proj, n } : null;
+    }
+    // total da frota numa célula, já com os overrides de placa trocando a fatia deles
+    function fleetTotalOf(line, period, cars) {
+      const e = effSplitOne(line, period);
+      const pm = plateManualSum(line, period);
+      if (!e && !pm) return null;
+      const base = e || { real: 0, proj: 0, status: periodStatus(period), perActive: true };
+      let real = (base.real || 0) * cars, proj = (base.proj || 0) * cars;
+      if (pm) { real += pm.real - (base.real || 0) * pm.n; proj += pm.proj - (base.proj || 0) * pm.n; }
+      const status = (pm && !e) ? (pm.real ? 'real' : 'proj') : base.status;
+      return { real, proj, status, man: !!(base.man || pm), perActive: !!base.perActive };
+    }
     // all-mode: contexto por frota — cada frota tem params/entradas/eixo de meses/perdas/pagamentos próprios
     function applyCtx(c) {
-      model = c.f.model; params = c.params; entered = c.entered; curIni = c.ini; ctxCars = c.f.cars || 0; ctxPlates = c.f.placas || []; ctxFleetId = c.f.id; partCfgCur = c.partCfg || partCfg;
+      model = c.f.model; params = c.params; entered = c.entered; enteredPlate = c.enteredPlate || {}; curIni = c.ini; ctxCars = c.f.cars || 0; ctxPlates = c.f.placas || []; ctxFleetId = c.f.id; partCfgCur = c.partCfg || partCfg;
       elapsed = c.elapsed; realizedFull = c.realizedFull; lossMonthByPlate = c.lossMonthByPlate; activeFracArr = c.activeFracArr;
       subsRS = c.subsRS || []; subsJurosRS = c.subsJurosRS || []; subsReady = !!c.subsReady;
       maintRealRS = c.maintRealRS || []; maintProjRS = c.maintProjRS || []; maintReady = !!c.maintReady;
@@ -9737,11 +9770,13 @@
       let real = 0, proj = 0, den = 0, any = false, anyReal = false, anyMan = false;
       for (const c of fleetCtx) {
         applyCtx(c);
-        const e = effSplitOne(line, period);
-        if (!e) continue;
-        const w = e.perActive ? activeCarsAt(period) : (c.f.cars || 1);
-        real += (e.real || 0) * w; proj += (e.proj || 0) * w; den += w;
-        any = true; if (e.status === 'real') anyReal = true; if (e.man) anyMan = true;
+        const w0 = (c.f.cars || 1);
+        const probe = effSplitOne(line, period);
+        const w = (probe && probe.perActive) ? activeCarsAt(period) : w0;
+        const t = fleetTotalOf(line, period, w);
+        if (!t) continue;
+        real += t.real; proj += t.proj; den += w;
+        any = true; if (t.status === 'real') anyReal = true; if (t.man) anyMan = true;
       }
       if (!any) return null;
       return { real, proj, den: den || 1, status: anyReal ? 'real' : 'proj', man: anyMan };
@@ -9757,10 +9792,17 @@
         const k = viewAgg ? 1 : 1 / r.den; // combinado já vem como soma total; unitary divide pelo denominador
         return cut({ real: Math.round(r.real * k), proj: Math.round(r.proj * k), status: r.status, man: r.man });
       }
-      const e = effSplitOne(line, period);
-      if (!e) return null;
-      const k = plateView ? 1 : (viewAgg ? (e.perActive ? activeCarsAt(period) : (curCars || 1)) : 1);
-      return cut({ real: Math.round((e.real || 0) * k), proj: Math.round((e.proj || 0) * k), status: e.status, man: e.man });
+      if (plateView) {
+        const e = effSplitOne(line, period);
+        if (!e) return null;
+        return cut({ real: Math.round(e.real || 0), proj: Math.round(e.proj || 0), status: e.status, man: e.man });
+      }
+      const probe = effSplitOne(line, period);
+      const cars = (probe && probe.perActive) ? activeCarsAt(period) : (curCars || 1);
+      const t = fleetTotalOf(line, period, cars);
+      if (!t) return null;
+      const k = viewAgg ? 1 : 1 / Math.max(1, cars);   // aggregate = total da frota; unitary = por carro
+      return cut({ real: Math.round(t.real * k), proj: Math.round(t.proj * k), status: t.status, man: t.man });
     }
     // linhas cujo lançamento pontual foi movido para o M13 (planilha original só vai até M12) — o orçado de
     // referência sai do M12 e passa a aparecer só no M13 (substituição, não duplicação)
@@ -10456,20 +10498,26 @@
     const _fleetValsCache = {};   // toggles de visão não mudam nada no servidor — sem rede
     async function fetchFleetValues(fleetId) {
       if (_fleetValsCache[fleetId]) return _fleetValsCache[fleetId];
-      const p_ = {}, e_ = {};
+      const p_ = {}, e_ = {}, ep_ = {};
       try {
         const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(fleetId), { cache: 'no-store' });
         if (r.ok) {
           const d = await r.json();
           (d.values || []).forEach((v) => {
             if (String(v.line).startsWith('__')) { p_[v.line] = v.value; return; }
+            const iSep = String(v.line).indexOf(PLATE_SEP);
+            if (iSep > 0) {   // `linha##placa`: override de UMA placa
+              const ln = String(v.line).slice(0, iSep), pl = String(v.line).slice(iSep + PLATE_SEP.length);
+              ep_[pkey(pl, ln, v.period)] = { value: v.value, kind: v.kind };
+              return;
+            }
             const lbl = v.line === 'Initial Fee / Vehicle Sell' ? 'Vehicle Sell' : v.line; // rótulo antigo
             if (lbl !== v.line && e_[ekey(lbl, v.period)]) return;   // edição nova vence a antiga
             e_[ekey(lbl, v.period)] = { value: v.value, kind: v.kind };
           });
         }
       } catch (e) { /* segue com orçado */ }
-      return (_fleetValsCache[fleetId] = { params: p_, entered: e_ });
+      return (_fleetValsCache[fleetId] = { params: p_, entered: e_, enteredPlate: ep_ });
     }
     // contexto derivado de uma frota (eixo de meses, perdas totais) — usado no all-mode
     function buildCtx(ff, vals) {
@@ -10487,7 +10535,7 @@
         const nCars = ff.cars || 1;
         for (let p = 0; p <= PMAX; p++) { const lost = Object.values(lmp).filter((lm) => lm <= p).length; afa[p] = Math.max(0, nCars - lost) / nCars; }
       }
-      return { f: ff, params: vals.params, entered: vals.entered, partCfg: mergedParts(vals.params), ini, elapsed: el, realizedFull: Math.min(PMAX, Math.ceil(el)), lossMonthByPlate: lmp, activeFracArr: afa, subsRS: [], subsReady: false };
+      return { f: ff, params: vals.params, entered: vals.entered, enteredPlate: vals.enteredPlate || {}, partCfg: mergedParts(vals.params), ini, elapsed: el, realizedFull: Math.min(PMAX, Math.ceil(el)), lossMonthByPlate: lmp, activeFracArr: afa, subsRS: [], subsReady: false };
     }
     // quiet = carrega os dados da frota SEM tocar na tela. As varreduras (TIR por placa, TIR por
     // modelo) percorrem as 6 frotas e, sem isto, o painel piscava de frota em frota na cara do
@@ -10503,7 +10551,7 @@
       curCars = f.cars || 0; ctxCars = f.cars || 0; ctxPlates = f.placas || []; ctxFleetId = f.id;
       const foto = allMode ? null : (OCN.modelos[f.model] || {}).foto;
       // carrega valores (entradas manuais + params) — all-mode busca de todas as frotas em paralelo
-      entered = {}; params = {};
+      entered = {}; params = {}; enteredPlate = {};
       if (allMode) {
         const fsCtx = ctxFleets();
         const valsList = await Promise.all(fsCtx.map((ff) => fetchFleetValues(ff.id)));
@@ -10511,7 +10559,7 @@
       } else {
         fleetCtx = null;
         const vals = await fetchFleetValues(current);
-        params = vals.params; entered = vals.entered;
+        params = vals.params; entered = vals.entered; enteredPlate = vals.enteredPlate || {};
         partCfgCur = mergedParts(params);   // peças: config da frota com fallback no padrão global
       }
       // meses decorridos = (hoje - início) em semanas ÷ 4,3333; M0 é sempre realizado
@@ -10980,7 +11028,10 @@
     function openEditor(td, f) {
       if (td.querySelector('.ue-input')) return;
       const line = td.dataset.line, period = +td.dataset.period;
-      const e = entered[ekey(line, period)] || {};
+      // com uma placa aberta a edição pertence à PLACA (rótulo `linha##placa` no doc da frota)
+      const alvoPl = plateView || null;
+      const lineStore = alvoPl ? (line + PLATE_SEP + alvoPl) : line;
+      const e = (alvoPl ? enteredPlate[pkey(alvoPl, line, period)] : entered[ekey(line, period)]) || {};
       let kind = e.kind || 'real';
       td.innerHTML =
         `<div class="ue-editor"><span class="ue-editor-cur">R$</span><input class="ue-input" type="text" value="${toInput(e.value)}" />` +
@@ -11000,11 +11051,11 @@
         const val = parseInput(input.value);
         try {
           if (val === null) {
-            delete entered[ekey(line, period)];
-            await fetch('/api/ue/value/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fleet: current, line, period }) });
+            if (alvoPl) delete enteredPlate[pkey(alvoPl, line, period)]; else delete entered[ekey(line, period)];
+            await fetch('/api/ue/value/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fleet: current, line: lineStore, period }) });
           } else if (!isNaN(val)) {
-            entered[ekey(line, period)] = { value: val, kind };
-            await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fleet: current, line, period, value: val, kind }) });
+            if (alvoPl) enteredPlate[pkey(alvoPl, line, period)] = { value: val, kind }; else entered[ekey(line, period)] = { value: val, kind };
+            await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fleet: current, line: lineStore, period, value: val, kind }) });
           }
         } catch (err) { /* mantém estado local */ }
         renderTable(f);

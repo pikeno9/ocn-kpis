@@ -2498,11 +2498,32 @@
         : `InDrive promo OUT of the rate (${money(idr.net)} net, both sides) — switch iD on to include it.`);
     }
     const nota = notas.length ? `<ul class="irr-notes">` + notas.map((n) => `<li>${n}</li>`).join('') + `</ul>` : '';
+    // Sem raiz (fluxo nunca fica negativo, ou nunca paga de volta) e desembolso ínfimo são a MESMA
+    // leitura para quem olha: "não há taxa aqui — use o caixa". Antes cada caso tinha um painel
+    // com cara própria (um cinza cru, outro escuro) e parecia bug; agora é um painel só.
     if (rM == null) {
-      const why = netTot < 0
+      const mult0 = invested > 0 ? (netTot / invested) : null;
+      const why0 = netTot < 0
         ? `the contract does not pay the invested cash back in this view (net ${cur} ${Math.round(netTot).toLocaleString('pt-BR')} over M0–M${PMAX}), so there is no rate that zeroes the NPV.`
-        : `the net cashflow never turns negative in this view — with no outlay to discount there is no IRR.`;
-      return `<div class="irr-panel irr-na"><div class="irr-na-txt"><b>IRR not defined</b><span>${why}</span></div></div>`;
+        : `the net cashflow never turns negative in this view — there is no upfront outlay to discount, so no rate exists. The cash numbers on the left are the ones to read.`;
+      return `<div class="irr-panel irr-thin irr-2col">` +
+        `<div class="irr-col">` +
+          `<div class="irr-main">` +
+            `<div class="irr-kpi"><span class="irr-lbl">IRR not defined</span>` +
+              `<b class="irr-big irr-year">${money(netTot)}</b>` +
+              `<span class="irr-sub">net cash per car over M0–M${PMAX} — use this instead</span></div>` +
+          `</div>` +
+          (mix || '') +
+          `<div class="irr-side">` +
+            `<div class="irr-facts">` +
+              `<div><span>Cash invested</span><b>${money(invested)}</b></div>` +
+              `<div><span>Return on cash</span><b class="${netTot >= 0 ? 'up' : 'down'}">${mult0 == null ? '—' : (mult0 < 0 ? '−' : '') + Math.abs(mult0).toFixed(1) + '×'}</b></div>` +
+              `<div><span>Payback</span><b>${payback == null ? 'not reached' : 'M' + payback}</b></div>` +
+            `</div>` +
+          `</div>` +
+        `</div>` +
+        `<div class="irr-why irr-aside">${why0}${nota}</div>` +
+        `</div>`;
     }
     // TIR só significa alguma coisa quando existe um desembolso relevante para remunerar: com uma
     // base quase nula, dividir um ano de mensalidades por ela explode a taxa sem dizer nada.
@@ -8096,7 +8117,7 @@
       const semTaxa = rows.filter((r) => r.irrUe && r.rMo == null).length;
       document.getElementById('unitIrrHint').textContent = medTaxa == null ? 'no car with enough history yet'
         : nPos + ' of ' + comTaxa.length + ' cars above zero · average ' + taxa(medTaxa) + ' a month · M0–M13, same engine as the UE panel'
-          + (semTaxa ? ' · ' + semTaxa + ' with no IRR (the InDrive bonus covers the whole outlay — switch iD off to rate them)' : '');
+          + (semTaxa ? ' · ' + semTaxa + ' with no meaningful IRR (nothing negative to discount, or the upfront outlay is too small to rate — same rule as the UE panel)' : '');
       const corTaxa = (ctx) => { const r = rows[ctx.dataIndex]; if (!r || r.rMo == null) return '#E5E7EB';
         if (r.pl === unitPlateSel) return grad(ctx, '#7C3AED', '#4C1D95');
         return r.rMo >= 0 ? grad(ctx, '#38BDF8', '#0369A1') : grad(ctx, '#F87171', '#B91C1C'); };
@@ -11002,11 +11023,18 @@
           plateView = pl;
           const B = buildT(f);
           if (!B) continue;
-          const r = irrOf(irrFlowsOf(B.T).flows);
+          const FF = irrFlowsOf(B.T);
+          const r = irrOf(FF.flows);
+          // MESMA régua do painel: sem desembolso relevante (menos de 10% das entradas) ou taxa
+          // acima de 100%/mês, a TIR não significa nada — a barra some em vez de enganar. É daqui
+          // que vinham barras 'negativas' de carros sem caixa negativo em mês nenhum.
+          const investido = -FF.flows.filter((v) => v < 0).reduce((a, b) => a + b, 0);
+          const entradas = FF.flows.filter((v) => v > 0).reduce((a, b) => a + b, 0);
+          const significativa = r != null && isFinite(r) && investido >= entradas * 0.10 && r <= 1.00;
           // a chave existe SEMPRE, mesmo sem taxa: com a promoção InDrive dentro, o M0 de quem
           // recebeu o bônus fica positivo e não há desembolso para remunerar — não existe TIR.
           // Registrando o null, a barra some em vez de cair na reconstrução antiga (outro motor).
-          out[pl] = (r != null && isFinite(r)) ? r : null;
+          out[pl] = significativa ? r : null;
         }
       }
       sweepSnap = null;

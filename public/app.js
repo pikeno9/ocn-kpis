@@ -7638,6 +7638,8 @@
     let unitBeRec = 1, unitBeSem = 4, unitScatX = 'weeks';   // painel de break-even + dispersão
     let unitCauOff = false;    // tira a caução (depósito + devolução) da TIR e do capital
     const ueIrrMaps = {};      // um mapa de TIR por combinação dos dois botões
+    const ueCashMaps = {};     // caixa por placa vindo do motor do UE, por combinação de botões
+    let ueCashCur = null;      // o mapa de caixa da combinação em tela
     let unitPlateSel = null;   // placa aberta no drill do "Per car" (null = nenhuma)
     // linha horizontal de referência CHEIA + rótulo numa pílula opaca encostada à direita.
     // Texto solto sobre as barras é ilegível; a pílula garante contraste em qualquer fundo.
@@ -7717,7 +7719,13 @@
         // ---- budget mensal por carro (R$), mês de vida p ----
         const bm = (p) => {
           let v = 0;
-          if (p === 0) v -= par('__gps_m0__') + 50 + 15;
+          // MESMA RÉGUA do realizado (que agora vem da tabela do UE): a caução sai no M0 e volta
+          // corrigida no M13. Sem isso o orçado ficava sem um desembolso de milhares que o
+          // realizado tem, e todo carro de frota com caução aparecia abaixo do orçado por
+          // construção — comparação de coisas diferentes.
+          const caucao = unitCauOff ? 0 : par('__num_alugueis__') * par('__subrental_mensal__');
+          if (p === 0) v -= par('__gps_m0__') + 50 + 15 + caucao;
+          if (p === 13 && caucao > 0) v += caucao * (1 + cpar('__refund_pct__', 0.13));
           if (p >= 1 && p <= 12) {
             v += par('__sub_semanal__') * segundas[p];                 // receita contratual: 1 por segunda
             v -= par('__subrental_mensal__') + par('__ins_total__') / 12 + par('__gps_mensal__');
@@ -7806,7 +7814,13 @@
           ((((U.reposicao || {}).placas) || {})[pl] || []).forEach((e2) => { (e2.itens || []).forEach((it) => { if (pc[it]) { ev += pc[it]; cmp.pecas += pc[it]; if (e2.d && e2.d <= HOJE15.toISOString().slice(0, 10)) ev15 += pc[it]; dep(e2.d, -pc[it]); } }); });
           // iD LIGADO = a promoção entra no caixa (bônus − desconto, ambos no M0, já realizados)
           if (!unitIdrOff) { const bo = (ID_BONUS[pl] || 0) - ((((U.idBase || {}).descontos) || {})[pl] || 0); if (bo) { rev += bo; rev15 += bo; fluxo[0] += bo; } }
-          const real = (rev - ev - sched) / fx;
+          // ---- CAIXA: o do MOTOR DO UE manda ----
+          // A reconstrução a partir das bases cruas não fechava com a tabela: não tinha a caução
+          // do M0 nem a devolução do M13, apropriava o seguro por dia (a tabela lança a parcela) e
+          // ignorava rescisão e venda do veículo. Com o mapa do UE, painel e tabela batem linha a
+          // linha. A reconstrução fica de reserva para o primeiro segundo, antes da varredura.
+          const uc = ueCashCur && ueCashCur[pl];
+          const real = uc ? (uc.inR - uc.outR) / fx : (rev - ev - sched) / fx;
           // Δ 15 dias: o mesmo retorno, com a régua parada em hoje−15 (agenda pró-rata na mesma data)
           const f15 = Math.min(1, Math.max(0, (HOJE15 - ini) / MS) / Math.max(1, (hoje - ini) / MS));
           const real15 = (rev15 - ev15 - (sched - schedM0Fix) * f15 - schedM0Fix) / fx;
@@ -7849,7 +7863,7 @@
           // "Back in" cobre também a DEVOLUÇÃO voluntária: rescisão (pelo motorista ou pela OCN)
           // em qualquer vínculo conta, além do carro parado sem motorista
           const devolvido = vinc.some((v) => v.fim && /rescis|devolu/i.test(v.motivo || '')) || (vinc.length > 0 && vinc.every((v) => v.fim));
-          out.push({ pl, fleet: f.id, ageM, real, bud, retFull: real + Math.max(0, budFull - bud), budFull, d15, kmWk, nRec, fee: par('__sub_semanal__') / fx, wUnpaid: par('__sub_semanal__') > 0 ? Math.max(0, revEsp - revSub) / par('__sub_semanal__') : 0, delta: real - bud, rev: rev / fx, cost: (ev + sched) / fx, inv, rMo, irrUe,
+          out.push({ pl, fleet: f.id, ageM, real, bud, retFull: uc ? uc.netFull / fx : real + Math.max(0, budFull - bud), budFull, d15, kmWk, nRec, fee: par('__sub_semanal__') / fx, wUnpaid: par('__sub_semanal__') > 0 ? Math.max(0, revEsp - revSub) / par('__sub_semanal__') : 0, delta: real - bud, rev: (uc ? uc.inR : rev) / fx, cost: (uc ? uc.outR : (ev + sched)) / fx, inv, rMo, irrUe,
             cmp: { multas: cmp.multas / fx, revisoes: cmp.revisoes / fx, recovery: cmp.recovery / fx,
                    repair: cmp.repair / fx, pecas: cmp.pecas / fx,
                    subFalta: Math.max(0, revEsp - revSub) / fx },
@@ -7870,11 +7884,12 @@
       const idrKey = (unitIdrOff ? 'idrOff' : 'idrOn') + '|' + (unitJudOff ? 'judOff' : 'judOn') + '|' + (unitCauOff ? 'cauOff' : 'cauOn');
       if (ueIrrMaps[idrKey] == null && typeof ueIrrByPlate === 'function' && !_ueIrrLoading) {
         _ueIrrLoading = true;
-        ueIrrByPlate(unitIdrOff, unitJudOff, unitCauOff).then((m) => { ueIrrMaps[idrKey] = m || {}; ueIrrMap = ueIrrMaps[idrKey]; _unitCache = null; renderUnit(); })
+        window.__UECASH = {};
+        ueIrrByPlate(unitIdrOff, unitJudOff, unitCauOff).then((m) => { ueIrrMaps[idrKey] = m || {}; ueIrrMap = ueIrrMaps[idrKey]; ueCashMaps[idrKey] = window.__UECASH || {}; ueCashCur = ueCashMaps[idrKey]; window.__UECASH = null; _unitCache = null; renderUnit(); })
           .catch(() => { ueIrrMaps[idrKey] = {}; })
           .finally(() => { _ueIrrLoading = false; });
       } else if (ueIrrMaps[idrKey] && ueIrrMap !== ueIrrMaps[idrKey]) {
-        ueIrrMap = ueIrrMaps[idrKey]; _unitCache = null;
+        ueIrrMap = ueIrrMaps[idrKey]; ueCashCur = ueCashMaps[idrKey] || null; _unitCache = null;
       }
       const all = unitData();
       let rows = unitFleet != null ? all.filter((r) => r.fleet === unitFleet) : all.slice();
@@ -11009,11 +11024,12 @@
     // mesma placa aparecia com 42,1%/mês no gráfico e 36,7%/mês no painel. Aqui rodamos o motor
     // de verdade: uma chamada de rede por FROTA (6, não 170) e, dentro dela, o cálculo por placa.
     ueIrrByPlate = async (semIndrive, semJud, semCau) => naFila(async () => {
-      const st = { current, plateView, viewAgg, cleanView, slidersOpen, idrOff, judOff, cauOff };
+      const st = { current, plateView, viewAgg, cleanView, slidersOpen, idrOff, judOff, cauOff, currency };
       sweepSnap = st;
       if (semIndrive != null) idrOff = !!semIndrive;   // a aba Unit tem o próprio botão iD
       if (semJud != null) judOff = !!semJud;
       if (semCau != null) cauOff = !!semCau;
+      currency = 'BRL';   // o caixa capturado aqui sai em R$; a aba Unit converte
       const out = {};
       for (const f of (U.fleets || [])) {
         if (!f.inicio) continue;
@@ -11035,10 +11051,29 @@
           // recebeu o bônus fica positivo e não há desembolso para remunerar — não existe TIR.
           // Registrando o null, a barra some em vez de cair na reconstrução antiga (outro motor).
           out[pl] = significativa ? r : null;
+          // ---- CAIXA DA TABELA, placa a placa ----
+          // O painel do Unit reconstruía isto das bases cruas e não fechava com o UE: faltavam a
+          // caução do M0 e a devolução do M13, o seguro entrava apropriado (e não pela parcela) e
+          // o contrato inteiro era projetado pelo orçado MÉDIO da frota — o que é absurdo num carro
+          // que já saiu (perda total, recuperação). Agora sai daqui: realizado = soma do lado 'real'
+          // de cada linha; contrato inteiro = o mesmo net M0..M13 que a tabela mostra.
+          if (window.__UECASH) {
+            let inR = 0, outR = 0, netFull = 0;
+            B.lines.forEach((ln) => {
+              if (ln.group !== 'inflow' && ln.group !== 'outflow') return;
+              for (let q = 0; q <= PMAX; q++) {
+                const e = effSplit(ln.label, q);
+                if (!e || !e.real) continue;
+                if (ln.group === 'inflow') inR += e.real; else outR += e.real;
+              }
+            });
+            for (let q = 0; q <= PMAX; q++) { const c = B.T.net[q]; netFull += c ? (c.hasMain ? c.eff : (c.orc || 0)) : 0; }
+            window.__UECASH[pl] = { inR, outR: -outR, netFull };
+          }
         }
       }
       sweepSnap = null;
-      current = st.current; plateView = st.plateView; viewAgg = st.viewAgg; cleanView = st.cleanView; slidersOpen = st.slidersOpen; idrOff = st.idrOff; judOff = st.judOff; cauOff = st.cauOff;
+      current = st.current; plateView = st.plateView; viewAgg = st.viewAgg; cleanView = st.cleanView; slidersOpen = st.slidersOpen; idrOff = st.idrOff; judOff = st.judOff; cauOff = st.cauOff; currency = st.currency;
       await loadFleet(true);
       return out;
     });

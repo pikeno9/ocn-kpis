@@ -2205,3 +2205,13 @@ html.dark .ue-dd-list { box-shadow: 0 0 0 1px rgba(255,255,255,.05), 0 10px 26px
 /* o EVENTO é o número de decisão — hairline de destaque à esquerda, como o break-even */
 .ub-ev { border-left: 3px solid #DC2626; padding-left: 12px; }
 html.dark .ub-ev { border-left-color: #F87171; }
+
+/* Unit — visão das barras (contrato inteiro x até hoje): segmentado discreto no cabeçalho do
+   gráfico, ao lado da pílula de ordenação. Mesma altura e mesmo raio da pílula. */
+.unit-seg { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border-radius: 999px;
+  border: 1px solid var(--line, #e5e5e5); background: var(--card-bg, #fff); }
+.unit-seg-b { border: 0; background: transparent; cursor: pointer; border-radius: 999px;
+  padding: 0 11px; height: 26px; font: 700 11.5px/1 Inter, system-ui, sans-serif;
+  letter-spacing: -.01em; color: var(--muted, #737373); transition: background .14s, color .14s; }
+.unit-seg-b:hover { color: var(--ink, #0a0a0a); }
+.unit-seg-b.on { background: var(--accent, #5A00F8); color: #fff; box-shadow: 0 1px 2px #5a00f833; }

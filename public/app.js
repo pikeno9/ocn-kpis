@@ -7628,6 +7628,7 @@
     // movimentação de capital. Valores em USD (mesma base do Costs); moeda de exibição via K.
     // padrão POR FROTA: agrupar as placas da mesma frota e o gráfico já conta uma história
     let unitSort = 'fleet', unitFleet = null, _unitCache = null, _ueIrrLoading = false;
+    let unitFull = true;   // visão das barras: contrato inteiro (padrão) x realizado até hoje — independente da ordenação
     let unitModel = null;      // filtro por MODELO (Polo/Argo/Tera) — cruza com o de frota
     let unitFilter = null;     // null | 'back' (recuperados/devolvidos) | 'below' (abaixo do budget)
     // PADRÃO: promoção InDrive FORA. A campanha foi uma vez por placa e não se repete no próximo
@@ -7895,14 +7896,17 @@
       let rows = unitFleet != null ? all.filter((r) => r.fleet === unitFleet) : all.slice();
       if (unitModel != null) rows = rows.filter((r) => r.model === unitModel);
       if (unitFilter === 'back') rows = rows.filter((r) => r.recuperado || r.devolvido);
-      else if (unitFilter === 'below') rows = rows.filter((r) => r.delta < 0);
+      else if (unitFilter === 'below') rows = rows.filter((r) => (unitFull ? (r.retFull || 0) - (r.budFull || 0) : r.delta) < 0);
+      // as ordenações que falam de RETORNO seguem a visão ligada no botão: no contrato inteiro,
+      // "lowest return" é o pior fim de contrato, não o pior caixa até hoje
+      const RET = (r) => (unitFull ? (r.retFull || 0) : r.real);
+      const DLT = (r) => (unitFull ? (r.retFull || 0) - (r.budFull || 0) : r.delta);
       const sorters = {
-        delta: (a, b) => b.delta - a.delta,
-        real: (a, b) => a.real - b.real,                      // LOWEST return primeiro: o que precisa de olho
-        fleet: (a, b) => (a.fleet === b.fleet ? b.delta - a.delta : String(a.fleet).localeCompare(String(b.fleet))),
-        model: (a, b) => (a.model === b.model ? b.delta - a.delta : String(a.model || '').localeCompare(String(b.model || ''))),
+        delta: (a, b) => DLT(b) - DLT(a),
+        real: (a, b) => RET(a) - RET(b),                     // LOWEST return primeiro: o que precisa de olho
+        fleet: (a, b) => (a.fleet === b.fleet ? DLT(b) - DLT(a) : String(a.fleet).localeCompare(String(b.fleet))),
+        model: (a, b) => (a.model === b.model ? DLT(b) - DLT(a) : String(a.model || '').localeCompare(String(b.model || ''))),
         age: (a, b) => b.ageM - a.ageM,
-        full: (a, b) => (b.retFull || 0) - (a.retFull || 0),   // contrato inteiro, maiores primeiro
         kmwk: (a, b) => (b.kmWk || 0) - (a.kmWk || 0),       // vida inteira do carro, não o último motorista
         d15: (a, b) => (a.d15 || 0) - (b.d15 || 0),          // maiores QUEDAS primeiro, à esquerda
       };
@@ -7961,9 +7965,18 @@
       ctl.querySelector('#unitCau').addEventListener('click', () => { unitCauOff = !unitCauOff; _unitCache = null; renderUnit(); });
       // ORDENAÇÃO mora DENTRO do gráfico (é uma propriedade dele, não um filtro da página):
       // pílula discreta no cabeçalho, com o critério escrito sem o prefixo "Sort:" repetido
+      // VISÃO das barras — botão próprio, separado da ordenação: o que a barra mede (contrato
+      // inteiro x caixa até hoje) é uma pergunta diferente de como as barras estão ordenadas.
+      const viewWrap = document.getElementById('unitViewWrap');
+      if (viewWrap) {
+        viewWrap.className = 'unit-seg';
+        viewWrap.innerHTML = [[true, 'Full contract', 'M0 to M13: realized plus this car’s own projection'], [false, 'So far', 'Cash in minus cash out up to today']]
+          .map(([v, t, ti]) => `<button type="button" class="unit-seg-b${unitFull === v ? ' on' : ''}" data-v="${v ? '1' : '0'}" title="${ti}">${t}</button>`).join('');
+        viewWrap.querySelectorAll('.unit-seg-b').forEach((b) => b.addEventListener('click', () => { unitFull = b.dataset.v === '1'; renderUnit(); }));
+      }
       const sortWrap = document.getElementById('unitSortWrap');
       if (sortWrap) {
-        const SORTS = [['delta', 'Biggest gap vs budget'], ['real', 'Lowest return'], ['full', 'Full contract'], ['fleet', 'By fleet'], ['model', 'By model'], ['age', 'Oldest first'], ['kmwk', 'Highest km/week'], ['d15', 'Δ last 15 days']];
+        const SORTS = [['delta', 'Biggest gap vs budget'], ['real', 'Lowest return'], ['fleet', 'By fleet'], ['model', 'By model'], ['age', 'Oldest first'], ['kmwk', 'Highest km/week'], ['d15', 'Δ last 15 days']];
         const atual = SORTS.find((x) => x[0] === unitSort) || SORTS[0];
         sortWrap.className = 'ue-dd ue-dd-sort';
         sortWrap.innerHTML =
@@ -7984,9 +7997,9 @@
       wireCurFlags(ctl, () => renderUnit());
       sec.querySelectorAll('.costs-help').forEach((b) => { b.onclick = () => costsHelpOpen(b.dataset.h); });
       // ---- cartões ----
-      const above = rows.filter((r) => r.delta >= 0).length, below = rows.length - above;
-      const positive = rows.filter((r) => r.real >= 0).length;
-      const totD = rows.reduce((s, r) => s + r.delta, 0);
+      const above = rows.filter((r) => DLT(r) >= 0).length, below = rows.length - above;
+      const positive = rows.filter((r) => RET(r) >= 0).length;
+      const totD = rows.reduce((s, r) => s + DLT(r), 0);
       const card = (t, v, sub, cl) => `<div class="costs-card${cl ? ' cc-strong' : ''}" style="--cl:${cl || '#6D28D9'}"><span>${escH(t)}</span><b>${v}</b><span class="sub">${escH(sub || '')}</span></div>`;
       document.getElementById('unitHero').innerHTML = '<div class="costs-cards">' +
         card('Cars evaluated', String(rows.length),
@@ -8039,7 +8052,7 @@
       };
       // modos de visão do gráfico: Δ15 mostra o delta de 15 dias; Full o contrato inteiro
       const modo15 = unitSort === 'd15';
-      const modoFull = unitSort === 'full';   // barras = retorno do CONTRATO INTEIRO, régua = orçado cheio
+      const modoFull = unitFull;   // barras = retorno do CONTRATO INTEIRO, régua = orçado cheio
       const tip = { enabled: false, external: externalTip((r) => ({ t: modoFull ? 'full contract' : 'return', v: sinal(modoFull ? (r.retFull || 0) : r.real), cls: (modoFull ? (r.retFull || 0) : r.real) >= 0 ? 'up' : 'dn' })) };
       const thin = { maxBarThickness: 9, barPercentage: .92, categoryPercentage: .95 };
       // LEGENDA em HTML no cabeçalho: a do Chart.js caía embaixo do gráfico, com bolinhas grandes
@@ -8066,7 +8079,7 @@
       const corBarra = (ctx) => {
         const r = rows[ctx.dataIndex]; if (!r) return '#9CA3AF';
         if (r.pl === unitPlateSel) return grad(ctx, '#7C3AED', '#4C1D95');
-        const chave = unitSort === 'd15' ? (r.d15 || 0) : (unitSort === 'full' ? (r.retFull || 0) - (r.budFull || 0) : r.delta);   // no modo Δ15, a cor é o sinal do delta
+        const chave = unitSort === 'd15' ? (r.d15 || 0) : (modoFull ? (r.retFull || 0) - (r.budFull || 0) : r.delta);   // no modo Δ15, a cor é o sinal do delta
         return chave >= 0 ? grad(ctx, '#34D399', '#047857') : grad(ctx, '#F87171', '#B91C1C');
       };
       mk('unitRet', { data: { labels, datasets: [
@@ -8324,9 +8337,11 @@
         .slice(0, 3);
       const flagChips = flags.map((x) => {
         const pior = x.efeito < 0;   // empurra a barra para baixo
-        return `<span class="up-chip up-flag ${pior ? 'bad' : 'good'}" title="fleet-wide average ${money(x.m)} · ${Math.abs(x.z).toFixed(1)} sd from it">` +
-          `<i>${escH(x.lbl)}</i><b>${money(x.v)}</b>` +
-          `<u>${pior ? '+' : '−'}${money(Math.abs(x.dif))} vs avg</u></span>`;
+        // Todo componente destacado é dinheiro que SAIU (guincho, reparo, peça, revisão) ou que não
+        // entrou (semanalidade não paga): entra com sinal negativo. A comparação com a média fica
+        // só no title — na pastilha ela competia com o número que importa.
+        return `<span class="up-chip up-flag ${pior ? 'bad' : 'good'}" title="${escH(x.lbl)} on this car ${money(-x.v)} · fleet-wide average ${money(-x.m)} · ${Math.abs(x.z).toFixed(1)} sd from it">` +
+          `<i>${escH(x.lbl)}</i><b>${money(-x.v)}</b></span>`;
       }).join('');
       box.innerHTML =
         `<div class="costs-chart up-box" style="margin-top:14px">` +
@@ -8869,7 +8884,7 @@
     // início da frota (cobertura de só 63% do M1) — é isso que deixa o M1 baixo, e a contrapartida
     // é a cauda: quem pegou o carro no meio do M1 paga até o meio do M13.
     // `from` (opcional) conta só as segundas AINDA POR VIR — usado no mês vigente.
-    function mondaysAvg(m, from) {
+    function mondaysAvg(m, from, planoCheio) {
       if (!curIni) return 0;
       const MS = 86400000, len = SEMANAS_MES * 7 * MS;
       const winIni = curIni.getTime() + (m - 1) * len;
@@ -8881,7 +8896,7 @@
       let tot = 0, n = 0;
       pls.forEach((pl) => {
         const lm = lossMonthByPlate[pl];
-        if (lm != null && m >= lm) return;                     // perda total sai do numerador E do denominador
+        if (!planoCheio && lm != null && m >= lm) return;   // perda total sai do numerador E do denominador
         n++;
         const s = starts[pl] ? new Date(starts[pl] + 'T12:00:00').getTime() : curIni.getTime();
         const ini = Math.max(s, curIni.getTime());             // entrega anterior ao eixo ancora no início
@@ -9724,7 +9739,10 @@
       if (period < 1 || period > PMAX) return null;
       const semanal = par('__sub_semanal__');
       if (!(semanal > 0)) return null;
-      const n = mondaysAvg(period);
+      // ORÇADO = o PLANO daquele carro, e o plano não sabia que o carro ia bater. Contar as
+      // segundas ignorando a perda total: senão a placa sinistrada ficava com orçado zero de
+      // Subscription e o Acc orçado descia para sempre — sem régua nenhuma para comparar.
+      const n = mondaysAvg(period, null, true);
       return n > 0 ? n * semanal : 0;   // R$ por carro
     };
     // orçado (planilha, USD) na moeda de exibição; all-mode = média ponderada dos orçados por modelo

@@ -32,6 +32,7 @@ const TABS = {
 // que exige o gid da aba em vez do nome.
 const TAB_GIDS = {
   ocorrencias: '1260965965',
+  insurance: '770868530',   // vencimento digitado como TEXTO (locale mm/dd rejeita 19/08/2026) some no gviz — o export preserva
 };
 
 // API do painel de cobranças (matriz de pagamentos semanais por placa). Token só via env (repo público).

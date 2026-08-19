@@ -2520,6 +2520,9 @@
               `<div><span>Return on cash</span><b class="${netTot >= 0 ? 'up' : 'down'}">${mult0 == null ? '—' : (mult0 < 0 ? '−' : '') + Math.abs(mult0).toFixed(1) + '×'}</b></div>` +
               `<div><span>Payback</span><b>${payback == null ? 'not reached' : 'M' + payback}</b></div>` +
             `</div>` +
+            // o fluxo que gerou a conta fica auditável MESMO quando a taxa não presta
+            `<button type="button" class="irr-cash" data-flows="${flows.map((v) => Math.round(v)).join(',')}" data-cur="${cur}" title="See the cashflow behind these numbers">` +
+              `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 19V9M9.3 19V5M14.7 19v-7M20 19v-4"/></svg>Cashflow</button>` +
           `</div>` +
         `</div>` +
         `<div class="irr-why irr-aside">${why0}${nota}</div>` +
@@ -7637,6 +7640,7 @@
     let unitIdrOff = true;
     let unitJudOff = false;    // tira recuperação + reparo do retorno e da TIR das barras
     let unitDrillBud = false;  // mostra a linha cinza do orçado na tabela aberta pelo gráfico
+    let unitDrillFc = true;    // mostra a projeção (roxo) na tabela aberta pelo gráfico — o botão Forecast liga/desliga
     let unitBeRec = 1, unitBeSem = 4, unitScatX = 'weeks';   // painel de break-even + dispersão
     let unitCauOff = false;    // tira a caução (depósito + devolução) da TIR e do capital
     const ueIrrMaps = {};      // um mapa de TIR por combinação dos dois botões
@@ -7728,8 +7732,13 @@
           const caucao = unitCauOff ? 0 : par('__num_alugueis__') * par('__subrental_mensal__');
           if (p === 0) v -= par('__gps_m0__') + 50 + 15 + caucao;
           if (p === 13 && caucao > 0) v += caucao * (1 + cpar('__refund_pct__', 0.13));
+          // venda do carro no M13 (103% da recompra) MENOS a recompra: as barras têm esse
+          // ±3% do veículo (Vehicle Sell/Purchase do UE); sem ele a régua ficava sempre baixa
+          if (p === 13) v += (par('__vehicle__') || 0) * 0.03;
           if (p >= 1 && p <= 12) {
-            v += par('__sub_semanal__') * segundas[p];                 // receita contratual: 1 por segunda
+            const receita = par('__sub_semanal__') * segundas[p];      // contratual: 1 por segunda
+            v += receita * (1 - cpar('__inadimplencia__', 0) / 100);   // plano desconta a inadimplência, como a projeção
+            v += receita * (cpar('__late_pct__', 0) / 100) * ((par('__sub_juros__') || 5) / 100); // juro de atraso projetado
             v -= par('__subrental_mensal__') + par('__ins_total__') / 12 + par('__gps_mensal__');
             // multas fora do orçado também (18/08) — a régua acompanha o realizado
             v -= (AGf.Maintenance.ok ? AGf.Maintenance.per[p] || 0 : 0);
@@ -8252,7 +8261,7 @@
           `</div>` +
           `<div class="ub-sim">` +
             `<div class="ub-sl"><label>Repossessions<b id="ubRecV">${unitBeRec}</b></label><input type="range" id="ubRec" min="0" max="12" step="1" value="${unitBeRec}"></div>` +
-            `<div class="ub-sl"><label>Weeks unpaid<b id="ubSemV">${unitBeSem}</b></label><input type="range" id="ubSem" min="0" max="30" step="1" value="${unitBeSem}"></div>` +
+            `<div class="ub-sl"><label>Additional unpaid weeks<b id="ubSemV">${unitBeSem}</b></label><input type="range" id="ubSem" min="0" max="30" step="1" value="${unitBeSem}"></div>` +
             `<div class="ub-out"><span>ends at</span><b id="ubOut"></b></div>` +
           `</div>` +
         `</div>`;
@@ -8375,6 +8384,8 @@
               `Fleet ${escH(String(r.fleet))} · <b>${escH(r.model || '')}</b> · M${r.ageM.toFixed(1)} of the contract</span>` +
             // botão discreto: traz a linha cinza do orçado para dentro da tabela desta placa
             `<button type="button" class="ccl-btn up-budbtn${unitDrillBud ? ' on' : ''}" id="upBud" title="${unitDrillBud ? 'Hide the budget line' : 'Show the budget line inside the table'}">${unitDrillBud ? '◧' : '◫'} Budget</button>` +
+            // mesmo desenho do Budget: liga/desliga o lado PROJETADO (roxo) da tabela
+            `<button type="button" class="ccl-btn up-budbtn${unitDrillFc ? ' on' : ''}" id="upFc" title="${unitDrillFc ? 'Hide the forecast — leave only realized cash' : 'Show the forecast (projected months) again'}">${unitDrillFc ? '◧' : '◫'} Forecast</button>` +
             `<button type="button" class="ccl-btn" id="upClose">Close</button></div>` +
           `<div class="up-chips">` +
             chip('Return so far', money(r.real), r.real >= 0 ? 'up' : 'down') +
@@ -8387,10 +8398,12 @@
         `</div>`;
       const budBtn = document.getElementById('upBud');
       if (budBtn) budBtn.addEventListener('click', () => { unitDrillBud = !unitDrillBud; renderUnitPlate(rows); });
+      const fcBtn = document.getElementById('upFc');
+      if (fcBtn) fcBtn.addEventListener('click', () => { unitDrillFc = !unitDrillFc; renderUnitPlate(rows); });
       const close = document.getElementById('upClose');
       if (close) close.addEventListener('click', () => { unitPlateSel = null; renderUnit(); });
       if (typeof ueDrillPlate !== 'function') { box.querySelector('.up-loading').textContent = 'Open the Unit Economics tab once to load the per-plate engine.'; return; }
-      const d = await ueDrillPlate(r.pl, pnlCur === 'BRL' ? 'BRL' : 'USD', { idrOff: unitIdrOff, judOff: unitJudOff, budget: unitDrillBud, cauOff: unitCauOff });
+      const d = await ueDrillPlate(r.pl, pnlCur === 'BRL' ? 'BRL' : 'USD', { idrOff: unitIdrOff, judOff: unitJudOff, budget: unitDrillBud, cauOff: unitCauOff, forecast: unitDrillFc });
       const alvo = box.querySelector('.up-loading'); if (!alvo) return;   // usuário já fechou
       if (!d) { alvo.textContent = 'No contract data for this plate.'; return; }
       alvo.outerHTML = (d.bar ? `<div class="up-bar">${d.bar}</div>` : '') +
@@ -11036,12 +11049,13 @@
       const alvo = (U.fleets || []).find((f) => (f.placas || []).includes(placa));
       if (!alvo) return null;
       const o = opts || {};
-      const st = { current, plateView, viewAgg, cleanView, slidersOpen, currency, idrOff, judOff, cauOff };
+      const st = { current, plateView, viewAgg, cleanView, slidersOpen, currency, idrOff, judOff, cauOff, showProj };
       current = alvo.id; plateView = placa; viewAgg = false; slidersOpen = false;
       cleanView = !o.budget;
       if (o.idrOff != null) idrOff = !!o.idrOff;
       if (o.judOff != null) judOff = !!o.judOff;
       if (o.cauOff != null) cauOff = !!o.cauOff;
+      if (o.forecast != null) showProj = !!o.forecast;   // Forecast desligado = só o realizado (mesmo corte do 'Actuals only')
       if (cur === 'BRL' || cur === 'USD') currency = cur;
       await loadFleet(true);
       // a barra de progresso não existe no clean view (contractBarHtml devolve '' com ele ligado),
@@ -11057,7 +11071,7 @@
         fleet: alvo.id, model: alvo.modelLabel || alvo.model,
       };
       sweepSnap = null;
-      current = st.current; plateView = st.plateView; viewAgg = st.viewAgg; cleanView = st.cleanView; slidersOpen = st.slidersOpen; currency = st.currency; idrOff = st.idrOff; judOff = st.judOff; cauOff = st.cauOff;
+      current = st.current; plateView = st.plateView; viewAgg = st.viewAgg; cleanView = st.cleanView; slidersOpen = st.slidersOpen; currency = st.currency; idrOff = st.idrOff; judOff = st.judOff; cauOff = st.cauOff; showProj = st.showProj;
       await loadFleet(true);
       return out;
     });

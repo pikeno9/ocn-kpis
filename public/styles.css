@@ -2215,3 +2215,14 @@ html.dark .ub-ev { border-left-color: #F87171; }
   letter-spacing: -.01em; color: var(--muted, #737373); transition: background .14s, color .14s; }
 .unit-seg-b:hover { color: var(--ink, #0a0a0a); }
 .unit-seg-b.on { background: var(--accent, #5A00F8); color: #fff; box-shadow: 0 1px 2px #5a00f833; }
+
+/* Break-even — UM número principal: eventos de recuperação que zeram o carro médio */
+.ub-hero1 { display: flex; align-items: center; gap: 14px; }
+.ub-hero1 b { font-family: var(--font-display); font-size: 64px; font-weight: 650; line-height: .95;
+  letter-spacing: -.04em; font-variant-numeric: tabular-nums; color: var(--text); }
+.ub-hero1 span { font-size: 13px; line-height: 1.35; color: var(--text-2); }
+
+/* legenda do orçado no Unit vira interruptor da linha */
+.cc-leg-tg { cursor: pointer; user-select: none; border-radius: 6px; padding: 1px 4px; margin: -1px -4px; }
+.cc-leg-tg:hover { background: rgba(90, 0, 248, .07); }
+.cc-leg-tg.off { opacity: .45; text-decoration: line-through; }

@@ -6160,7 +6160,7 @@
         if (!UT.length) { show(false); return; }
         show(true); title('Odometer by car age');
         costsLeftHelp = { t: 'Odometer × car age', d: 'Every plate from the fleet-site API: how many km the car has run (vertical) against how old it is (horizontal, months since delivery). The dashed line is the average pace of the whole fleet in km/week — dots above it are cars running harder than average, and each horizontal gridline is one 10.000 km revision milestone, so you can see how close each car is to its next service.' };
-        const pts = UT.map((r) => ({ x: r.daysElapsed / 30.44, y: r.odo, plate: r.plate, kmWeek: r.kmWeek, m: r.modelLabel }));
+        const pts = UT.map((r) => ({ x: r.daysElapsed / 30.44, y: r.odo, plate: r.plate, kmWeek: r.kmWeek, m: r.modelLabel, driver: r.driver || null }));
         const xMax = Math.max(4, Math.ceil(Math.max(...pts.map((p) => p.x)) + .5));
         const wTot = UT.reduce((s, r) => s + r.weeksElapsed, 0);
         const kmWk = wTot > 0 ? UT.reduce((s, r) => s + r.odo, 0) / wTot : 0;   // km/semana médio da frota inteira
@@ -6254,7 +6254,7 @@
           options: { responsive: true, maintainAspectRatio: false,
             plugins: { legend: { labels: CC_LEG },
               tooltip: { displayColors: false, callbacks: { label: (c2) => { const p = c2.raw;
-                return p && p.plate ? `${p.plate} · ${ccNum(p.y)} km · M${p.x.toFixed(1)} · ${ccNum(p.kmWeek)} km/wk` : c2.dataset.label; } } } },
+                return p && p.plate ? [`${p.plate} · ${ccNum(p.y)} km · M${p.x.toFixed(1)} · ${ccNum(p.kmWeek)} km/wk`].concat(p.driver ? [p.driver] : []) : c2.dataset.label; } } } },
             scales: { x: { min: 0, max: xMax, grid: { display: false }, border: { display: false },
                 title: { display: true, text: 'months since delivery', color: '#9CA3AF', font: { size: 10 } },
                 ticks: { font: CC_FONT, color: '#6B7280', stepSize: 1 } },
@@ -7629,6 +7629,7 @@
     // padrão POR FROTA: agrupar as placas da mesma frota e o gráfico já conta uma história
     let unitSort = 'fleet', unitFleet = null, _unitCache = null, _ueIrrLoading = false;
     let unitFull = true;   // visão das barras: contrato inteiro (padrão) x realizado até hoje — independente da ordenação
+    let unitBudLineOff = false;   // esconde a linha tracejada do orçado no gráfico (clique na legenda)
     let unitModel = null;      // filtro por MODELO (Polo/Argo/Tera) — cruza com o de frota
     let unitFilter = null;     // null | 'back' (recuperados/devolvidos) | 'below' (abaixo do budget)
     // PADRÃO: promoção InDrive FORA. A campanha foi uma vez por placa e não se repete no próximo
@@ -8066,10 +8067,13 @@
         : `<span class="cc-leg">` +
           `<i class="cc-leg-i"><span class="sw sw-up"></span>above budget</i>` +
           `<i class="cc-leg-i"><span class="sw sw-dn"></span>below budget</i>` +
-          `<i class="cc-leg-i"><span class="sw sw-bud"></span>${modoFull ? 'full-contract budget' : "budget at each car's age"}</i>` +
+          `<i class="cc-leg-i cc-leg-tg${unitBudLineOff ? ' off' : ''}" id="unitBudLeg" title="${unitBudLineOff ? 'Click to bring the budget line back' : 'Click to hide the budget line'}"><span class="sw sw-bud"></span>${modoFull ? 'full-contract budget' : "budget at each car's age"}</i>` +
           `<i class="cc-leg-i"><span class="sw sw-avg"></span>average ${escH(ccK(medRet * K))}</i>` +
         `</span>`) +
         `<b class="cc-leg-n">${rows.length} cars · click one to open it</b>`;
+      // a legenda do orçado é um interruptor: clicou, a linha some (e volta)
+      const budLeg = document.getElementById('unitBudLeg');
+      if (budLeg) budLeg.addEventListener('click', () => { unitBudLineOff = !unitBudLineOff; renderUnit(); });
       // gradiente vertical em cada cor: a barra ganha profundidade sem virar arco-íris
       const grad = (ctx, hexTopo, hexBase) => {
         const a = ctx.chart.chartArea; if (!a) return hexTopo;
@@ -8092,9 +8096,9 @@
           // com um halo claro por baixo. Halo discreto e traço fino — a linha precisa ser lida
           // sem virar o elemento mais pesado do gráfico.
           { type: 'line', label: 'Budget at each car\'s age', data: rows.map((r) => (modo15 ? null : Math.round((modoFull ? (r.budFull || 0) : r.bud) * K))),
-            borderColor: 'rgba(255,255,255,.45)', borderWidth: 3, pointRadius: 0, tension: 0, order: -1 },
+            borderColor: 'rgba(255,255,255,.45)', borderWidth: 3, pointRadius: 0, tension: 0, order: -1, hidden: unitBudLineOff },
           { type: 'line', label: '__budget__', data: rows.map((r) => (modo15 ? null : Math.round((modoFull ? (r.budFull || 0) : r.bud) * K))),
-            borderColor: 'rgba(17,24,39,.9)', borderDash: [5, 4], borderWidth: 1.3, pointRadius: 0, tension: 0, order: -2 },
+            borderColor: 'rgba(17,24,39,.9)', borderDash: [5, 4], borderWidth: 1.3, pointRadius: 0, tension: 0, order: -2, hidden: unitBudLineOff },
         ] },
         // faixa de fundo separando lucro de prejuízo + marcação da média da carteira
         plugins: [{ id: 'unitBands', beforeDatasetsDraw(ch) {
@@ -8235,16 +8239,16 @@
         `<div class="ub-card">` +
           `<div class="ub-top"><h4>Break-even</h4><span>${rows.length} cars · full contract</span>` +
             `<button type="button" class="costs-help ub-help" data-h="u_break">?</button></div>` +
-          `<div class="ub-hero">` +
-            `<div class="ub-h"><b>${f1(beRec)}</b><span>repossession events</span></div>` +
-            `<div class="ub-h-or">or</div>` +
-            `<div class="ub-h"><b>${f1(beSem)}</b><span>weeks unpaid</span></div>` +
+          // UM número principal: quantos EVENTOS de recuperação zeram o carro médio até o fim
+          // do contrato. O break-even de semanas saiu do hero (continua no slider e na dispersão).
+          `<div class="ub-hero ub-hero1">` +
+            `<b>${f1(beRec)}</b><span>repossession events<br>zero the average car</span>` +
           `</div>` +
           `<div class="ub-row">` +
             `<div class="ub-k"><span>Full-contract return</span><b>${money(retMed)}</b><i>average car of this view</i></div>` +
-            `<div class="ub-k"><span>Towing + repair</span><b class="dn">−${money(custoRec)}</b><i>average of ${recN} real cases</i></div>` +
-            `<div class="ub-k"><span>Per unpaid week</span><b class="dn">−${money(custoSem)}</b><i>−${money(feeMed)} fee · +${money(wearSaved)} wear the parked car skips</i></div>` +
-            `<div class="ub-k ub-ev"><span>Repossession event</span><b class="dn">−${money(custoEvento)}</b><i>towing + repair + one unpaid week</i></div>` +
+            `<div class="ub-k"><span>Recovery costs</span><b class="dn">−${money(custoRec)}</b><i>recovery + repair · avg of ${recN} real cases</i></div>` +
+            `<div class="ub-k"><span>Unpaid week</span><b class="dn">−${money(custoSem)}</b><i>−${money(feeMed)} avg weekly fee (fleet mix) · +${money(wearSaved)} wear the parked car skips</i></div>` +
+            `<div class="ub-k ub-ev"><span>Repossession event</span><b class="dn">−${money(custoEvento)}</b><i>Recovery costs + one unpaid week</i></div>` +
           `</div>` +
           `<div class="ub-sim">` +
             `<div class="ub-sl"><label>Repossessions<b id="ubRecV">${unitBeRec}</b></label><input type="range" id="ubRec" min="0" max="12" step="1" value="${unitBeRec}"></div>` +
@@ -8285,6 +8289,25 @@
             { type: 'line', label: 'trend', data: [{ x: 0, y: b0 }, { x: xMax, y: b0 + m * xMax }],
               borderColor: INK_LINE(), borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0 },
           ] },
+        // o marginal escrito na PRÓPRIA linha: pílula no fim da tendência, onde o olho já está
+        plugins: [{ id: 'scatTrendLbl', afterDatasetsDraw(ch) {
+          const { ctx, chartArea: a, scales: { x, y } } = ch; if (!a) return;
+          const xe = Math.min(xMax, x.max), ye = b0 + m * xe;
+          let py = y.getPixelForValue(ye);
+          py = Math.max(a.top + 14, Math.min(py, a.bottom - 14));
+          const fam = getComputedStyle(document.body).fontFamily;
+          const txt = (m < 0 ? '−' : '+') + money(Math.abs(m) / K) + (unitScatX === 'weeks' ? ' / unpaid week' : ' / repossession');
+          ctx.save();
+          ctx.font = '800 10.5px ' + fam; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+          const tw = ctx.measureText(txt).width + 14;
+          const dark = document.documentElement.classList.contains('dark');
+          ctx.fillStyle = dark ? 'rgba(24,27,35,.95)' : 'rgba(255,255,255,.95)';
+          ctx.strokeStyle = dark ? 'rgba(255,255,255,.25)' : 'rgba(55,65,81,.4)'; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.roundRect(a.right - tw - 4, py - 10, tw, 20, 10); ctx.fill(); ctx.stroke();
+          ctx.fillStyle = m < 0 ? (dark ? '#FCA5A5' : '#B91C1C') : (dark ? '#6EE7B7' : '#047857');
+          ctx.fillText(txt, a.right - 11, py + .5);
+          ctx.restore();
+        } }],
         options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'nearest', intersect: true },
           plugins: { legend: { display: false }, datalabels: { display: false },
             tooltip: { callbacks: { label: (cq) => { const q = cq.raw || {}; return (q.pl ? q.pl + ' — ' : '') + (unitScatX === 'weeks' ? q.x + ' wk unpaid' : q.x + ' repossessions') + ' · ' + money((q.y || 0) / K) + ' full contract'; } } } },
@@ -8306,7 +8329,8 @@
       const K = finCurK();
       // sinal ANTES da moeda: fmtQty devolveria "US$ -48", que lê mal
       const money = (v) => (v < 0 ? '−' : '') + finCS() + ' ' + fmtQty(Math.abs(v) * K);
-      const chip = (t, v, cl) => `<span class="up-chip${cl ? ' ' + cl : ''}"><i>${escH(t)}</i><b>${v}</b></span>`;
+      // qualquer valor NEGATIVO fica vermelho, mesmo sem classe explícita (orçado, cash…)
+      const chip = (t, v, cl) => { if (!cl && String(v).indexOf('−') === 0) cl = 'down'; return `<span class="up-chip${cl ? ' ' + cl : ''}"><i>${escH(t)}</i><b>${v}</b></span>`; };
       // ---- O QUE DESTOA NESTE CARRO ----
       // Em vez de uma seção à parte, os desvios entram como pastilhas no MESMO painel dos números
       // grandes. Cada componente REALIZADO do carro (guincho, reparo, multa, peça, revisão e
@@ -9596,8 +9620,11 @@
             // vencimento vazio = parcela paga à vista na assinatura do endosso (início da frota)
             const d = pc.venc ? new Date(pc.venc + 'T12:00:00') : curIni;
             const pp = Math.max(1, Math.min(PMAX, Math.floor((d - curIni) / MSd / MESd) + 1));
+            // realizado a partir de 00:01 (Brasília) do DIA do vencimento — não espera o refresh
+            const hojeSP = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+            const vencida = pc.venc ? pc.venc <= hojeSP : true;
             if (pp !== period) return;
-            if (d <= hoje) real += pc.valor / ip.carsDiv; else proj += pc.valor / ip.carsDiv;
+            if (vencida) real += pc.valor / ip.carsDiv; else proj += pc.valor / ip.carsDiv;
           });
           return { rs: -real, rsProj: -proj };
         }

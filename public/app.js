@@ -8114,7 +8114,7 @@
         // texto ficava solto à esquerda, por baixo das barras, ilegível.
         { id: 'unitAvg', afterDatasetsDraw(ch) {
           const { ctx, chartArea: a, scales: { y } } = ch; if (!a || !y || !rows.length) return;
-          const med = rows.reduce((s, r) => s + r.real, 0) / rows.length * K;
+          const med = rows.reduce((s, r) => s + (modo15 ? (r.d15 || 0) : (modoFull ? (r.retFull || 0) : r.real)), 0) / rows.length * K;
           const ym = y.getPixelForValue(med);
           if (!(ym > a.top + 8 && ym < a.bottom - 4)) return;
           chartPillLine(ctx, a, ym, '#5A00F8', 'average ' + ccK(med));

@@ -2189,3 +2189,15 @@ html.dark .ub-card { box-shadow: 0 0 0 1px rgba(255,255,255,.04), 0 1px 3px rgba
 .ue-dd-opt > i { font-style: normal; font-size: 11.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .ue-dd-opt.sel > i { color: var(--accent-ink); }
 html.dark .ue-dd-list { box-shadow: 0 0 0 1px rgba(255,255,255,.05), 0 10px 26px rgba(0,0,0,.5); }
+
+/* BUG: o display:grid da lista vencia o atributo hidden (regra de UA) e o dropdown nunca fechava */
+.ue-dd-list[hidden] { display: none !important; }
+
+/* botão-mini de uma palavra no cabeçalho dos gráficos */
+.cc-mini { font-size: 11px; padding: 4px 11px; margin-left: 2px; }
+
+/* dropdown de ordenação do Unit (mesmo desenho do ue-dd, com o ícone de sort) */
+.ue-dd-sort { margin-left: auto; }
+.ue-dd-sort .ue-dd-btn { height: 28px; font-size: 11.5px; padding: 0 9px 0 10px; }
+.ue-dd-sort .ue-dd-btn svg:first-child { width: 12px; height: 12px; opacity: .8; transform: none !important; }
+.ue-dd-sort .ue-dd-list { left: auto; right: 0; min-width: 190px; }

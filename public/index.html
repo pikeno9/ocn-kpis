@@ -634,6 +634,11 @@
             <div class="cc-head"><h4>Share of COGS by month</h4><button type="button" class="costs-help" data-h="share">?</button></div>
             <div class="cc-cv cv-xl"><canvas id="ccShare"></canvas></div>
           </div>
+          <!-- km/semana da frota no tempo + quebras de padrao por placa -->
+          <div class="costs-chart" style="margin-top:14px">
+            <div class="cc-head"><h4 id="ccKmT">Fleet km/week over time</h4><span class="cc-hint" id="ccKmHint"></span><span id="ccKmCtl"></span><button type="button" class="costs-help" data-h="kmtrend">?</button></div>
+            <div class="cc-cv cv-mid"><canvas id="ccKmTrend"></canvas></div>
+          </div>
         </div>
         <!-- visão POR LINHA -->
         <div id="costsLineView">
@@ -646,7 +651,7 @@
               <div class="cc-cv cv-big"><canvas id="ccRank"></canvas></div>
             </div>
             <div class="costs-chart" id="ccAgeBox">
-              <div class="cc-head"><h4 id="ccAgeT">When it hits a car&#8217;s life</h4><button type="button" class="costs-help" data-h="age">?</button></div>
+              <div class="cc-head"><h4 id="ccAgeT">When it hits a car&#8217;s life</h4><span id="ccAgeCtl"></span><button type="button" class="costs-help" data-h="age">?</button></div>
               <div class="cc-agewrap">
                 <div class="cc-inds" id="ccAgeInds"></div>
                 <div class="cc-agecv"><div class="cc-cv cv-big"><canvas id="ccAge"></canvas></div></div>

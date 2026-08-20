@@ -2363,12 +2363,19 @@
   // Fonte única da promoção por placa: a aba "indrive" quando existir (valor + DATA do bônus e do
   // desconto), senão o par antigo tabela-fixa + import_baseID, ambos sem data. Usado também pelo
   // P&L e pela aba Unit, para as três leituras contarem a mesma história.
+  // Datas confirmadas com o financeiro (20/08/2026), enquanto a aba não existe: o repasse dos
+  // R$ 362.400 de bônus caiu de uma vez em 24/07/2026, e os descontos creditados em 18/06/2026.
+  const IDR_BONUS_EM = '2026-07-24';
+  const IDR_DESC_EM = '2026-06-18';
   const IDR_DE = (pl) => {
     const T = ((OCN.ue || {}).indrive || {}).placas;
     if (T) return T[pl] || null;
-    const d = (((OCN.ue || {}).idBase) || {}).descontos || {};
-    const b = ID_BONUS[pl] || 0, dd = d[pl] || 0;
-    return (b || dd) ? { bonus: b, bonusEm: null, desconto: dd, descontoEm: null } : null;
+    const b = ID_BONUS[pl] || 0;
+    // O desconto entra SÓ nas placas que também receberam bônus: são os dois lados da mesma
+    // adesão. As outras 46 da import_baseID são desconto sem contrapartida na promoção e ficam
+    // fora da linha (decisão do financeiro, 20/08/2026).
+    const dd = b ? ((((OCN.ue || {}).idBase) || {}).descontos || {})[pl] || 0 : 0;
+    return (b || dd) ? { bonus: b, bonusEm: IDR_BONUS_EM, desconto: dd, descontoEm: IDR_DESC_EM } : null;
   };
   // TIR (IRR) dos fluxos M0..Mn — taxa POR PERÍODO (o "mês" de 4,333 semanas do UE).
   //
@@ -9024,16 +9031,9 @@
       const p2 = Math.floor((d - curIni) / 86400000 / (SEMANAS_MES * 7)) + 1;
       return Math.max(0, Math.min(PMAX, p2));
     }
-    // Fonte da promoção: a aba "indrive" quando existir (valor + data por placa), senão a
-    // tabela fixa ID_BONUS (bônus) + import_baseID (desconto), ambas sem data, no M0.
-    const idrTab = () => ((U.indrive || {}).placas) || null;
-    function idrDaPlaca(pl) {
-      const T = idrTab();
-      if (T) return T[pl] || null;
-      const d = ((U.idBase || {}).descontos) || {};
-      const b = ID_BONUS[pl] || 0, dd = d[pl] || 0;
-      return (b || dd) ? { bonus: b, bonusEm: null, desconto: dd, descontoEm: null } : null;
-    }
+    // Fonte da promoção (a mesma do P&L e da aba Unit): aba "indrive_promo" quando existir,
+    // senão a tabela ID_BONUS + import_baseID com as datas fechadas com o financeiro.
+    const idrDaPlaca = (pl) => IDR_DE(pl);   // fonte única, no topo do arquivo
     // InDrive: R$ TOTAL que cai no período `p` do UE, contando só as placas do contexto (frota ou
     // placa selecionada). O recebimento é 1x por placa e cai no mês da DATA em que o dinheiro
     // entrou (aba "indrive"); sem data, no M0, como era antes.

@@ -7700,7 +7700,9 @@
       const src = meta && meta.foto;
       if (!src) { unitFotos[model] = null; return null; }
       const img = new Image();
-      img.onload = () => { const c = costsCharts.unitRet; if (c) c.draw(); };
+      // o gráfico é destruído e recriado a cada render (mk), então a referência guardada em
+      // costsCharts pode já estar morta quando a imagem chega — pergunta ao Chart.js qual é a viva
+      img.onload = () => { const c = Chart.getChart('unitRet'); if (c) c.draw(); };
       img.src = src;
       unitFotos[model] = img;
       return img;

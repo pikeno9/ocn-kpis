@@ -10,6 +10,7 @@ const cobrancas = require('./lib/cobrancas');
 const frota = require('./lib/frota');
 const revisoes = require('./lib/revisoes');
 const utilization = require('./lib/utilization');
+const adicionais = require('./lib/adicionais');
 const multas = require('./lib/multas');
 const reposicao = require('./lib/reposicao');
 const payments = require('./lib/payments');
@@ -64,6 +65,10 @@ async function refresh(force) {
     try { data.ue.judBase = compute.parseJudBase(sheets.jud); }
     catch (e) { console.error('[import_jud] falhou:', e.message); data.ue.judBase = null; }
     // aba 'indrive' (opcional): quando existir, é ELA que manda no bônus e no desconto — com data
+    // desconto da inDrive DATADO, do painel de cobrancas (aba Adicionais). Rota nova: enquanto
+    // nao estiver no ar devolve null e o site segue com a data fixa da fonte antiga.
+    try { data.ue.idrAdicionais = await adicionais.build(data.ue.vinculos); }
+    catch (e) { console.error('[adicionais] falhou:', e.message); data.ue.idrAdicionais = null; }
     try { data.ue.indrive = compute.parseIndrive(sheets.indriveTab); }
     catch (e) { console.error('[indrive] falhou:', e.message); data.ue.indrive = null; }
     try { data.ue.idBase = compute.parseBaseID(sheets.baseID); }

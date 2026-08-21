@@ -2411,7 +2411,17 @@
     // adesão. As outras 46 da import_baseID são desconto sem contrapartida na promoção e ficam
     // fora da linha (decisão do financeiro, 20/08/2026).
     const dd = b ? ((((OCN.ue || {}).idBase) || {}).descontos || {})[pl] || 0 : 0;
-    return (b || dd) ? { bonus: b, bonusEm: IDR_BONUS_EM, desconto: dd, descontoEm: IDR_DESC_EM } : null;
+    if (!b && !dd) return null;
+    // DATA REAL do desconto quando o lançamento existe na aba Adicionais do painel de cobranças
+    // (motivo "primeira ativação inDrive"). As placas da 1ª rodada nunca foram lançadas lá e
+    // ficam com a data fechada com o financeiro.
+    const ad = (((OCN.ue || {}).idrAdicionais) || {}).placas || {};
+    const A = ad[pl];
+    return {
+      bonus: b, bonusEm: IDR_BONUS_EM,
+      desconto: A && A.desconto ? A.desconto : dd,
+      descontoEm: A && A.descontoEm ? A.descontoEm : IDR_DESC_EM,
+    };
   };
   // TIR (IRR) dos fluxos M0..Mn — taxa POR PERÍODO (o "mês" de 4,333 semanas do UE).
   //
@@ -8092,7 +8102,7 @@
           (unitModel != null ? unitModel : unitFleet != null ? 'fleet ' + unitFleet : 'all fleets') +
           (unitFilter === 'back' ? ' · back in' : unitFilter === 'below' ? ' · below budget' : '')) +
         card('Above budget', String(above), Math.round(above / Math.max(1, rows.length) * 100) + '% of the cars', '#059669') +
-        card('Below budget', String(below), 'the red bars', '#DC2626') +
+        card('Below budget', String(below), 'the blue bars', '#1D4ED8') +
         card('Cash-positive', String(positive), 'return ≥ 0 regardless of budget') +
         card('Total Δ vs budget', (totD >= 0 ? '+' : '−') + money(Math.abs(totD)), 'sum of every car\'s delta', totD >= 0 ? '#059669' : '#DC2626') +
         '</div>';

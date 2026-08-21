@@ -2407,21 +2407,20 @@
     const T = ((OCN.ue || {}).indrive || {}).placas;
     if (T) return T[pl] || null;
     const b = ID_BONUS[pl] || 0;
-    // O desconto entra SÓ nas placas que também receberam bônus: são os dois lados da mesma
-    // adesão. As outras 46 da import_baseID são desconto sem contrapartida na promoção e ficam
-    // fora da linha (decisão do financeiro, 20/08/2026).
-    const dd = b ? ((((OCN.ue || {}).idBase) || {}).descontos || {})[pl] || 0 : 0;
+    // ---- DESCONTO: duas fontes, nesta ordem ----
+    // 1) LANÇAMENTO no painel de cobranças (aba Adicionais, motivo "Primeira ativação inDrive"):
+    //    tem valor E data por motorista. Cobre as rodadas 2, 3 e 4 — 38 placas.
+    // 2) 1ª RODADA: essas nunca foram lançadas no painel (a aba é posterior). Ficam com o valor
+    //    da import_baseID e a data fechada com o financeiro. O corte é a coluna `rodada_ativacao`
+    //    da própria planilha, não o bônus: haver ou não bônus não decide se o desconto existiu.
+    const AD = (((OCN.ue || {}).idrAdicionais) || {}).placas || {};
+    const A = AD[pl];
+    const IB = ((OCN.ue || {}).idBase) || {};
+    const primeiraRodada = String((IB.rodadas || {})[pl] || '') === '1';
+    const dd = A && A.desconto ? A.desconto : (primeiraRodada ? ((IB.descontos || {})[pl] || 0) : 0);
+    const ddEm = A && A.descontoEm ? A.descontoEm : IDR_DESC_EM;
     if (!b && !dd) return null;
-    // DATA REAL do desconto quando o lançamento existe na aba Adicionais do painel de cobranças
-    // (motivo "primeira ativação inDrive"). As placas da 1ª rodada nunca foram lançadas lá e
-    // ficam com a data fechada com o financeiro.
-    const ad = (((OCN.ue || {}).idrAdicionais) || {}).placas || {};
-    const A = ad[pl];
-    return {
-      bonus: b, bonusEm: IDR_BONUS_EM,
-      desconto: A && A.desconto ? A.desconto : dd,
-      descontoEm: A && A.descontoEm ? A.descontoEm : IDR_DESC_EM,
-    };
+    return { bonus: b, bonusEm: IDR_BONUS_EM, desconto: dd, descontoEm: ddEm };
   };
   // TIR (IRR) dos fluxos M0..Mn — taxa POR PERÍODO (o "mês" de 4,333 semanas do UE).
   //

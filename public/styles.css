@@ -2226,3 +2226,6 @@ html.dark .ub-ev { border-left-color: #F87171; }
 .cc-leg-tg { cursor: pointer; user-select: none; border-radius: 6px; padding: 1px 4px; margin: -1px -4px; }
 .cc-leg-tg:hover { background: rgba(90, 0, 248, .07); }
 .cc-leg-tg.off { opacity: .45; text-decoration: line-through; }
+
+/* Unit — terceiro estado da barra: abaixo do orçado mas ainda com retorno positivo */
+.cc-leg .sw-bl { background: linear-gradient(180deg, #60A5FA, #1D4ED8); }

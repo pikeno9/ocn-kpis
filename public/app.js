@@ -2365,6 +2365,42 @@
   // P&L e pela aba Unit, para as três leituras contarem a mesma história.
   // Datas confirmadas com o financeiro (20/08/2026), enquanto a aba não existe: o repasse dos
   // R$ 362.400 de bônus caiu de uma vez em 24/07/2026, e os descontos creditados em 18/06/2026.
+  // ---- PRO-RATA DA PRIMEIRA PARCELA DE SUBRENTAL, PLACA A PLACA ----
+  // Conferido contra as faturas da locadora de maio/junho/julho de 2026 (medição por placa).
+  // A locadora cobra dias corridos da ENTREGA DO CARRO À OCN até o fim do mês, à diária de
+  // mensal ÷ 30 — e conta os dias de CADA placa. O site calculava uma fração só por frota, pela
+  // data de início dela, e errava em 117 das 120 placas conferidas: aplicava 25 dias a carros de
+  // 26, 18 a carros de 17 e 19, e a fração cheia da leva a carros que entraram com 1 ou 4 dias.
+  // Aqui ficam os DIAS de cada placa; só o VALOR da parcela muda, o calendário de pagamento é o
+  // mesmo de antes. A frota 1 não entra: a primeira cobrança dela está na fatura de abril, que
+  // não temos — ela continua com a fração calculada pela data de início.
+  const SUBR_PRO_DIAS = {
+    TYZ0I79: 26, TYZ0I84: 26, TYZ0I94: 26, TYZ0J06: 26, TYZ0J22: 26, TYZ2B33: 26, TYZ2B81: 26, TYZ2C36: 26,
+    TYZ2C54: 26, TYZ2C55: 26, TYZ2C56: 26, TYZ2C59: 26, TYZ2C62: 26, TYZ2C64: 26, TYZ2C68: 26, TYZ2C70: 26,
+    TYZ2D05: 25, TYZ2D09: 25, TYZ2D12: 25, TYZ2D13: 5, TYZ2D14: 25, TYZ2D16: 25, TYZ2D17: 25, TYZ2D18: 25,
+    TYZ2D19: 25, TYZ2D20: 25, TYZ2D21: 25, TYZ2D25: 25, TYZ2D26: 25, TYZ2D28: 25, FDH1J42: 17, FGY9B21: 17,
+    GFH8B24: 18, GFI1F82: 19, QSP5D27: 18, QSQ2C51: 18, QST2H05: 17, QST3C58: 19, QSW0D91: 19, QSW4A66: 18,
+    QSW6D91: 19, QSY0A87: 19, QSY1H64: 17, QSY1H78: 18, TJE4J05: 17, TKB2D93: 19, TKU0C41: 18, TKU7I06: 18,
+    TLE4D86: 18, TLO1H86: 18, UDC6H92: 17, UDG5A66: 18, UDH0J71: 19, UDM6C77: 19, UDO6G53: 18, UDP1G05: 19,
+    TXZ3D13: 1, TYZ0G79: 1, TYZ0G91: 1, TYZ0I40: 1, TYZ0I45: 1, TYZ0I48: 1, TYZ0I50: 1, TYZ0I54: 1,
+    TYZ0I57: 1, TYZ2D24: 1, TYZ2D29: 1, TYZ2D31: 1, TYZ2D32: 1, TYZ2D33: 1, TYZ2D34: 1, TYZ2D35: 1,
+    TYZ2D36: 1, TYZ2D38: 1, TYZ2D39: 1, TYZ2D40: 1, TYZ2D44: 1, TYZ2D46: 1, TYZ2D49: 1, TYZ2D57: 1,
+    TYZ2F05: 1, TYZ2F16: 1, TYZ2G55: 1, TYZ2G56: 1, TYZ2G57: 1, TYZ2G60: 1, TYZ2G61: 1, TYZ2G63: 1,
+    TYZ2G64: 1, TYZ0G67: 28, TYZ0G73: 28, TYZ0G74: 28, TYZ0G77: 28, TYZ0I41: 28, TZI2I72: 11, FVB4C82: 10,
+    QST1J06: 11, QSV7G43: 11, QSY4F75: 11, QSZ4A69: 1, UDL3J65: 10, UDN1J23: 10, UDP7J13: 10, UDQ2F42: 10,
+    UEJ4J01: 10, UEK2E67: 4, UGJ7E22: 4, UGL7F47: 10, UOG9J70: 11, UOO9C09: 10, UOT5H00: 10, UOV9H90: 4,
+    UPK2C50: 1, UPS6I70: 10, UPX0D90: 11, UQD1E00: 11, UQF5I00: 10, UQY9I89: 1, URI4A04: 4, URK9B09: 10,
+  };
+  const SUBR_PRO_BASE = 30;   // a diária da fatura é sempre mensal ÷ 30, mesmo em mês de 31
+  // Fração de pro-rata a usar: da PLACA quando a fatura a cobre; na visão de frota, a média das
+  // placas dela (é o que reproduz o total faturado). Sem nenhuma placa na tabela, devolve null e
+  // quem chamou fica com a conta antiga pela data de início da frota.
+  const subrProFrac = (placas) => {
+    const ds = (placas || []).map((pl) => SUBR_PRO_DIAS[pl]).filter((d) => d != null);
+    if (!ds.length) return null;
+    return (ds.reduce((s, d) => s + d, 0) / ds.length) / SUBR_PRO_BASE;
+  };
+
   const IDR_BONUS_EM = '2026-07-24';
   const IDR_DESC_EM = '2026-06-18';
   const IDR_DE = (pl) => {
@@ -3093,7 +3129,8 @@
           // mesma regra do UE/modelo: 1ª parcela PRO-RATA dos dias com o carro no mês de entrada;
           // o complemento fecha os 12 meses numa 13ª cobrança, um mês depois da última parcela
           const dimIni = new Date(ini.getFullYear(), ini.getMonth() + 1, 0).getDate();
-          const proR = Math.max(0, Math.min(1, (dimIni - ini.getDate()) / dimIni));
+          const proMed = subrProFrac(f.placas);   // fração medida na fatura (média das placas da frota)
+          const proR = proMed != null ? proMed : Math.max(0, Math.min(1, (dimIni - ini.getDate()) / dimIni));
           for (let i = 1; i <= 13; i++) {
             const d = new Date(ini.getFullYear(), ini.getMonth() + i, 26, 12);
             if (d > endCur || d.getFullYear() !== finYear) continue;
@@ -5240,7 +5277,8 @@
         const subr = par('__subrental_mensal__');
         if (subr > 0) {
           const dimIni = new Date(ini.getFullYear(), ini.getMonth() + 1, 0).getDate();
-          const proR = Math.max(0, Math.min(1, (dimIni - ini.getDate()) / dimIni));
+          const proMed = subrProFrac(f.placas);   // fração medida na fatura (média das placas da frota)
+          const proR = proMed != null ? proMed : Math.max(0, Math.min(1, (dimIni - ini.getDate()) / dimIni));
           for (let i = 1; i <= 13; i++) {
             const d = new Date(ini.getFullYear(), ini.getMonth() + i, 26, 12);
             if (d.getFullYear() !== finYear) continue;
@@ -7652,6 +7690,21 @@
     let unitSort = 'fleet', unitFleet = null, _unitCache = null, _ueIrrLoading = false;
     let unitFull = true;   // visão das barras: contrato inteiro (padrão) x realizado até hoje — independente da ordenação
     let unitBudLineOff = false;   // esconde a linha tracejada do orçado no gráfico (clique na legenda)
+    // fotos dos modelos, carregadas uma vez; quando a imagem chega, repinta o gráfico
+    const unitFotos = {};
+    function unitFotoDe(model) {
+      if (!model) return null;
+      if (unitFotos[model] !== undefined) return unitFotos[model];
+      const meta = Object.values((OCN.modelos || {})).find((m) => m.label === model)
+        || (OCN.modelos || {})[String(model).split(' ')[0]];
+      const src = meta && meta.foto;
+      if (!src) { unitFotos[model] = null; return null; }
+      const img = new Image();
+      img.onload = () => { const c = costsCharts.unitRet; if (c) c.draw(); };
+      img.src = src;
+      unitFotos[model] = img;
+      return img;
+    }
     let unitModel = null;      // filtro por MODELO (Polo/Argo/Tera) — cruza com o de frota
     let unitFilter = null;     // null | 'back' (recuperados/devolvidos) | 'below' (abaixo do budget)
     // PADRÃO: promoção InDrive FORA. A campanha foi uma vez por placa e não se repete no próximo
@@ -7761,10 +7814,10 @@
             v -= par('__subrental_mensal__') + par('__ins_total__') / 12 + par('__gps_mensal__');
             // multas fora do orçado também (18/08) — a régua acompanha o realizado
             v -= (AGf.Maintenance.ok ? AGf.Maintenance.per[p] || 0 : 0);
-            if (!unitJudOff) {                            // o orçado segue o mesmo botão Rec+Rep
-              v -= (AGf.Recovery.ok ? AGf.Recovery.per[p] || 0 : 0);
-              v -= (AGf.Repair.ok ? AGf.Repair.per[p] || 0 : 0);
-            }
+            // A régua NÃO segue o botão Rec+Rep: tirar guincho e reparo tem de fazer a BARRA subir
+            // contra um orçado parado. Antes o orçado subia junto e o carro parecia piorar.
+            v -= (AGf.Recovery.ok ? AGf.Recovery.per[p] || 0 : 0);
+            v -= (AGf.Repair.ok ? AGf.Repair.per[p] || 0 : 0);
             v -= (AGf.Parts.ok ? AGf.Parts.per[p] || 0 : 0);
           }
           return v;
@@ -7783,7 +7836,8 @@
         const subr = par('__subrental_mensal__');
         if (subr > 0) {
           const dim = new Date(ini.getFullYear(), ini.getMonth() + 1, 0).getDate();
-          const proR = Math.max(0, Math.min(1, (dim - ini.getDate()) / dim));
+          const proMed = subrProFrac(f.placas);
+          const proR = proMed != null ? proMed : Math.max(0, Math.min(1, (dim - ini.getDate()) / dim));
           for (let i = 1; i <= 13; i++) {
             const d = new Date(ini.getFullYear(), ini.getMonth() + i, 26, 12);
             if (d > hoje) break;
@@ -7809,7 +7863,8 @@
         const moDe = (d) => Math.max(0, Math.min(13, Math.ceil((d - ini) / MS / MESd)));
         if (subr > 0) {
           const dim0 = new Date(ini.getFullYear(), ini.getMonth() + 1, 0).getDate();
-          const proR0 = Math.max(0, Math.min(1, (dim0 - ini.getDate()) / dim0));
+          const proMed0 = subrProFrac(f.placas);
+          const proR0 = proMed0 != null ? proMed0 : Math.max(0, Math.min(1, (dim0 - ini.getDate()) / dim0));
           for (let i = 1; i <= 13; i++) {
             const d = new Date(ini.getFullYear(), ini.getMonth() + i, 26, 12);
             if (d > hoje) break;
@@ -7893,7 +7948,7 @@
           // "Back in" cobre também a DEVOLUÇÃO voluntária: rescisão (pelo motorista ou pela OCN)
           // em qualquer vínculo conta, além do carro parado sem motorista
           const devolvido = vinc.some((v) => v.fim && /rescis|devolu/i.test(v.motivo || '')) || (vinc.length > 0 && vinc.every((v) => v.fim));
-          out.push({ pl, fleet: f.id, ageM, real, bud, retFull: uc ? uc.netFull / fx : real + Math.max(0, budFull - bud), budFull, d15, kmWk, nRec, fee: par('__sub_semanal__') / fx, wUnpaid: par('__sub_semanal__') > 0 ? Math.max(0, revEsp - revSub) / par('__sub_semanal__') : 0, delta: real - bud, rev: (uc ? uc.inR : rev) / fx, cost: (uc ? uc.outR : (ev + sched)) / fx, inv, rMo, irrUe,
+          out.push({ pl, fleet: f.id, ageM, real, bud, retFull: uc ? uc.netFull / fx : real + Math.max(0, budFull - bud), budFull: (uc && uc.budFull != null) ? uc.budFull / fx : budFull, d15, kmWk, nRec, fee: par('__sub_semanal__') / fx, wUnpaid: par('__sub_semanal__') > 0 ? Math.max(0, revEsp - revSub) / par('__sub_semanal__') : 0, delta: real - bud, rev: (uc ? uc.inR : rev) / fx, cost: (uc ? uc.outR : (ev + sched)) / fx, inv, rMo, irrUe,
             cmp: { multas: cmp.multas / fx, revisoes: cmp.revisoes / fx, recovery: cmp.recovery / fx,
                    repair: cmp.repair / fx, pecas: cmp.pecas / fx,
                    subFalta: Math.max(0, revEsp - revSub) / fx },
@@ -8094,7 +8149,8 @@
           `</span>`
         : `<span class="cc-leg">` +
           `<i class="cc-leg-i"><span class="sw sw-up"></span>above budget</i>` +
-          `<i class="cc-leg-i"><span class="sw sw-dn"></span>below budget</i>` +
+          `<i class="cc-leg-i"><span class="sw sw-bl"></span>below budget</i>` +
+          `<i class="cc-leg-i"><span class="sw sw-dn"></span>negative return</i>` +
           `<i class="cc-leg-i cc-leg-tg${unitBudLineOff ? ' off' : ''}" id="unitBudLeg" title="${unitBudLineOff ? 'Click to bring the budget line back' : 'Click to hide the budget line'}"><span class="sw sw-bud"></span>${modoFull ? 'full-contract budget' : "budget at each car's age"}</i>` +
           `<i class="cc-leg-i"><span class="sw sw-avg"></span>average ${escH(ccK(medRet * K))}</i>` +
         `</span>`) +
@@ -8108,11 +8164,16 @@
         const g = ctx.chart.ctx.createLinearGradient(0, a.top, 0, a.bottom);
         g.addColorStop(0, hexTopo); g.addColorStop(1, hexBase); return g;
       };
+      // TRÊS estados, não dois: verde = acima do orçado; AZUL = abaixo do orçado mas ainda
+      // devolvendo dinheiro; vermelho = retorno negativo. Antes o azul e o vermelho eram a mesma
+      // cor, e um carro que só rendeu menos que o plano parecia estar destruindo capital.
       const corBarra = (ctx) => {
         const r = rows[ctx.dataIndex]; if (!r) return '#9CA3AF';
         if (r.pl === unitPlateSel) return grad(ctx, '#7C3AED', '#4C1D95');
-        const chave = unitSort === 'd15' ? (r.d15 || 0) : (modoFull ? (r.retFull || 0) - (r.budFull || 0) : r.delta);   // no modo Δ15, a cor é o sinal do delta
-        return chave >= 0 ? grad(ctx, '#34D399', '#047857') : grad(ctx, '#F87171', '#B91C1C');
+        const valor = modo15 ? (r.d15 || 0) : (modoFull ? (r.retFull || 0) : r.real);
+        const chave = modo15 ? (r.d15 || 0) : (modoFull ? (r.retFull || 0) - (r.budFull || 0) : r.delta);
+        if (valor < 0) return grad(ctx, '#F87171', '#B91C1C');
+        return chave >= 0 ? grad(ctx, '#34D399', '#047857') : grad(ctx, '#60A5FA', '#1D4ED8');
       };
       mk('unitRet', { data: { labels, datasets: [
           Object.assign({ type: 'bar', label: modo15 ? 'Δ vs 15 days ago' : 'Return', data: rows.map((r) => Math.round((modo15 ? (r.d15 || 0) : (modoFull ? (r.retFull || 0) : r.real)) * K)),
@@ -8144,6 +8205,41 @@
         // MÉDIA: linha CHEIA roxa, desenhada por cima das barras, com o rótulo numa pílula opaca
         // encostada à direita. Antes era tracejada igual ao orçado (as duas se confundiam) e o
         // texto ficava solto à esquerda, por baixo das barras, ilegível.
+        // MODELO DE CADA FROTA: na visão By fleet as barras de uma leva ficam todas juntas, então
+        // dá para marcar o bloco inteiro. Foto do carro em marca-d'água + nome do modelo por cima
+        // do grupo — resolve "que carro é essa frota?" sem gastar eixo nem legenda.
+        { id: 'unitFleetArt', beforeDatasetsDraw(ch) {
+          if (unitSort !== 'fleet' || !rows.length) return;
+          const { ctx, chartArea: a, scales: { x } } = ch; if (!a || !x) return;
+          const blocos = [];
+          rows.forEach((r, k) => {
+            const ult = blocos[blocos.length - 1];
+            if (ult && ult.fleet === r.fleet) { ult.fim = k; return; }
+            blocos.push({ fleet: r.fleet, model: r.model, ini: k, fim: k });
+          });
+          const escuro = document.documentElement.classList.contains('dark');
+          const fam = getComputedStyle(document.body).fontFamily;
+          blocos.forEach((b) => {
+            const x0 = x.getPixelForValue(b.ini), x1 = x.getPixelForValue(b.fim);
+            const meio = (x0 + x1) / 2, larg = Math.max(0, x1 - x0);
+            if (larg < 26) return;                       // bloco de 1-2 carros: não cabe nada
+            const foto = unitFotoDe(b.model);
+            if (foto && foto.complete && foto.naturalWidth) {
+              const h = Math.min(64, a.height * 0.22), w = h * (foto.naturalWidth / foto.naturalHeight);
+              if (w <= larg * 0.95) {
+                ctx.save(); ctx.globalAlpha = escuro ? 0.16 : 0.13;
+                ctx.drawImage(foto, meio - w / 2, a.top + 6, w, h);
+                ctx.restore();
+              }
+            }
+            ctx.save();
+            ctx.font = '800 10.5px ' + fam; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+            ctx.fillStyle = escuro ? 'rgba(231,232,236,.5)' : 'rgba(23,23,23,.42)';
+            const txt = (b.model || '') + '  ·  fleet ' + b.fleet;
+            if (ctx.measureText(txt).width < larg) ctx.fillText(txt, meio, a.top + 6);
+            ctx.restore();
+          });
+        } },
         { id: 'unitAvg', afterDatasetsDraw(ch) {
           const { ctx, chartArea: a, scales: { y } } = ch; if (!a || !y || !rows.length) return;
           const med = rows.reduce((s, r) => s + (modo15 ? (r.d15 || 0) : (modoFull ? (r.retFull || 0) : r.real)), 0) / rows.length * K;
@@ -8998,7 +9094,10 @@
       const mensal = par('__subrental_mensal__');
       if (!(mensal > 0)) return 0;
       const dim = new Date(curIni.getFullYear(), curIni.getMonth() + 1, 0).getDate();
-      const prorata = Math.max(0, Math.min(1, (dim - curIni.getDate()) / dim));
+      // pro-rata MEDIDO na fatura (por placa, ou média das placas do contexto); sem dado, cai na
+      // conta antiga pela data de início da frota
+      const medido = subrProFrac(plateView ? [plateView] : ctxPlates);
+      const prorata = medido != null ? medido : Math.max(0, Math.min(1, (dim - curIni.getDate()) / dim));
       let tot = 0;
       for (let i = 1; i <= 13; i++) {
         const d = new Date(curIni.getFullYear(), curIni.getMonth() + i, 26, 12, 0, 0);
@@ -11208,7 +11307,11 @@
               }
             });
             for (let q = 0; q <= PMAX; q++) { const c = B.T.net[q]; netFull += c ? (c.hasMain ? c.eff : (c.orc || 0)) : 0; }
-            window.__UECASH[pl] = { inR, outR: -outR, netFull };
+            // orçado acumulado no M13 = o número CINZA da última coluna do Acc Cashflow. É a régua
+            // que a tabela mostra; reconstruí-la à parte no Unit dava outro número e a linha do
+            // gráfico não conversava com a tabela que abre ao clicar na barra.
+            const accM13 = B.T.acc[PMAX];
+            window.__UECASH[pl] = { inR, outR: -outR, netFull, budFull: accM13 && accM13.orc != null ? accM13.orc : null };
           }
         }
       }

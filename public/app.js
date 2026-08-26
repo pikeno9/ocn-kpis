@@ -9893,10 +9893,12 @@
       // Calção: SEMPRE resolvido aqui, mesmo quando a frota não tem nenhum. Antes, frota sem
       // `__num_alugueis__` caía no fim da função e herdava o ORÇADO do modelo teórico — a frota 1
       // não pagou calção nenhum e mesmo assim aparecia um no M0 do realizado.
-      if (line === 'Security Deposit') return { rs: (secDepMag() > 0 && period === 0) ? -secDepMag() : 0 };
+      // Botão Deposit: tira o calção e a devolução da tabela inteira (não só da TIR). É o que
+      // faz o gráfico do Unit, os cartões e a régua responderem ao clique — todos leem daqui.
+      if (line === 'Security Deposit') return { rs: (!cauOff && secDepMag() > 0 && period === 0) ? -secDepMag() : 0 };
       if (line === 'Deposit Refund') {
         const rp = par('__refund_pct__') > 0 ? par('__refund_pct__') / 100 : refundPct; // caixinha da linha vence o global
-        return { rs: (secDepMag() > 0 && period === PMAX) ? secDepMag() * (1 + rp) : 0 }; // devolução corrigida, no M13
+        return { rs: (!cauOff && secDepMag() > 0 && period === PMAX) ? secDepMag() * (1 + rp) : 0 }; // devolução corrigida, no M13
       }
       // Compra/venda no M13: perda total NÃO compra nem vende (o carro já saiu da frota) — a placa
       // perdida zera na visão individual (plateCut) e sai da conta agregada (perActive: o M13
@@ -10057,6 +10059,9 @@
     };
     // orçado (planilha, USD) na moeda de exibição; all-mode = média ponderada dos orçados por modelo
     const orcDisp = (line, period) => {
+      // o orçado tem de seguir o mesmo botão: senão sai do realizado e fica na régua, e todo
+      // carro pareceria melhor contra o orçado só por ter desligado o calção
+      if (cauOff && (line === 'Security Deposit' || line === 'Deposit Refund')) return null;
       if (line === 'Subscription') {
         const fxS = currency === 'BRL' ? 1 : 1 / ORCADO_FX;
         const kS = viewMult();
@@ -11245,11 +11250,8 @@
       let insTot = 0;
       for (let p = 0; p <= PMAX; p++) { const v = lineVal('Insurance', p); if (v) { insTot += v; flows[p] -= v; } }
       flows[0] += insTot;
-      // caução fora (botão da aba Unit): o depósito sai do M0 e a devolução sai do M13 — mede a
-      // operação sem o capital de garantia empatado
-      if (cauOff) for (let p = 0; p <= PMAX; p++) {
-        ['Security Deposit', 'Security Deposit Refund'].forEach((Lb) => { const v = lineVal(Lb, p); if (v) flows[p] -= v; });
-      }
+      // calção: NÃO se subtrai aqui. Com o botão Deposit desligado a própria tabela já devolve
+      // zero nas duas linhas, e descontar de novo tirava o valor em dobro do fluxo.
       return { flows, insTot, idrTot };
     }
 

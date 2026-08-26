@@ -2538,6 +2538,19 @@
     document.body.appendChild(ov);
     ov.addEventListener('click', (e) => { if (e.target === ov || (e.target.dataset && e.target.dataset.close)) ov.remove(); });
   }
+  // Fecha qualquer dropdown .ue-dd aberto com UM listener só. Os renders NÃO registram mais
+  // listeners em document: cada registro antigo ficava vivo para sempre (closure) e a página
+  // acumulava centenas deles — era boa parte da lentidão.
+  document.addEventListener('click', () => {
+    document.querySelectorAll('.ue-dd-list:not([hidden])').forEach((lst) => {
+      lst.hidden = true;
+      const b = lst.parentElement && lst.parentElement.querySelector('.ue-dd-btn');
+      if (b) b.setAttribute('aria-expanded', 'false');
+    });
+  });
+  // gráficos sem animação de entrada: com ~20 charts por aba, o tween de 600ms em cada um
+  // era o "travadinho" ao navegar. O conteúdo é o mesmo, só aparece no primeiro frame.
+  if (window.Chart) Chart.defaults.animation = false;
   document.addEventListener('click', (e) => {
     const b = e.target && e.target.closest && e.target.closest('.irr-cash');
     if (!b) return;
@@ -2556,6 +2569,7 @@
     // notas de premissa: curtas e em lista, para não esticarem o parágrafo de leitura
     const notas = [];
     if (insM0) notas.push(`Full insurance premium (${money(insM0)}) charged at M0 — signed once, covers 12 months.`);
+    if (rM > 1.00) notas.push('A rate above 100% a month stops comparing to other investments — it comes from the cash returning EVERY month, not from one big gain. Read it together with the net-cash figure.');
     if (idr && idr.net) {
       notas.push(idr.on
         ? `InDrive promo INSIDE the rate (${money(idr.net)} net, both sides) — one-off, does not repeat: switch iD off to see the recurring business.`
@@ -2600,12 +2614,14 @@
     // NORMAL deste negócio (payback em ~3 meses). Agora que o seguro entra no M0, a promoção
     // InDrive sai da conta e a taxa "simples" aparece ao lado como contraponto conservador, uma
     // TIR alta é informação, não ruído: o corte fica só para o degenerado de verdade.
+    // O corte de 100%/mês escondia painéis LEGÍTIMOS: com a projeção de Rec+Rep desligada por
+    // padrão, um contrato que paga o desembolso em ~2 meses passa fácil disso. Taxa alta agora
+    // APARECE, com a ressalva escrita; "not meaningful" ficou só para quando não há desembolso
+    // inicial que preste (nada para remunerar = a taxa explode por construção).
     const absurda = rM > 1.00;
-    if (semCalcao || absurda) {
+    if (semCalcao) {
       const mult = invested > 0 ? (netTot / invested) : null;
-      const porque = semCalcao
-        ? `Almost no cash goes in up front (${money(invested)} against ${money(inflowTot)} of inflows), so the rate that zeroes the NPV runs away from any useful range.`
-        : `The upfront outlay is still small next to a full year of subscriptions, so the rate compounds to a number that no longer compares to anything.`;
+      const porque = `Almost no cash goes in up front (${money(invested)} against ${money(inflowTot)} of inflows), so the rate that zeroes the NPV runs away from any useful range.`;
       return `<div class="irr-panel irr-thin irr-2col">` +
         `<div class="irr-col">` +
           `<div class="irr-main">` +
@@ -3369,6 +3385,17 @@
         FIN_COGS_LINES.forEach((L) => cogsTot[m] += cogs[L][m]);
         cogsTot[m] += secDep[m] + vehPur[m]; // calção e compra do veículo entram no COGS (como no UE)
       }
+      // ---- Multas saem da Receita e do COGS e viram UMA linha no OPEX (pedido 26/08) ----
+      // O demonstrativo muda de lugar, o imposto não: a base federal continua tributando o
+      // spread das multas (abaixo), e o payment processing continua sobre o caixa processado
+      // de verdade — que inclui as multas cobradas dos motoristas.
+      const finesNet = zeros();
+      for (let m = 0; m < FIN_MONTHS; m++) {
+        const fin = (rev['Traffic fines'] && rev['Traffic fines'][m]) || 0;
+        const finOut = (cogs['Traffic fines (out)'] && cogs['Traffic fines (out)'][m]) || 0;
+        finesNet[m] = fin + finOut;
+        grossRev[m] -= fin; cogsTot[m] -= finOut;
+      }
       // ---- Federal tax sobre MARGEM nas linhas de giro/repasse, não sobre o valor cheio ----
       // Vehicle Sell: tributa (venda − compra), já que os dois acontecem no mesmo mês da placa.
       // Traffic fines: tributa só o spread (recebido do cliente − pago à LM).
@@ -3391,7 +3418,7 @@
         taxBase[m] = grossRev[m]
           - sell + Math.max(0, sell + (vehPur[m] || 0))
           - ref
-          - fin + Math.max(0, fin + finOut)
+          + Math.max(0, fin + finOut)   // multas: só o spread na base, como antes (a receita delas já saiu do grossRev)
           + (netSubLaw ? -sub + Math.max(0, sub + subr) : 0);
       }
       // o CRÉDITO segue a MESMA base do imposto: crédito sobre a receita cheia com o federal na
@@ -3402,7 +3429,7 @@
       const cred = taxBase.map((v) => Math.max(0, v) * taxCred);
       const taxes = grossRev.map((_, m) => fed[m] + cred[m]);
       const netRev = grossRev.map((v, m) => v + taxes[m]);
-      const payProc = grossRev.map((v, m) => -v * payFeeM(m));
+      const payProc = grossRev.map((v, m) => -(v + ((rev['Traffic fines'] && rev['Traffic fines'][m]) || 0)) * payFeeM(m)); // o processador cobra sobre o caixa que passa por ele, multas incluídas
       const gm = netRev.map((v, m) => v + cogsTot[m] + payProc[m]);
       // Receita do NEGÓCIO PRINCIPAL (aluguel): base do % da Gross Margin. Venda do carro, bônus
       // InDrive e devolução do caução são eventos com margem própria (≈0 no caso da venda) — dentro
@@ -3440,7 +3467,7 @@
       const sumItems = (list) => { const a = zeros(); (list || []).forEach((it) => { for (let m = 0; m < FIN_MONTHS; m++) a[m] -= Number((it.v || [])[m]) || 0; }); return a; };
       const rentTot = sumItems(finSga.rent), profTot = sumItems(finSga.prof), itTot = sumItems(finSga.it);
       const sga = zeros(); for (let m = 0; m < FIN_MONTHS; m++) sga[m] = hcTot[m] + rentTot[m] + profTot[m] + itTot[m];
-      const opex = zeros(); for (let m = 0; m < FIN_MONTHS; m++) opex[m] = cacTot[m] + sga[m]; // #2: secDep saiu daqui (foi pro COGS)
+      const opex = zeros(); for (let m = 0; m < FIN_MONTHS; m++) opex[m] = cacTot[m] + sga[m] + finesNet[m]; // #2: secDep saiu daqui (foi pro COGS)
       const netCf = gm.map((v, m) => v + opex[m]);
       // ---- caixa ACUMULADO: continua de onde o ano anterior parou ----
       // 2027 não é uma operação nova, é a continuação de 2026: zerar o acumulado em janeiro
@@ -3454,11 +3481,11 @@
       const headcount = zeros(); for (let m = 0; m < FIN_MONTHS; m++) (finHc.roles || []).forEach((r) => { headcount[m] += hcOf(r, m); });
       const payFeePct = new Array(FIN_MONTHS).fill(0).map((_, m) => finParM('__fin_payfee__', m));
       return { delivered, active, ptLost, ended, rev, cogs, secDep, grossRev, fed, cred, taxes, netRev, coreRev, cogsTot, payProc, gm,
-        base, meal, health, ptax, th13, bonus, hcTot, commission, adsTot, infTot, cacTot, rentTot, profTot, itTot, sga, opex, netCf, accCf, newDelivered, headcount, payFeePct, actualsThrough, vehPur, indriveTot, carryIn, recovered };
+        base, meal, health, ptax, th13, bonus, hcTot, commission, adsTot, infTot, cacTot, rentTot, profTot, itTot, sga, opex, finesNet, netCf, accCf, newDelivered, headcount, payFeePct, actualsThrough, vehPur, indriveTot, carryIn, recovered };
     }
 
     // ---------- P&L ----------
-    const PNL_GROUPS = ['grev', 'tax', 'cogs', 'opex', 'cac', 'sga', 'hc'];
+    const PNL_GROUPS = ['grev', 'tax', 'cogs', 'opex', 'fines', 'cac', 'sga', 'hc'];
     const pnlSnap = () => (pnlVersions.find((v) => v.id === pnlVersion) || {}).snapshot || null;
     let pnlActualsThrough = null; // último mês calendário coberto por dados realizados
     // Trilho de análise vertical: divs posicionadas na altura de cada linha da tabela (medida no
@@ -3524,18 +3551,22 @@
       // Color code por NÍVEL: L1 = resultados (Gross/Net Revenue, Gross Margin, Net cashflow),
       // L2 = blocos (COGS, Payment processing, OPEX), L3 = componentes, L4 = detalhe dentro de um L3.
       push('Gross Revenue', P.grossRev, 'pnl-l1', { group: 'grev' });
-      FIN_REV_LINES.forEach((L) => push(L === 'Traffic fines' ? 'Traffic fines charged' : L, P.rev[L] || [], 'pnl-l3', { ancestors: ['grev'] }));
+      FIN_REV_LINES.forEach((L) => { if (L === 'Traffic fines') return; push(L, P.rev[L] || [], 'pnl-l3', { ancestors: ['grev'] }); }); // multas moraram aqui até 26/08 — hoje são OPEX
       push('Taxes on sales', P.taxes, 'pnl-l2', { group: 'tax' });
       push('Federal taxes', P.fed, 'pnl-l3', { ancestors: ['tax'] });
       push('Tax input credit', P.cred, 'pnl-l3', { ancestors: ['tax'] });
       push('Net Revenue', P.netRev, 'pnl-l1');
       push('COGS', P.cogsTot, 'pnl-l2', { group: 'cogs' });
-      FIN_COGS_LINES.forEach((L) => push(L === 'Traffic fines (out)' ? 'Traffic fines paid' : L, P.cogs[L] || [], 'pnl-l3', { ancestors: ['cogs'] }));
+      FIN_COGS_LINES.forEach((L) => { if (L === 'Traffic fines (out)') return; push(L, P.cogs[L] || [], 'pnl-l3', { ancestors: ['cogs'] }); });
       push('Sub-rental security deposit', P.secDep, 'pnl-l3', { ancestors: ['cogs'] });
       push('Vehicle Purchase', P.vehPur || [], 'pnl-l3', { ancestors: ['cogs'] });
       push('Payment processing', P.payProc, 'pnl-l2');
       push('Gross Margin', P.gm, 'pnl-l1', { pct: gmPct, pctTot: sum(gmBase) ? (sum(P.gm) / sum(gmBase)) * 100 : null });
       push('OPEX', P.opex, 'pnl-l2', { group: 'opex' });
+      // multas dentro do OPEX: linha única (cobrado + pago, o pago vem negativo), aberta em duas
+      push('Traffic fines', P.finesNet || [], 'pnl-l3', { group: 'fines', ancestors: ['opex'] });
+      push('Traffic fines charged', (P.rev && P.rev['Traffic fines']) || [], 'pnl-l4', { ancestors: ['opex', 'fines'] });
+      push('Traffic fines paid', (P.cogs && P.cogs['Traffic fines (out)']) || [], 'pnl-l4', { ancestors: ['opex', 'fines'] });
       push('CAC', P.cacTot, 'pnl-l3', { group: 'cac', ancestors: ['opex'] });
       push('Sales commission', P.commission, 'pnl-l3', { ancestors: ['opex', 'cac'] });
       push('Google/Meta Ads', P.adsTot, 'pnl-l3', { ancestors: ['opex', 'cac'] });
@@ -7701,6 +7732,10 @@
     let unitSort = 'fleet', unitFleet = null, _unitCache = null, _ueIrrLoading = false;
     let unitFull = true;   // visão das barras: contrato inteiro (padrão) x realizado até hoje — independente da ordenação
     let unitBudLineOff = false;   // esconde a linha tracejada do orçado no gráfico (clique na legenda)
+    // Trava de ESCALA do gráfico de retorno: clicar em InDrive/Deposit/Rec+Rep não pode
+    // reescalar o eixo — sem referência fixa não dá para VER o efeito do botão. A chave ignora
+    // os três toggles; mudar filtro, recorte, ordenação, visão ou moeda solta a trava.
+    let unitScaleLock = null;
     // fotos dos modelos, carregadas uma vez; quando a imagem chega, repinta o gráfico
     const unitFotos = {};
     function unitFotoDe(model) {
@@ -8172,10 +8207,14 @@
       const budLeg = document.getElementById('unitBudLeg');
       if (budLeg) budLeg.addEventListener('click', () => { unitBudLineOff = !unitBudLineOff; renderUnit(); });
       // gradiente vertical em cada cor: a barra ganha profundidade sem virar arco-íris
+      const gradCache = {};   // 3 pares de cor × altura da área: criar 170 gradientes por frame era desperdício
       const grad = (ctx, hexTopo, hexBase) => {
         const a = ctx.chart.chartArea; if (!a) return hexTopo;
+        const key = hexTopo + hexBase + '|' + Math.round(a.top) + '|' + Math.round(a.bottom);
+        if (gradCache[key]) return gradCache[key];
         const g = ctx.chart.ctx.createLinearGradient(0, a.top, 0, a.bottom);
-        g.addColorStop(0, hexTopo); g.addColorStop(1, hexBase); return g;
+        g.addColorStop(0, hexTopo); g.addColorStop(1, hexBase);
+        return (gradCache[key] = g);
       };
       // TRÊS estados, não dois: verde = acima do orçado; AZUL = abaixo do orçado mas ainda
       // devolvendo dinheiro; vermelho = retorno negativo. Antes o azul e o vermelho eram a mesma
@@ -8188,6 +8227,16 @@
         if (valor < 0) return grad(ctx, '#F87171', '#B91C1C');
         return chave >= 0 ? grad(ctx, '#34D399', '#047857') : grad(ctx, '#60A5FA', '#1D4ED8');
       };
+      // extremos dos dados (barras + régua) e fusão com a trava da mesma vista
+      const ysVals = rows.map((r) => Math.round((modo15 ? (r.d15 || 0) : (modoFull ? (r.retFull || 0) : r.real)) * K));
+      const ysBud = modo15 ? [] : rows.map((r) => Math.round((modoFull ? (r.budFull || 0) : r.bud) * K));
+      let yLo = Math.min(0, ...ysVals, ...(ysBud.length ? ysBud : [0]));
+      let yHi = Math.max(0, ...ysVals, ...(ysBud.length ? ysBud : [0]));
+      const yKey = [unitFleet, unitModel, unitFilter, unitSort, unitFull, K].join('|');
+      if (unitScaleLock && unitScaleLock.key === yKey) { yLo = Math.min(yLo, unitScaleLock.lo); yHi = Math.max(yHi, unitScaleLock.hi); }
+      unitScaleLock = { key: yKey, lo: yLo, hi: yHi };
+      const yPad = Math.max(1, (yHi - yLo) * 0.05);
+      const ySc = { min: Math.floor(yLo - yPad), max: Math.ceil(yHi + yPad) };
       mk('unitRet', { data: { labels, datasets: [
           Object.assign({ type: 'bar', label: modo15 ? 'Δ vs 15 days ago' : 'Return', data: rows.map((r) => Math.round((modo15 ? (r.d15 || 0) : (modoFull ? (r.retFull || 0) : r.real)) * K)),
             backgroundColor: corBarra, hoverBackgroundColor: corBarra, borderRadius: 3,
@@ -8271,7 +8320,7 @@
           },
           onHover: (e, els, ch) => { e.native.target.style.cursor = 'pointer'; },
           plugins: { legend: { display: false }, datalabels: { display: false }, tooltip: tip },
-          scales: { x: { display: false }, y: { grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } } } } });
+          scales: { x: { display: false }, y: { min: ySc.min, max: ySc.max, grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } } } } });
       renderUnitPlate(rows);
       renderUnitBreak(rows, K, money);
       // ---- TAXA MENSAL por placa: (FV/PV)^(1/n) − 1, capital empatado × caixa devolvido ----
@@ -8286,7 +8335,7 @@
       const semTaxa = rows.filter((r) => r.irrUe && r.rMo == null).length;
       document.getElementById('unitIrrHint').textContent = medTaxa == null ? 'no car with enough history yet'
         : nPos + ' of ' + comTaxa.length + ' cars above zero · average ' + taxa(medTaxa) + ' a month · M0–M13, same engine as the UE panel'
-          + (semTaxa ? ' · ' + semTaxa + ' with no meaningful IRR (nothing negative to discount, or the upfront outlay is too small to rate — same rule as the UE panel)' : '');
+          + (semTaxa ? ' · ' + semTaxa + ' left out (nothing negative to discount, no real upfront outlay, or a rate past 100%/mo — off this chart to keep the scale readable; the UE panel still shows it)' : '');
       const corTaxa = (ctx) => { const r = rows[ctx.dataIndex]; if (!r || r.rMo == null) return '#E5E7EB';
         if (r.pl === unitPlateSel) return grad(ctx, '#7C3AED', '#4C1D95');
         return r.rMo >= 0 ? grad(ctx, '#38BDF8', '#0369A1') : grad(ctx, '#F87171', '#B91C1C'); };
@@ -8774,7 +8823,6 @@
       const fechar = () => { lista.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
       btn.addEventListener('click', (ev) => { ev.stopPropagation(); const abre = lista.hidden; lista.hidden = !abre; btn.setAttribute('aria-expanded', String(abre)); });
       lista.querySelectorAll('.ue-dd-opt').forEach((o) => o.addEventListener('click', async () => { fechar(); uetVariant = o.dataset.v; await loadValues(uetSel); }));
-      document.addEventListener('click', fechar);
       dd.addEventListener('click', (ev) => ev.stopPropagation());
     }
     function renderControls() {

@@ -2229,3 +2229,8 @@ html.dark .ub-ev { border-left-color: #F87171; }
 
 /* Unit — terceiro estado da barra: abaixo do orçado mas ainda com retorno positivo */
 .cc-leg .sw-bl { background: linear-gradient(180deg, #60A5FA, #1D4ED8); }
+
+/* UE Theoric — máscara por frota: célula sobreposta em verde e dropdown junto dos controles */
+td.uet-var { color: #15803D; font-weight: 700; }
+html.dark td.uet-var { color: #6EE7A0; }
+.uet-vdd { margin-right: 6px; }

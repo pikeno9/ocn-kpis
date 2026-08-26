@@ -2033,6 +2033,8 @@
   // Igual à UE real na aparência (reusa .ue-table/.ue-fleet-btn), mas dividido por MODELO
   // de carro (não por frota/placa) e com valores lançados MANUALMENTE. Só admin edita.
   let uetReady = false, uetModels = [], uetSel = null, uetVals = {}, uetManual = false, uetCurrency = 'BRL';
+  // máscara por frota: 'std' = o teórico padrão; um id de frota = Std + overrides daquela frota
+  let uetVariant = 'std', uetStd = {}, uetOver = {};
   // ponte entre a aba "Per car" (motor no initFinance) e o UE real (motor no initUnit): devolve o
   // UE completo de UMA placa sem deixar a aba de Unit Economics fora do lugar
   let ueDrillPlate = null;
@@ -7721,7 +7723,7 @@
     // PADRÃO: promoção InDrive FORA. A campanha foi uma vez por placa e não se repete no próximo
     // contrato — com ela ligada, a leitura normal do gráfico virava a da exceção.
     let unitIdrOff = true;
-    let unitJudOff = false;    // tira recuperação + reparo do retorno e da TIR das barras
+    let unitJudOff = true;     // true = SEM projeção de recuperação+reparo (o realizado fica sempre); padrão desligada
     let unitDrillBud = false;  // mostra a linha cinza do orçado na tabela aberta pelo gráfico
     let unitDrillFc = true;    // mostra a projeção (roxo) na tabela aberta pelo gráfico — o botão Forecast liga/desliga
     let unitBeRec = 1, unitBeSem = 4, unitScatX = 'weeks';   // painel de break-even + dispersão
@@ -8040,7 +8042,7 @@
         // botão iD no mesmo desenho do UE: liga e desliga a promoção dentro da TIR das barras
         `<button type="button" class="idr-btn${unitIdrOff ? ' off' : ' on'}" id="unitIdr" title="${unitIdrOff ? 'InDrive is OUT of the IRR — click to bring it back' : 'Click to take the InDrive promo out of the IRR'}">` +
           `<span class="idr-mark">iD</span><span class="idr-txt">InDrive</span><span class="idr-state">${unitIdrOff ? 'off' : 'on'}</span></button>` +
-        `<button type="button" class="ue-fcbtn ue-judbtn${unitJudOff ? '' : ' on'}" id="unitJud" title="${unitJudOff ? 'Recovery + repair are OUT — click to bring them back' : 'Click to take recovery + repair out of the return and the IRR'}">` +
+        `<button type="button" class="ue-fcbtn ue-judbtn${unitJudOff ? '' : ' on'}" id="unitJud" title="${unitJudOff ? 'Recovery + repair FORECAST is off (realized always counts) — click to project them forward' : 'Click to drop the recovery + repair forecast — realized costs always stay'}">` +
           `<span class="ue-fc-dot"></span>Rec+Rep<span class="ue-fc-state">${unitJudOff ? 'off' : 'on'}</span></button>` +
         `<button type="button" class="ue-fcbtn ue-caubtn${unitCauOff ? '' : ' on'}" id="unitCau" title="${unitCauOff ? 'Security deposit is OUT of the IRR — click to bring it back' : 'Click to take the security deposit (and its refund) out of the IRR'}">` +
           `<span class="ue-fc-dot"></span>Deposit<span class="ue-fc-state">${unitCauOff ? 'off' : 'on'}</span></button>` +
@@ -8601,6 +8603,10 @@
     const tableEl = document.getElementById('uetTable');
     if (!fleetsEl || !tableEl) return;
     const fkey = (id) => '__theoric_' + id + '__';
+    // documento da MÁSCARA de uma frota: separado do Std, então editar a frota nunca toca a base
+    const fkeyVar = (id, v) => (v && v !== 'std') ? ('__theoric_' + id + '__f' + v + '__') : fkey(id);
+    const fkeyCur = () => fkeyVar(uetSel, uetVariant);
+    const fleetsDoModelo = () => (((OCN.ue || {}).fleets) || []).filter((f) => f.model === uetSel);
     const isLeaf = (g) => g === 'inflow' || g === 'outflow';
     const PMAX = UET_PERIODS - 1; // 13 = M13 (lançamentos pontuais pós-contrato)
     const par = (k) => { const v = uetVals[k + '@@0']; return v == null ? 0 : Number(v); }; // param/slider escalar
@@ -8626,15 +8632,18 @@
       }
       return { cells, totalInflow: ti, totalOutflow: to, net, acc };
     }
+    // uetVals é sempre a FUSÃO Std + máscara; editar mexe no mapa da vista e remonta a fusão.
+    // Apagar um override de frota volta ao valor do Std — não ao projetado cru.
+    const rebuildVals = () => { uetVals = Object.assign({}, uetStd, uetOver); };
     async function saveParam(key, val) {
       const k = key + '@@0';
       try {
         if (val === '' || val == null || !isFinite(Number(val))) {
-          await fetch('/api/ue/value/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: fkey(uetSel), line: key, period: 0 }) });
-          delete uetVals[k];
+          await fetch('/api/ue/value/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: fkeyCur(), line: key, period: 0 }) });
+          if (uetVariant !== 'std') delete uetOver[k]; else delete uetStd[k]; rebuildVals();
         } else {
-          await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: fkey(uetSel), line: key, period: 0, value: Number(val), kind: 'proj' }) });
-          uetVals[k] = Number(val);
+          await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: fkeyCur(), line: key, period: 0, value: Number(val), kind: 'proj' }) });
+          if (uetVariant !== 'std') uetOver[k] = Number(val); else uetStd[k] = Number(val); rebuildVals();
         }
       } catch (e) {}
     }
@@ -8654,7 +8663,7 @@
       fleetsEl.innerHTML = h;
       fleetsEl.querySelectorAll('.ue-fleet-btn[data-id]').forEach((b) => b.addEventListener('click', async (ev) => {
         if (ev.target && ev.target.dataset && ev.target.dataset.edit) { ev.stopPropagation(); openModelModal(ev.target.dataset.edit); return; }
-        uetSel = b.dataset.id; renderFleets(); await loadValues(uetSel);
+        uetSel = b.dataset.id; uetVariant = 'std'; renderFleets(); await loadValues(uetSel);
       }));
       const addBtn = document.getElementById('uetAdd');
       if (addBtn) addBtn.addEventListener('click', addModel);
@@ -8732,26 +8741,57 @@
         uetModels = d.models; uetSel = d.added.id; renderFleets(); await loadValues(uetSel);
       } catch (e) { alert('Error: ' + e.message); }
     }
-    async function loadValues(id) {
-      uetVals = {};
-      try { const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(fkey(id)), { credentials: 'include' }); const d = await r.json(); (d.values || []).forEach((v) => { const lbl = v.line === 'Initial Fee / Vehicle Sell' ? 'Vehicle Sell' : v.line; if (uetVals[lbl + '@@' + v.period] == null) uetVals[lbl + '@@' + v.period] = v.value; }); }
+    const fetchVals = async (fleetKey) => {
+      const out = {};
+      try { const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(fleetKey), { credentials: 'include' }); const d = await r.json(); (d.values || []).forEach((v) => { const lbl = v.line === 'Initial Fee / Vehicle Sell' ? 'Vehicle Sell' : v.line; if (out[lbl + '@@' + v.period] == null) out[lbl + '@@' + v.period] = v.value; }); }
       catch (e) {}
+      return out;
+    };
+    async function loadValues(id) {
+      // trocou de modelo (ou a frota não é deste modelo): a vista volta para o Std
+      if (uetVariant !== 'std' && !fleetsDoModelo().some((f) => String(f.id) === String(uetVariant))) uetVariant = 'std';
+      uetStd = await fetchVals(fkey(id));
+      uetOver = uetVariant !== 'std' ? await fetchVals(fkeyCur()) : {};
+      rebuildVals();
       renderControls(); renderTable();
     }
     // cabeçalho: toggle "Manual mode" + sliders (inadimplência, % late payment, km/semana), ativos só no modo manual
+    // ---- dropdown Std / frotas do modelo ----
+    function variantDDHtml() {
+      const ops = [['std', 'Theoretical Std']].concat(fleetsDoModelo().map((f) => [String(f.id), 'Fleet ' + f.id]));
+      const cur = ops.find((o) => o[0] === String(uetVariant)) || ops[0];
+      const nOver = Object.keys(uetOver).length;
+      return `<div class="ue-dd uet-vdd"><button type="button" class="ue-dd-btn${uetVariant !== 'std' ? ' on' : ''}" aria-haspopup="listbox" aria-expanded="false">` +
+        `<span>${cur[1]}</span>${uetVariant !== 'std' && nOver ? `<i>${nOver}</i>` : ''}` +
+        `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>` +
+        `<div class="ue-dd-list" role="listbox" hidden>` +
+        ops.map((o) => `<button type="button" class="ue-dd-opt${String(uetVariant) === o[0] ? ' sel' : ''}" data-v="${o[0]}"><span>${o[1]}</span></button>`).join('') +
+        `</div></div>`;
+    }
+    function wireVariantDD() {
+      const dd = ctrlEl && ctrlEl.querySelector('.uet-vdd'); if (!dd) return;
+      const btn = dd.querySelector('.ue-dd-btn'), lista = dd.querySelector('.ue-dd-list');
+      const fechar = () => { lista.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
+      btn.addEventListener('click', (ev) => { ev.stopPropagation(); const abre = lista.hidden; lista.hidden = !abre; btn.setAttribute('aria-expanded', String(abre)); });
+      lista.querySelectorAll('.ue-dd-opt').forEach((o) => o.addEventListener('click', async () => { fechar(); uetVariant = o.dataset.v; await loadValues(uetSel); }));
+      document.addEventListener('click', fechar);
+      dd.addEventListener('click', (ev) => ev.stopPropagation());
+    }
     function renderControls() {
       if (!ctrlEl) return;
-      if (!isAdmin) { ctrlEl.innerHTML = ''; return; }
+      if (!isAdmin) { ctrlEl.innerHTML = variantDDHtml(); wireVariantDD(); return; }
       const en = uetManual;
       const cot = cotacao();
       const sl = (id, label, key, min, max, step, sfx) => `<div class="uet-ctrl"><label>${label}: <b id="${id}_v">${par(key)}${sfx}</b></label><input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${par(key)}"${en ? '' : ' disabled'}></div>`;
       ctrlEl.innerHTML =
+        variantDDHtml() +
         `<label class="ue-switch"><input type="checkbox" id="uetManual"${uetManual ? ' checked' : ''}/><span>Manual mode</span></label>` +
         `<div class="ue-cur-toggle">${CUR_FLAGS(uetCurrency)}</div>` +
         sl('uetInad', 'Default rate', '__inadimplencia__', 0, 100, 1, '%') +
         sl('uetLate', 'Late payment', '__late_pct__', 0, 100, 1, '%') +
         sl('uetKm', 'Avg. km/week', '__km_semana__', 0, 3000, 25, ' km') +
         `<div class="uet-ctrl"><label>FX R$/US$: <b id="uetCot_v">${cot.toFixed(2).replace('.', ',')}</b></label><input type="range" id="uetCot" min="3" max="8" step="0.05" value="${cot}"${en ? '' : ' disabled'}></div>`;
+      wireVariantDD();
       document.getElementById('uetManual').addEventListener('change', (e) => { uetManual = e.target.checked; renderControls(); renderTable(); });
       ctrlEl.querySelectorAll('.ue-cur-btn').forEach((b) => b.addEventListener('click', () => { uetCurrency = b.dataset.c; renderControls(); renderTable(); }));
       [['uetInad', '__inadimplencia__', '%'], ['uetLate', '__late_pct__', '%'], ['uetKm', '__km_semana__', ' km']].forEach(([id, key, sfx]) => {
@@ -8797,7 +8837,7 @@
         html += `<tr class="ue-row ue-${l.group} ${leaf ? 'ue-leaf' : 'ue-calc'}"><td class="ue-rowlabel">${label}</td>`;
         let rowTot = 0;
         for (let p = 0; p < UET_PERIODS; p++) {
-          if (leaf) { const v = A.cells[l.label + '@@' + p]; if (v != null) rowTot += v; html += `<td class="ue-cell${uetManual && isAdmin ? ' ue-editable' : ''}" data-line="${escH(l.label)}" data-period="${p}">${v == null ? '' : ueFmt(conv(v))}</td>`; }
+          if (leaf) { const v = A.cells[l.label + '@@' + p]; if (v != null) rowTot += v; const varOv = uetVariant !== 'std' && uetOver[l.label + '@@' + p] != null; html += `<td class="ue-cell${uetManual && isAdmin ? ' ue-editable' : ''}${varOv ? ' uet-var' : ''}" data-line="${escH(l.label)}" data-period="${p}">${v == null ? '' : ueFmt(conv(v))}</td>`; }
           else html += `<td class="ue-cell ue-computed">${ueFmt(conv(gmap[l.group][p]))}</td>`;
         }
         let tot;
@@ -8867,11 +8907,11 @@
       const k = line + '@@' + p;
       try {
         if (val === '' || val == null) {
-          await fetch('/api/ue/value/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: fkey(uetSel), line, period: p }) });
-          delete uetVals[k];
+          await fetch('/api/ue/value/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: fkeyCur(), line, period: p }) });
+          if (uetVariant !== 'std') delete uetOver[k]; else delete uetStd[k]; rebuildVals();
         } else {
-          await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: fkey(uetSel), line, period: p, value: Number(val), kind: 'proj' }) });
-          uetVals[k] = Number(val);
+          await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: fkeyCur(), line, period: p, value: Number(val), kind: 'proj' }) });
+          if (uetVariant !== 'std') uetOver[k] = Number(val); else uetStd[k] = Number(val); rebuildVals();
         }
       } catch (e) {}
     }
@@ -8924,7 +8964,7 @@
     let cleanView = true;   // visão limpa é o PADRÃO: só o total (real+proj), sem orçado nem controles
     let showProj = true;    // false = esconde os projetados (roxo) e mostra só o realizado — só visualização
     let idrOff = false;     // true = tira o benefício InDrive da conta do UE (espelha o botão do P&L)
-    let judOff = false;     // true = tira recuperação + reparo da conta ("e se este carro não tivesse dado problema?")
+    let judOff = true;      // true = SEM a PROJEÇÃO de recuperação+reparo — o realizado fica sempre na tabela; padrão desligada
     let cauOff = false;     // true = tira calção e devolução da TIR (pedido da aba Unit)
     let inadimplencia = 0;  // taxa de inadimplência % (slider, global) — desconta a projeção do Subscription
     let latePct = 0;        // % das semanas pagas COM atraso (slider, global) — projeta o Late-payment interest
@@ -9741,14 +9781,14 @@
         return period === PMAX ? { rs: 0, rsProj: judTermRS, perActive: true } : { rs: 0, perActive: true };
       }
       if (line === 'Recovery cost') {
-        if (judOff) return { rs: 0, perActive: true };   // botão Rec+Rep
+        // O botão Rec+Rep liga/desliga SÓ a projeção: guincho e reparo que já aconteceram são
+        // fato e ficam sempre; o que ele tira é a extrapolação dos meses futuros.
         if (period === 0 || !judReady) return period === 0 ? { rs: 0, perActive: true } : null;
-        return { rs: -(judRecRealRS[period] || 0), rsProj: -(judRecProjRS[period] || 0), perActive: true };
+        return { rs: -(judRecRealRS[period] || 0), rsProj: judOff ? 0 : -(judRecProjRS[period] || 0), perActive: true };
       }
       if (line === 'Repair cost') {
-        if (judOff) return { rs: 0, perActive: true };   // botão Rec+Rep
         if (period === 0 || !judReady) return period === 0 ? { rs: 0, perActive: true } : null;
-        return { rs: -(judRepRealRS[period] || 0), rsProj: -(judRepProjRS[period] || 0), perActive: true };
+        return { rs: -(judRepRealRS[period] || 0), rsProj: judOff ? 0 : -(judRepProjRS[period] || 0), perActive: true };
       }
       if (line === 'Part Replacement') {
         if (period === 0 || !partsReady) return period === 0 ? { rs: 0, perActive: true } : null;
@@ -10771,7 +10811,7 @@
       const IDR = `<button class="idr-btn${idrOff ? ' off' : ' on'}" id="ueIndrive" title="${idrOff ? 'InDrive is OUT of the UE — click to bring it back' : 'Click to take the InDrive effect out of the UE'}">` +
         `<span class="idr-mark">iD</span><span class="idr-txt">InDrive</span><span class="idr-state">${idrOff ? 'off' : 'on'}</span></button>`;
       // "e se este carro não tivesse dado problema?" — tira guincho e reparo da conta
-      const RECREP = `<button class="ue-fcbtn ue-judbtn${judOff ? '' : ' on'}" id="ueJud" title="${judOff ? 'Recovery + repair are OUT — click to bring them back' : 'Click to take recovery + repair costs out of the account'}">` +
+      const RECREP = `<button class="ue-fcbtn ue-judbtn${judOff ? '' : ' on'}" id="ueJud" title="${judOff ? 'Recovery + repair FORECAST is off (realized always counts) — click to project them forward' : 'Click to drop the recovery + repair forecast — realized costs always stay'}">` +
         `<span class="ue-fc-dot"></span>Rec+Rep<span class="ue-fc-state">${judOff ? 'off' : 'on'}</span></button>`;
       const FCAST = `<button class="ue-fcbtn${showProj ? ' on' : ''}" id="ueProj" title="${showProj ? 'Hide the projected numbers (purple) and show actuals only' : 'Bring the projections back'}">` +
         `<span class="ue-fc-dot"></span>Forecast<span class="ue-fc-state">${showProj ? 'on' : 'off'}</span></button>`;

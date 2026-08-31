@@ -1749,7 +1749,8 @@
   // Regra do Enrico (31/08): duas ou mais semanalidades não pagas no mês = carro INATIVO.
   // O motor está em lib/ativos.js — ele é quem exclui a semana corrente (ainda em cobrança),
   // credita as semanalidades adiadas e separa o carro sem motorista do inadimplente.
-  let ativosVista = 'mes';   // 'mes' | 'semana' — a régua é a mesma, muda o passo
+  let ativosVista = 'mes';    // 'mes' | 'semana' — a régua é a mesma, muda o passo
+  let ativosModo = 'frota';   // 'frota' = barra da frota inteira · 'inativos' = só a exceção
   function renderAtivos() {
     const A = OCN.ativos;
     const box = document.getElementById('chartAtivos');
@@ -1768,19 +1769,23 @@
     // dos inativos, quantos por falta de MOTORISTA (nenhuma das semanas perdidas tinha alguém no carro)
     const soPatio = (s) => (s.placasInativas || []).filter((x) => x.semMotorista >= x.semanas).length;
 
-    // botão Monthly / Weekly, no cabeçalho do card
-    let seg = document.getElementById('ativosVista');
-    if (!seg && temSem) {
-      seg = document.createElement('span');
-      seg.id = 'ativosVista'; seg.className = 'unit-seg ativos-seg';
-      const head = card.querySelector('.sub2-title');
-      if (head) head.appendChild(seg);
-    }
-    if (seg) {
-      seg.innerHTML = [['mes', 'Monthly'], ['semana', 'Weekly']]
-        .map(([v, t]) => `<button type="button" class="unit-seg-b${ativosVista === v ? ' on' : ''}" data-v="${v}">${t}</button>`).join('');
-      seg.querySelectorAll('.unit-seg-b').forEach((b) => b.addEventListener('click', () => { ativosVista = b.dataset.v; renderAtivos(); }));
-    }
+    // dois segmentados no cabeçalho: o QUE a barra mostra e em que passo
+    const mkSeg = (id, cls, opts, atual, set) => {
+      let s = document.getElementById(id);
+      if (!s) {
+        s = document.createElement('span');
+        s.id = id; s.className = 'unit-seg ' + cls;
+        const head = card.querySelector('.sub2-title');
+        if (head) head.appendChild(s);
+      }
+      s.innerHTML = opts
+        .map(([v, t]) => `<button type="button" class="unit-seg-b${atual === v ? ' on' : ''}" data-v="${v}">${t}</button>`).join('');
+      s.querySelectorAll('.unit-seg-b').forEach((b2) => b2.addEventListener('click', () => { set(b2.dataset.v); renderAtivos(); }));
+      return s;
+    };
+    mkSeg('ativosModo', 'ativos-seg', [['frota', 'All cars'], ['inativos', 'Inactive only']], ativosModo, (v) => { ativosModo = v; });
+    if (temSem) mkSeg('ativosVista', 'ativos-seg ativos-seg2', [['mes', 'Monthly'], ['semana', 'Weekly']], ativosVista, (v) => { ativosVista = v; });
+
     // o título acompanha a visão — dizia "monthly" mesmo no semanal
     {
       const t = card && card.querySelector('.sub2-title');
@@ -1808,29 +1813,49 @@
       : 'A car is inactive in a month when it went two weeks IN A ROW with no payment — the driver skipping it and the car having no driver count the same'
         + ' · deferred weeks count as paid';
 
+    const leg = document.getElementById('ativosLeg');
+    if (leg) {
+      const it = (cor, txt) => `<span class="it"><span class="sw" style="background:${cor}"></span> ${txt}</span>`;
+      leg.innerHTML = ativosModo === 'inativos'
+        ? it('#DC2626', 'Inactive cars (bars) — two weeks in a row with no payment') + it('#15803D', '% of the fleet active (line)')
+        : it('#15803D', 'Active cars (bars)') + it('#DC2626', 'Inactive — two weeks in a row with no payment') + it('#5A00F8', '% of the fleet active (line)');
+    }
+
     const ctx = box.getContext('2d');
     if (window._chAtivos) { window._chAtivos.destroy(); window._chAtivos = null; }
     const escuro = document.documentElement.classList.contains('dark');
     const TXT = escuro ? '#9AA0AC' : '#6B7280';
     const GRID = escuro ? 'rgba(255,255,255,.07)' : 'rgba(120,120,140,.10)';
+    // fundo real do card: o rótulo ganha um halo dessa cor para não ser cortado pela linha do %
+    const BG = (getComputedStyle(card).backgroundColor || '').indexOf('rgba(0, 0, 0, 0)') === 0 ? (escuro ? '#161A20' : '#FFFFFF') : getComputedStyle(card).backgroundColor;
     // eixo do % com folga só onde há dado: colado no 100 a linha fica reta e não diz nada
     const pcts = S.map((x) => x.pctAtivo).filter((v) => v != null);
     // piso INTEIRO: com meio ponto o eixo desenhava 92,5% colado no 93% e as duas etiquetas se atropelavam
     const pMin = Math.max(0, Math.floor(Math.min.apply(null, pcts.concat([100])) - 1));
     const maxInat = Math.max(1, ...S.map((x) => x.inativos));
+    const soInat = ativosModo === 'inativos';
+    // degradê do vermelho: recriado por barra, mas só quando a área do gráfico já existe
+    const RED = (c2) => { const a2 = c2.chart.chartArea; if (!a2) return '#EF4444';
+      const g = c2.chart.ctx.createLinearGradient(0, a2.top, 0, a2.bottom); g.addColorStop(0, '#F87171'); g.addColorStop(1, '#B91C1C'); return g; };
+    const GREEN = (c2) => { const a2 = c2.chart.chartArea; if (!a2) return '#15803D';
+      const g = c2.chart.ctx.createLinearGradient(0, a2.top, 0, a2.bottom); g.addColorStop(0, '#34D399'); g.addColorStop(1, '#15803D'); return g; };
+    const ESP = semanal ? 26 : 46;
+    const barras = soInat
+      ? [{ type: 'bar', label: 'Inactive', data: S.map((x) => x.inativos), yAxisID: 'y',
+          backgroundColor: RED, borderRadius: 4, maxBarThickness: ESP, order: 2 }]
+      : [{ type: 'bar', label: 'Active', data: S.map((x) => x.ativos), yAxisID: 'y', stack: 'f',
+          backgroundColor: GREEN, borderRadius: { topLeft: 0, topRight: 0, bottomLeft: 4, bottomRight: 4 }, maxBarThickness: ESP, order: 2 },
+         { type: 'bar', label: 'Inactive', data: S.map((x) => x.inativos), yAxisID: 'y', stack: 'f',
+          backgroundColor: RED, borderRadius: { topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 }, maxBarThickness: ESP, order: 2 }];
     window._chAtivos = new Chart(ctx, {
       data: {
         labels: S.map(rot),
-        datasets: [
-          { type: 'bar', label: 'Inactive', data: S.map((x) => x.inativos), yAxisID: 'y',
-            backgroundColor: (c2) => { const a2 = c2.chart.chartArea; if (!a2) return '#EF4444';
-              const g = c2.chart.ctx.createLinearGradient(0, a2.top, 0, a2.bottom); g.addColorStop(0, '#F87171'); g.addColorStop(1, '#B91C1C'); return g; },
-            borderRadius: 4, maxBarThickness: semanal ? 26 : 46, order: 2 },
+        datasets: barras.concat([
           { type: 'line', label: '% active', data: S.map((x) => x.pctAtivo), yAxisID: 'y2',
-            borderColor: '#15803D', backgroundColor: 'transparent', borderWidth: 2.4,
-            pointRadius: semanal ? 2.5 : 4, pointBackgroundColor: '#15803D', pointBorderColor: '#fff', pointBorderWidth: 1.5,
+            borderColor: soInat ? '#15803D' : '#5A00F8', backgroundColor: 'transparent', borderWidth: 2.4,
+            pointRadius: semanal ? 2.5 : 4, pointBackgroundColor: soInat ? '#15803D' : '#5A00F8', pointBorderColor: '#fff', pointBorderWidth: 1.5,
             tension: .3, order: 1, datalabels: { display: false } },
-        ],
+        ]),
       },
       options: {
         responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
@@ -1838,11 +1863,18 @@
         onHover: (e) => { e.native.target.style.cursor = 'pointer'; },
         plugins: {
           legend: { display: false },
-          // rótulo só na barra que existe, ACIMA dela e em texto escuro — dentro de uma barra
-          // de 1 carro não cabe nada legível
-          datalabels: { display: (c2) => c2.datasetIndex === 0 && c2.dataset.data[c2.dataIndex] > 0,
-            anchor: 'end', align: 'end', offset: 2, color: escuro ? '#FCA5A5' : '#B91C1C',
-            font: { size: 11, weight: 800 } },
+          // no empilhado o rótulo é o TAMANHO da frota, no topo da pilha; no modo exceção
+          // é a contagem de inativos — dentro de uma barra de 1 carro não cabe nada legível
+          datalabels: {
+            // 'auto' deixa o plugin esconder o que se atropela — no semanal são 20 totais de 3 dígitos
+            display: (c2) => (soInat
+              ? (c2.datasetIndex === 0 && c2.dataset.data[c2.dataIndex] > 0)
+              : (c2.datasetIndex === 1 ? 'auto' : false)),
+            anchor: 'end', align: 'end', offset: 2,
+            formatter: (v, c2) => (soInat ? v : S[c2.dataIndex].frota),
+            color: soInat ? (escuro ? '#FCA5A5' : '#B91C1C') : TXT,
+            textStrokeColor: BG, textStrokeWidth: 3,
+            font: { size: semanal ? 10 : 11, weight: soInat ? 800 : 700 } },
           tooltip: { displayColors: false, padding: 10,
             callbacks: {
               title: (items) => (semanal ? 'week of ' + S[items[0].dataIndex].semana.split('-').reverse().join('/') : items[0].label),
@@ -1854,15 +1886,16 @@
                 return sp ? sp + ' of the inactive had no driver' : ''; } } },
         },
         scales: {
-          x: { grid: { display: false }, border: { display: false },
+          x: { stacked: !soInat, grid: { display: false }, border: { display: false },
             ticks: { font: { size: semanal ? 9.5 : 11 }, color: TXT, maxRotation: semanal ? 45 : 0, minRotation: semanal ? 45 : 0, autoSkip: false } },
-          y: { position: 'left', beginAtZero: true, suggestedMax: maxInat + 1, border: { display: false },
+          y: { position: 'left', stacked: !soInat, beginAtZero: true, border: { display: false },
+            suggestedMax: soInat ? maxInat + 1 : undefined, grace: soInat ? 0 : '10%',
             grid: { color: GRID, drawTicks: false },
-            title: { display: true, text: 'INACTIVE CARS', color: TXT, font: { size: 9.5, weight: '700' } },
+            title: { display: true, text: soInat ? 'INACTIVE CARS' : 'CARS IN THE FLEET', color: TXT, font: { size: 9.5, weight: '700' } },
             ticks: { font: { size: 10.5 }, color: TXT, precision: 0, padding: 6 } },
           y2: { position: 'right', min: pMin, max: 100, grid: { display: false }, border: { display: false },
-            title: { display: true, text: '% ACTIVE', color: '#15803D', font: { size: 9.5, weight: '700' } },
-            ticks: { font: { size: 10.5 }, color: '#15803D', padding: 6, callback: (v) => v + '%' } },
+            title: { display: true, text: '% ACTIVE', color: soInat ? '#15803D' : '#5A00F8', font: { size: 9.5, weight: '700' } },
+            ticks: { font: { size: 10.5 }, color: soInat ? '#15803D' : '#5A00F8', padding: 6, callback: (v) => v + '%' } },
         },
       },
     });

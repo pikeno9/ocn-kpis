@@ -11118,7 +11118,8 @@
       }
       const btnR = document.getElementById('ueRefresh');
       if (btnR) btnR.addEventListener('click', async () => {
-        btnR.disabled = true; btnR.textContent = '↻ Refreshing…';
+        btnR.disabled = true; btnR.classList.remove('failed'); btnR.classList.add('loading');
+        btnR.title = 'Refreshing…';
         try {
           Object.keys(_fleetValsCache).forEach((x) => delete _fleetValsCache[x]);   // dados novos, cache fora
           await fetch('/api/refresh');
@@ -11126,7 +11127,10 @@
           if (r.ok) { const d = await r.json(); if (d.ue) Object.assign(U, d.ue); if (d.atualizadoEm) OCN.atualizadoEm = d.atualizadoEm; }
           const hl = document.getElementById('hojeLabel'); if (hl && OCN.atualizadoEm) hl.textContent = OCN.atualizadoEm;
           await loadFleet(); // reconstrói cabeçalho + tabela com os dados novos (botão volta ao normal)
-        } catch (e) { btnR.textContent = '✗ failed — try again'; btnR.disabled = false; }
+        } catch (e) {
+          btnR.classList.remove('loading'); btnR.classList.add('failed');
+          btnR.title = 'Refresh failed — click to try again'; btnR.disabled = false;
+        }
       });
       wireSlider('ueCotacao', (v) => { cotacao = v; }, () => 'R$ ' + cotacao.toFixed(2).replace('.', ','), () => cotacao, '__cotacao__', '__cfg__', f);
       wireSlider('ueInad', (v) => { inadimplencia = v; }, () => String(Math.round(inadimplencia * 10) / 10).replace('.', ',') + '%', () => inadimplencia, '__inadimplencia__', '__cfg__', f);

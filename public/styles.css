@@ -1825,6 +1825,12 @@ html.dark .fleet-tile-total .fleet-tile-num { color: #fff; }
   justify-content: center; box-shadow: 0 1px 2px #00000010; transition: border-color .12s, color .12s, transform .3s; }
 .ue-round-btn svg { width: 16px; height: 16px; }
 .ue-round-btn:hover { border-color: var(--accent-ink); color: var(--accent-ink); transform: rotate(90deg); }
+/* recarregando: o icone gira no lugar — trocar o conteudo por texto estourava o circulo */
+.ue-round-btn.loading { cursor: default; color: var(--accent-ink); border-color: var(--accent-ink); }
+.ue-round-btn.loading:hover { transform: none; }
+.ue-round-btn.loading svg { animation: ue-spin .9s linear infinite; transform-origin: 50% 50%; }
+.ue-round-btn.failed { color: #DC2626; border-color: #DC2626; }
+@keyframes ue-spin { to { transform: rotate(360deg); } }
 /* Forecast: pílula com estado, no mesmo desenho do botão iD ao lado */
 .ue-fcbtn { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 6px 0 13px;
   font: inherit; font-size: 12px; font-weight: 700; border-radius: 999px; cursor: pointer;

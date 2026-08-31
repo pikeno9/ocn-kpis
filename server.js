@@ -11,6 +11,7 @@ const frota = require('./lib/frota');
 const revisoes = require('./lib/revisoes');
 const utilization = require('./lib/utilization');
 const adicionais = require('./lib/adicionais');
+const ativos = require('./lib/ativos');
 const multas = require('./lib/multas');
 const reposicao = require('./lib/reposicao');
 const payments = require('./lib/payments');
@@ -80,6 +81,9 @@ async function refresh(force) {
     try {
       const [matriz, esperado] = await Promise.all([payments.fetchMatriz(), payments.fetchResumo()]);
       data.payments = payments.build(matriz, sheets.clientes, refDate(), esperado);
+      // carros ATIVOS/inativos por mes — reaproveita a matriz que ja veio (sem 2a chamada)
+      try { data.ativos = await ativos.buildAll(matriz, data.ue.starts, data.ue.losses, refDate()); }
+      catch (e2) { console.error('[ativos] falhou:', e2.message); data.ativos = null; }
     }
     catch (e) { console.error('[payments] falhou:', e.message); data.payments = null; }
     // POR ÚLTIMO de propósito: são ~170 requests na API de frota — rodar antes estourava o

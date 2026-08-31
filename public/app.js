@@ -1736,11 +1736,98 @@
     if (!RD || (!RD.combined && !RD.swaps)) {
       const cardEl = wrapEl && wrapEl.querySelector('.card');
       if (cardEl) cardEl.innerHTML = '<div style="color:var(--text-2);font-size:13px">No redeployment data (import_Time tab not available).</div>';
+      renderAtivos();   // independe da aba import_Time — tem fonte propria (painel de pagamentos)
       return;
     }
     // Recoveries + Returns num único gráfico; Car swaps continua no data mas o card fica oculto (HTML)
     renderTimeSection(RD.combined, 'chartRecoveries', 'recoveriesDetail', 'cases', 'Event');
     renderTimeSection(RD.swaps, 'chartSwaps', 'swapsDetail', 'swaps', 'Swap');
+    renderAtivos();
+  }
+
+  // ---- CARROS ATIVOS por mês (aba Redeployment) ----
+  // Regra do Enrico (31/08): duas ou mais semanalidades não pagas no mês = carro INATIVO.
+  // O motor está em lib/ativos.js — ele é quem exclui a semana corrente (ainda em cobrança),
+  // credita as semanalidades adiadas e separa o carro sem motorista do inadimplente.
+  function renderAtivos() {
+    const A = OCN.ativos;
+    const box = document.getElementById('chartAtivos');
+    if (!box) return;
+    const card = box.closest('.card');
+    if (!A || !A.meses || !A.meses.length) { if (card) card.style.display = "none"; return; }
+    if (card) card.style.display = "";
+    const M3 = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+    const lbl = (m) => { const p2 = m.split("-"); return M3[parseInt(p2[1], 10) - 1] + "-" + p2[0].slice(2); };
+    const S = A.meses;
+    const ult = S[S.length - 1];
+
+    // cartões: a leitura rápida do mês mais recente
+    const cardsEl = document.getElementById('ativosCards');
+    if (cardsEl) {
+      const c = (t, v, sub, cor) => `<div class="costs-card cc-strong" style="--cl:${cor}"><span>${t}</span><b>${v}</b><span class="sub">${sub}</span></div>`;
+      cardsEl.className = "costs-cards";
+      cardsEl.innerHTML =
+        c("Active cars", String(ult.ativos), lbl(ult.mes) + " · of " + ult.frota + " in the fleet", "#15803D") +
+        c("% active", (ult.pctAtivo == null ? "—" : ult.pctAtivo.toFixed(1).replace(".", ",") + "%"), "share of the fleet", "#5A00F8") +
+        c("Inactive", String(ult.inativos), A.limite + "+ unpaid weeks", "#DC2626") +
+        c("Idle", String(ult.parados), "no driver in the month", "#64748B");
+    }
+
+    const desc = document.getElementById('ativosDesc');
+    if (desc) desc.textContent = "A car is inactive in a month when " + A.limite + " or more weekly payments went unpaid"
+      + " · deferred weeks count as paid · the week still being collected (" + A.semanaCorrente.split("-").reverse().join("/") + ") is left out";
+
+    const G = "#15803D", R = "#DC2626", I = "#CBD5E1";
+    const ctx = box.getContext("2d");
+    if (window._chAtivos) { window._chAtivos.destroy(); window._chAtivos = null; }
+    window._chAtivos = new Chart(ctx, {
+      data: {
+        labels: S.map((x) => lbl(x.mes)),
+        datasets: [
+          { type: "bar", label: "Active", data: S.map((x) => x.ativos), backgroundColor: G, stack: "f", borderRadius: 3, maxBarThickness: 54, order: 2 },
+          { type: "bar", label: "Inactive", data: S.map((x) => x.inativos), backgroundColor: R, stack: "f", borderRadius: 3, maxBarThickness: 54, order: 2 },
+          { type: "bar", label: "Idle", data: S.map((x) => x.parados), backgroundColor: I, stack: "f", borderRadius: 3, maxBarThickness: 54, order: 2 },
+          { type: "line", label: "% active", data: S.map((x) => x.pctAtivo), yAxisID: "y2", borderColor: "#5A00F8", backgroundColor: "transparent",
+            borderWidth: 2, pointRadius: 3, pointBackgroundColor: "#5A00F8", tension: .25, order: 1, datalabels: { display: false } },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
+        onClick: (e, els) => { if (els && els.length) mostraDetalhe(els[0].index); },
+        plugins: {
+          legend: { display: false },
+          datalabels: { display: (c2) => c2.datasetIndex < 3 && c2.dataset.data[c2.dataIndex] > 0,
+            color: (c2) => (c2.datasetIndex === 2 ? "#334155" : "#fff"), font: { size: 10, weight: 700 } },
+          tooltip: { callbacks: {
+            label: (c2) => (c2.dataset.yAxisID === "y2"
+              ? "% active: " + (c2.parsed.y == null ? "—" : c2.parsed.y.toFixed(1).replace(".", ",") + "%")
+              : c2.dataset.label + ": " + c2.parsed.y + " car" + (c2.parsed.y === 1 ? "" : "s")),
+            afterBody: (items) => { const s = S[items[0].dataIndex]; return "fleet: " + s.frota + " cars"; } } },
+        },
+        scales: {
+          x: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { font: { size: 10.5 }, color: "#6B7280" } },
+          y: { stacked: true, beginAtZero: true, grace: "8%", border: { display: false },
+            grid: { color: "rgba(120,120,140,.10)" }, ticks: { font: { size: 10.5 }, color: "#6B7280", precision: 0 } },
+          y2: { position: "right", min: 0, max: 100, grid: { display: false }, border: { display: false },
+            ticks: { font: { size: 10.5 }, color: "#8B5CF6", callback: (v) => v + "%" } },
+        },
+      },
+    });
+
+    // clique no mês: quem ficou inativo e quem ficou parado
+    function mostraDetalhe(idx) {
+      const s = S[idx];
+      const el = document.getElementById('ativosDetail'); if (!el) return;
+      const chip = (t, cor) => `<span class="unit-chip" style="border-color:${cor}33;color:${cor}">${t}</span>`;
+      const inat = (s.placasInativas || []).map((x) => chip(x.placa + " · " + x.semanas + " unpaid", "#DC2626")).join("");
+      const par = (s.placasParadas || []).map((x) => chip(x, "#64748B")).join("");
+      el.innerHTML = (!inat && !par)
+        ? `<div class="ativos-det"><b>${lbl(s.mes)}</b> — every car in the fleet was active.</div>`
+        : `<div class="ativos-det"><b>${lbl(s.mes)}</b>` +
+          (inat ? `<div class="ativos-grp"><i>Inactive</i>${inat}</div>` : "") +
+          (par ? `<div class="ativos-grp"><i>Idle — no driver</i>${par}</div>` : "") + `</div>`;
+    }
+    mostraDetalhe(S.length - 1);
   }
 
   // esconde a tela de loading quando o dashboard está pronto:

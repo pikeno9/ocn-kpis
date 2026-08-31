@@ -233,6 +233,21 @@
           </div>
           <div id="recoveriesDetail"></div>
         </div>
+        <div class="card">
+          <div class="sub2-title"><i class="ti ti-car"></i> Active cars — monthly</div>
+          <div class="sub2-desc" id="ativosDesc">A car is inactive in a month when two or more weekly payments went unpaid</div>
+          <div id="ativosCards"></div>
+          <div class="legend">
+            <span class="it"><span class="sw" style="background:#15803D"></span> Active</span>
+            <span class="it"><span class="sw" style="background:#DC2626"></span> Inactive (2+ unpaid weeks)</span>
+            <span class="it"><span class="sw" style="background:#CBD5E1"></span> Idle (no driver)</span>
+            <span class="it"><span class="sw-line"></span> % active</span>
+          </div>
+          <div class="chart-box" style="height:340px;">
+            <canvas id="chartAtivos" role="img" aria-label="Active, inactive and idle cars by month"></canvas>
+          </div>
+          <div id="ativosDetail"></div>
+        </div>
         <div class="card" style="display:none">
           <div class="sub2-title"><i class="ti ti-chart-bar"></i> Car swaps — avg. days to relocation</div>
           <div class="sub2-desc">Click a month to see the list</div>

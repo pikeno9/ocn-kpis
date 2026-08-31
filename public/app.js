@@ -1781,6 +1781,14 @@
         .map(([v, t]) => `<button type="button" class="unit-seg-b${ativosVista === v ? ' on' : ''}" data-v="${v}">${t}</button>`).join('');
       seg.querySelectorAll('.unit-seg-b').forEach((b) => b.addEventListener('click', () => { ativosVista = b.dataset.v; renderAtivos(); }));
     }
+    // o título acompanha a visão — dizia "monthly" mesmo no semanal
+    {
+      const t = card && card.querySelector('.sub2-title');
+      if (t && t.firstChild && t.firstChild.nodeType === 1) {
+        const txt = [...t.childNodes].find((n) => n.nodeType === 3 && n.textContent.trim());
+        if (txt) txt.textContent = semanal ? ' Active cars — weekly ' : ' Active cars — monthly ';
+      }
+    }
 
     const cardsEl = document.getElementById('ativosCards');
     if (cardsEl) {
@@ -1802,14 +1810,26 @@
 
     const ctx = box.getContext('2d');
     if (window._chAtivos) { window._chAtivos.destroy(); window._chAtivos = null; }
+    const escuro = document.documentElement.classList.contains('dark');
+    const TXT = escuro ? '#9AA0AC' : '#6B7280';
+    const GRID = escuro ? 'rgba(255,255,255,.07)' : 'rgba(120,120,140,.10)';
+    // eixo do % com folga só onde há dado: colado no 100 a linha fica reta e não diz nada
+    const pcts = S.map((x) => x.pctAtivo).filter((v) => v != null);
+    // piso INTEIRO: com meio ponto o eixo desenhava 92,5% colado no 93% e as duas etiquetas se atropelavam
+    const pMin = Math.max(0, Math.floor(Math.min.apply(null, pcts.concat([100])) - 1));
+    const maxInat = Math.max(1, ...S.map((x) => x.inativos));
     window._chAtivos = new Chart(ctx, {
       data: {
         labels: S.map(rot),
         datasets: [
-          { type: 'bar', label: 'Active', data: S.map((x) => x.ativos), backgroundColor: '#15803D', stack: 'f', borderRadius: 3, maxBarThickness: 54, order: 2 },
-          { type: 'bar', label: 'Inactive', data: S.map((x) => x.inativos), backgroundColor: '#DC2626', stack: 'f', borderRadius: 3, maxBarThickness: 54, order: 2 },
-          { type: 'line', label: '% active', data: S.map((x) => x.pctAtivo), yAxisID: 'y2', borderColor: '#5A00F8', backgroundColor: 'transparent',
-            borderWidth: 2, pointRadius: semanal ? 2 : 3, pointBackgroundColor: '#5A00F8', tension: .25, order: 1, datalabels: { display: false } },
+          { type: 'bar', label: 'Inactive', data: S.map((x) => x.inativos), yAxisID: 'y',
+            backgroundColor: (c2) => { const a2 = c2.chart.chartArea; if (!a2) return '#EF4444';
+              const g = c2.chart.ctx.createLinearGradient(0, a2.top, 0, a2.bottom); g.addColorStop(0, '#F87171'); g.addColorStop(1, '#B91C1C'); return g; },
+            borderRadius: 4, maxBarThickness: semanal ? 26 : 46, order: 2 },
+          { type: 'line', label: '% active', data: S.map((x) => x.pctAtivo), yAxisID: 'y2',
+            borderColor: '#15803D', backgroundColor: 'transparent', borderWidth: 2.4,
+            pointRadius: semanal ? 2.5 : 4, pointBackgroundColor: '#15803D', pointBorderColor: '#fff', pointBorderWidth: 1.5,
+            tension: .3, order: 1, datalabels: { display: false } },
         ],
       },
       options: {
@@ -1818,23 +1838,31 @@
         onHover: (e) => { e.native.target.style.cursor = 'pointer'; },
         plugins: {
           legend: { display: false },
-          datalabels: { display: (c2) => c2.datasetIndex === 1 && c2.dataset.data[c2.dataIndex] > 0,
-            color: '#fff', font: { size: 10, weight: 700 } },
-          tooltip: { callbacks: {
-            title: (items) => (semanal ? 'week of ' + S[items[0].dataIndex].semana.split('-').reverse().join('/') : items[0].label),
-            label: (c2) => (c2.dataset.yAxisID === 'y2'
-              ? '% active: ' + (c2.parsed.y == null ? '—' : c2.parsed.y.toFixed(1).replace('.', ',') + '%')
-              : c2.dataset.label + ': ' + c2.parsed.y + ' car' + (c2.parsed.y === 1 ? '' : 's')),
-            afterBody: (items) => { const s = S[items[0].dataIndex]; const sp = soPatio(s);
-              return 'fleet: ' + s.frota + ' cars' + (sp ? ' · ' + sp + ' inactive with no driver' : ''); } } },
+          // rótulo só na barra que existe, ACIMA dela e em texto escuro — dentro de uma barra
+          // de 1 carro não cabe nada legível
+          datalabels: { display: (c2) => c2.datasetIndex === 0 && c2.dataset.data[c2.dataIndex] > 0,
+            anchor: 'end', align: 'end', offset: 2, color: escuro ? '#FCA5A5' : '#B91C1C',
+            font: { size: 11, weight: 800 } },
+          tooltip: { displayColors: false, padding: 10,
+            callbacks: {
+              title: (items) => (semanal ? 'week of ' + S[items[0].dataIndex].semana.split('-').reverse().join('/') : items[0].label),
+              label: (c2) => { const s = S[c2.dataIndex];
+                return [s.ativos + ' active · ' + s.inativos + ' inactive',
+                  (s.pctAtivo == null ? '' : s.pctAtivo.toFixed(1).replace('.', ',') + '% of the fleet active'),
+                  'fleet: ' + s.frota + ' cars'].filter(Boolean); },
+              afterBody: (items) => { const sp = soPatio(S[items[0].dataIndex]);
+                return sp ? sp + ' of the inactive had no driver' : ''; } } },
         },
         scales: {
-          x: { stacked: true, grid: { display: false }, border: { display: false },
-            ticks: { font: { size: semanal ? 9 : 10.5 }, color: '#6B7280', maxRotation: semanal ? 45 : 0, minRotation: semanal ? 45 : 0 } },
-          y: { stacked: true, beginAtZero: true, grace: '8%', border: { display: false },
-            grid: { color: 'rgba(120,120,140,.10)' }, ticks: { font: { size: 10.5 }, color: '#6B7280', precision: 0 } },
-          y2: { position: 'right', min: 0, max: 100, grid: { display: false }, border: { display: false },
-            ticks: { font: { size: 10.5 }, color: '#8B5CF6', callback: (v) => v + '%' } },
+          x: { grid: { display: false }, border: { display: false },
+            ticks: { font: { size: semanal ? 9.5 : 11 }, color: TXT, maxRotation: semanal ? 45 : 0, minRotation: semanal ? 45 : 0, autoSkip: false } },
+          y: { position: 'left', beginAtZero: true, suggestedMax: maxInat + 1, border: { display: false },
+            grid: { color: GRID, drawTicks: false },
+            title: { display: true, text: 'INACTIVE CARS', color: TXT, font: { size: 9.5, weight: '700' } },
+            ticks: { font: { size: 10.5 }, color: TXT, precision: 0, padding: 6 } },
+          y2: { position: 'right', min: pMin, max: 100, grid: { display: false }, border: { display: false },
+            title: { display: true, text: '% ACTIVE', color: '#15803D', font: { size: 9.5, weight: '700' } },
+            ticks: { font: { size: 10.5 }, color: '#15803D', padding: 6, callback: (v) => v + '%' } },
         },
       },
     });

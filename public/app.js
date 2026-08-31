@@ -1749,46 +1749,67 @@
   // Regra do Enrico (31/08): duas ou mais semanalidades não pagas no mês = carro INATIVO.
   // O motor está em lib/ativos.js — ele é quem exclui a semana corrente (ainda em cobrança),
   // credita as semanalidades adiadas e separa o carro sem motorista do inadimplente.
+  let ativosVista = 'mes';   // 'mes' | 'semana' — a régua é a mesma, muda o passo
   function renderAtivos() {
     const A = OCN.ativos;
     const box = document.getElementById('chartAtivos');
     if (!box) return;
     const card = box.closest('.card');
+    const temSem = !!(A && A.semanasSerie && A.semanasSerie.length);
     if (!A || !A.meses || !A.meses.length) { if (card) card.style.display = 'none'; return; }
     if (card) card.style.display = '';
     const M3 = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-    const lbl = (m) => { const q = m.split('-'); return M3[parseInt(q[1], 10) - 1] + '-' + q[0].slice(2); };
-    const S = A.meses;
+    const lblMes = (m) => { const q = m.split('-'); return M3[parseInt(q[1], 10) - 1] + '-' + q[0].slice(2); };
+    const lblSem = (w) => { const q = w.split('-'); return q[2] + '/' + q[1]; };
+    const semanal = ativosVista === 'semana' && temSem;
+    const S = semanal ? A.semanasSerie : A.meses;
+    const rot = (x) => (semanal ? lblSem(x.semana) : lblMes(x.mes));
     const ult = S[S.length - 1];
-    // quantos dos inativos foram por falta de MOTORISTA (todas as semanas perdidas sem ninguém no carro)
+    // dos inativos, quantos por falta de MOTORISTA (nenhuma das semanas perdidas tinha alguém no carro)
     const soPatio = (s) => (s.placasInativas || []).filter((x) => x.semMotorista >= x.semanas).length;
+
+    // botão Monthly / Weekly, no cabeçalho do card
+    let seg = document.getElementById('ativosVista');
+    if (!seg && temSem) {
+      seg = document.createElement('span');
+      seg.id = 'ativosVista'; seg.className = 'unit-seg ativos-seg';
+      const head = card.querySelector('.sub2-title');
+      if (head) head.appendChild(seg);
+    }
+    if (seg) {
+      seg.innerHTML = [['mes', 'Monthly'], ['semana', 'Weekly']]
+        .map(([v, t]) => `<button type="button" class="unit-seg-b${ativosVista === v ? ' on' : ''}" data-v="${v}">${t}</button>`).join('');
+      seg.querySelectorAll('.unit-seg-b').forEach((b) => b.addEventListener('click', () => { ativosVista = b.dataset.v; renderAtivos(); }));
+    }
 
     const cardsEl = document.getElementById('ativosCards');
     if (cardsEl) {
       const c = (t, v, sub, cor) => `<div class="costs-card cc-strong" style="--cl:${cor}"><span>${t}</span><b>${v}</b><span class="sub">${sub}</span></div>`;
       cardsEl.className = 'costs-cards';
       cardsEl.innerHTML =
-        c('Active cars', String(ult.ativos), lbl(ult.mes) + ' · of ' + ult.frota + ' in the fleet', '#15803D') +
+        c('Active cars', String(ult.ativos), rot(ult) + ' · of ' + ult.frota + ' in the fleet', '#15803D') +
         c('% active', (ult.pctAtivo == null ? '—' : ult.pctAtivo.toFixed(1).replace('.', ',') + '%'), 'share of the fleet', '#5A00F8') +
-        c('Inactive', String(ult.inativos), A.limite + '+ weeks with no payment', '#DC2626') +
+        c('Inactive', String(ult.inativos), 'two weeks in a row with no payment', '#DC2626') +
         c('No driver', String(soPatio(ult)), 'of the inactive, sat in the yard', '#B45309');
     }
 
     const desc = document.getElementById('ativosDesc');
-    if (desc) desc.textContent =
-      'A car is inactive in a month when ' + A.limite + ' or more weeks brought no payment — the driver skipping it and the car having no driver count the same'
-      + ' · deferred weeks count as paid · the week still being collected (' + A.semanaCorrente.split('-').reverse().join('/') + ') is left out';
+    if (desc) desc.textContent = semanal
+      ? 'In a week, a car is inactive when it paid neither that week nor the one before — two in a row. Paid one of them? Active.'
+        + ' · the week still being collected (' + A.semanaCorrente.split('-').reverse().join('/') + ') is left out'
+      : 'A car is inactive in a month when it went two weeks IN A ROW with no payment — the driver skipping it and the car having no driver count the same'
+        + ' · deferred weeks count as paid';
 
     const ctx = box.getContext('2d');
     if (window._chAtivos) { window._chAtivos.destroy(); window._chAtivos = null; }
     window._chAtivos = new Chart(ctx, {
       data: {
-        labels: S.map((x) => lbl(x.mes)),
+        labels: S.map(rot),
         datasets: [
           { type: 'bar', label: 'Active', data: S.map((x) => x.ativos), backgroundColor: '#15803D', stack: 'f', borderRadius: 3, maxBarThickness: 54, order: 2 },
           { type: 'bar', label: 'Inactive', data: S.map((x) => x.inativos), backgroundColor: '#DC2626', stack: 'f', borderRadius: 3, maxBarThickness: 54, order: 2 },
           { type: 'line', label: '% active', data: S.map((x) => x.pctAtivo), yAxisID: 'y2', borderColor: '#5A00F8', backgroundColor: 'transparent',
-            borderWidth: 2, pointRadius: 3, pointBackgroundColor: '#5A00F8', tension: .25, order: 1, datalabels: { display: false } },
+            borderWidth: 2, pointRadius: semanal ? 2 : 3, pointBackgroundColor: '#5A00F8', tension: .25, order: 1, datalabels: { display: false } },
         ],
       },
       options: {
@@ -1797,17 +1818,19 @@
         onHover: (e) => { e.native.target.style.cursor = 'pointer'; },
         plugins: {
           legend: { display: false },
-          datalabels: { display: (c2) => c2.datasetIndex < 2 && c2.dataset.data[c2.dataIndex] > 0,
+          datalabels: { display: (c2) => c2.datasetIndex === 1 && c2.dataset.data[c2.dataIndex] > 0,
             color: '#fff', font: { size: 10, weight: 700 } },
           tooltip: { callbacks: {
+            title: (items) => (semanal ? 'week of ' + S[items[0].dataIndex].semana.split('-').reverse().join('/') : items[0].label),
             label: (c2) => (c2.dataset.yAxisID === 'y2'
               ? '% active: ' + (c2.parsed.y == null ? '—' : c2.parsed.y.toFixed(1).replace('.', ',') + '%')
               : c2.dataset.label + ': ' + c2.parsed.y + ' car' + (c2.parsed.y === 1 ? '' : 's')),
             afterBody: (items) => { const s = S[items[0].dataIndex]; const sp = soPatio(s);
-              return 'fleet: ' + s.frota + ' cars · ' + s.semanas + ' closed weeks' + (sp ? ' · ' + sp + ' inactive with no driver' : ''); } } },
+              return 'fleet: ' + s.frota + ' cars' + (sp ? ' · ' + sp + ' inactive with no driver' : ''); } } },
         },
         scales: {
-          x: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { font: { size: 10.5 }, color: '#6B7280' } },
+          x: { stacked: true, grid: { display: false }, border: { display: false },
+            ticks: { font: { size: semanal ? 9 : 10.5 }, color: '#6B7280', maxRotation: semanal ? 45 : 0, minRotation: semanal ? 45 : 0 } },
           y: { stacked: true, beginAtZero: true, grace: '8%', border: { display: false },
             grid: { color: 'rgba(120,120,140,.10)' }, ticks: { font: { size: 10.5 }, color: '#6B7280', precision: 0 } },
           y2: { position: 'right', min: 0, max: 100, grid: { display: false }, border: { display: false },
@@ -1816,7 +1839,7 @@
       },
     });
 
-    // clique no mês: quem ficou inativo, separado pelo MOTIVO da semana perdida
+    // clique: quem ficou inativo, separado pelo MOTIVO das semanas perdidas
     function mostraDetalhe(idx) {
       const s = S[idx];
       const el = document.getElementById('ativosDetail'); if (!el) return;
@@ -1824,10 +1847,11 @@
       const lista = s.placasInativas || [];
       const patio = lista.filter((x) => x.semMotorista >= x.semanas);
       const calote = lista.filter((x) => x.semMotorista < x.semanas);
-      const fmt = (x) => x.placa + ' · ' + x.semanas + ' wk';
+      const fmt = (x) => x.placa + (semanal ? '' : ' · ' + x.semanas + ' wk');
+      const tit = semanal ? 'week of ' + s.semana.split('-').reverse().join('/') : lblMes(s.mes);
       el.innerHTML = !lista.length
-        ? `<div class="ativos-det"><b>${lbl(s.mes)}</b> — every car in the fleet was active.</div>`
-        : `<div class="ativos-det"><b>${lbl(s.mes)} — ${lista.length} inactive</b>` +
+        ? `<div class="ativos-det"><b>${tit}</b> — every car in the fleet was active.</div>`
+        : `<div class="ativos-det"><b>${tit} — ${lista.length} inactive</b>` +
           (calote.length ? `<div class="ativos-grp"><i>Driver did not pay</i>${calote.map((x) => chip(fmt(x), '#DC2626')).join('')}</div>` : '') +
           (patio.length ? `<div class="ativos-grp"><i>No driver — sat in the yard</i>${patio.map((x) => chip(fmt(x), '#B45309')).join('')}</div>` : '') +
           `</div>`;

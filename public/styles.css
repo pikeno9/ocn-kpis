@@ -2241,3 +2241,6 @@ html.dark td.uet-var { color: #6EE7A0; }
 .ativos-grp { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
 .ativos-grp i { font-style: normal; font-size: 10.5px; font-weight: 800; text-transform: uppercase;
   letter-spacing: .05em; color: var(--text-2); margin-right: 2px; }
+
+/* Redeployment — segmentado Monthly/Weekly no título do card de carros ativos */
+.ativos-seg { margin-left: 12px; vertical-align: middle; }

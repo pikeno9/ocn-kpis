@@ -46,7 +46,7 @@ async function refresh(force) {
       console.log(`[ocorrencias-site] ${siteOcorr.length} no site, +${sheets.ocorrencias.length - antes} novas mescladas`);
     } catch (e) { console.error('[ocorrencias-site] falhou (usando só a planilha):', e.message); }
     const data = compute.build(sheets, refDate());
-    data.ue = ue.build(ueSheets, sheets.importData, sheets.clientes, refDate());
+    data.ue = ue.build(ueSheets, sheets.importData, sheets.clientes, refDate(), sheets.ocorrencias);
     try { data.ue.pagamentos = await cobrancas.fetchPagamentos(); }
     catch (e) { console.error('[cobrancas] falhou:', e.message); data.ue.pagamentos = null; }
     try { data.ue.extras = await cobrancas.fetchExtras(); }

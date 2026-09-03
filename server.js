@@ -297,6 +297,35 @@ app.get('/api/theoric/models', requireGiga, async (req, res) => {
   try { const stored = await store.getDoc('theoric_models'); res.json({ models: (Array.isArray(stored) && stored.length) ? stored : THEORIC_SEED }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
+// Diagnóstico do orçado teórico: diz, para cada modelo da frota, qual documento do Theoric
+// ele resolve e quantos valores existem lá — inclusive as máscaras por frota. Serve para
+// responder "editei o Theoric e o UE não mudou" sem precisar abrir o console do navegador.
+app.get('/api/theoric/diag', requireGiga, async (req, res) => {
+  try {
+    const stored = await store.getDoc('theoric_models');
+    const lista = (Array.isArray(stored) && stored.length) ? stored : THEORIC_SEED;
+    const norm = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const idDe = (mdl, label) => (lista.find((x) => norm(x.id) === norm(mdl))
+      || lista.find((x) => norm(x.name) === norm(label || mdl))
+      || lista.find((x) => norm(x.name).indexOf(norm(mdl)) === 0) || {}).id || mdl;
+    const fleets = (((cache.data || {}).ue) || {}).fleets || [];
+    const rotulo = {};
+    fleets.forEach((f) => { if (!rotulo[f.model]) rotulo[f.model] = f.modelLabel; });
+    const modelos = [...new Set(fleets.map((f) => f.model))];
+    const out = { theoricModels: lista.map((m) => ({ id: m.id, name: m.name })), modelos: [], frotas: [] };
+    for (const m of modelos) {
+      const tid = idDe(m, rotulo[m]);
+      const vals = await store.getFleet('__theoric_' + tid + '__');
+      out.modelos.push({ modelo: m, label: rotulo[m] || null, teoId: tid, valores: (vals || []).length });
+    }
+    for (const f of fleets) {
+      const tid = idDe(f.model, rotulo[f.model]);
+      const mk = await store.getFleet('__theoric_' + tid + '__f' + f.id + '__');
+      out.frotas.push({ frota: f.id, modelo: f.model, doc: "__theoric_" + tid + "__f" + f.id + "__", overrides: (mk || []).length });
+    }
+    res.json(out);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.post('/api/theoric/models', requireGiga, async (req, res) => {
   const name = String((req.body && req.body.name) || '').trim().slice(0, 60);
   if (!name) return res.status(400).json({ error: 'nome do modelo é obrigatório' });

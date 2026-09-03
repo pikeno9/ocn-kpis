@@ -3005,24 +3005,54 @@
     });
     return out;
   }
+  // O modelo do import_data é o nome curto ('Argo'); o id do modelo no Theoric COMEÇA igual
+  // (é o seed), mas um modelo recriado pela tela ganha id derivado do nome ('argo_drive'). Por
+  // isso a ligação é resolvida — por id, depois por nome — em vez de assumida.
+  const orcTeoNorm = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  function orcTeoIdDe(mdl, label, lista) {
+    const aId = orcTeoNorm(mdl), aNome = orcTeoNorm(label || mdl);
+    const L = lista || [];
+    return (L.find((x) => orcTeoNorm(x.id) === aId)
+      || L.find((x) => orcTeoNorm(x.name) === aNome)
+      || L.find((x) => orcTeoNorm(x.name).indexOf(aId) === 0)
+      || {}).id || mdl;
+  }
   // monta OCN.ue.orcTeo = { <modelo>: tabela do Std, <id da frota>: tabela com a máscara }
+  // e OCN.ue.orcTeoDiag, que conta o que foi encontrado (para diagnóstico no console)
   function ensureOrcTeorico() {
     if (orcTeoCache) return orcTeoCache;
     orcTeoCache = (async () => {
       const U2 = OCN.ue || {};
       if (!U2.fleets || !U2.fleets.length) return null;
+      let lista = uetModels;
+      if (!lista || !lista.length) {
+        try { const r = await fetch('/api/theoric/models', { credentials: 'include' }); lista = (await r.json()).models || []; }
+        catch (e) { lista = []; }
+      }
       const modelos = [...new Set(U2.fleets.map((f) => f.model))];
+      const idDe = {}, rotulo = {};
+      U2.fleets.forEach((f) => { if (!rotulo[f.model]) rotulo[f.model] = f.modelLabel; });
+      modelos.forEach((m) => { idDe[m] = orcTeoIdDe(m, rotulo[m], lista); });
       const std = {};
-      await Promise.all(modelos.map(async (m) => { std[m] = await orcTeoFetch('__theoric_' + m + '__'); }));
-      const tab = {};
-      modelos.forEach((m) => { if (Object.keys(std[m] || {}).length) tab[m] = orcTeoTabela(std[m], m); });
+      await Promise.all(modelos.map(async (m) => { std[m] = await orcTeoFetch('__theoric_' + idDe[m] + '__'); }));
+      const tab = {}, diag = { modelos: [], frotas: [] };
+      modelos.forEach((m) => {
+        const n = Object.keys(std[m] || {}).length;
+        diag.modelos.push({ modelo: m, teoId: idDe[m], valores: n });
+        if (n) tab[m] = orcTeoTabela(std[m], m);
+      });
       // máscara por frota: só busca onde o modelo tem Std, e só entra se a máscara existir
       await Promise.all(U2.fleets.map(async (f) => {
         if (!tab[f.model]) return;
-        const mk = await orcTeoFetch('__theoric_' + f.model + '__f' + f.id + '__');
-        if (Object.keys(mk).length) tab[f.id] = orcTeoTabela(Object.assign({}, std[f.model], mk), f.model);
+        const mk = await orcTeoFetch('__theoric_' + idDe[f.model] + '__f' + f.id + '__');
+        const n = Object.keys(mk).length;
+        diag.frotas.push({ frota: f.id, modelo: f.model, overrides: n });
+        if (n) tab[f.id] = orcTeoTabela(Object.assign({}, std[f.model], mk), f.model);
       }));
       U2.orcTeo = tab;
+      U2.orcTeoDiag = diag;
+      if (!Object.keys(tab).length) console.warn('[orçado] nenhum modelo do Theoric encontrado — o budget seguiu vindo da planilha', diag);
+      else console.info('[orçado] fonte = UE Theoric', diag);
       return tab;
     })();
     return orcTeoCache;
@@ -9061,8 +9091,15 @@
       const ops = [['std', 'Theoretical Std']].concat(fleetsDoModelo().map((f) => [String(f.id), 'Fleet ' + f.id]));
       const cur = ops.find((o) => o[0] === String(uetVariant)) || ops[0];
       const nOver = Object.keys(uetOver).length;
-      return `<div class="ue-dd uet-vdd"><button type="button" class="ue-dd-btn${uetVariant !== 'std' ? ' on' : ''}" aria-haspopup="listbox" aria-expanded="false">` +
-        `<span>${cur[1]}</span>${uetVariant !== 'std' && nOver ? `<i>${nOver}</i>` : ''}` +
+      // o número na pílula conta quantos valores desta FROTA já foram escritos por cima do Std —
+      // é esse conjunto que o UE daquela frota usa. Sem legenda ele parecia contador aleatório.
+      const dica = uetVariant === 'std'
+        ? 'Budget of the model — every fleet of it starts from here'
+        : 'Budget of Fleet ' + uetVariant + ' — ' + (nOver
+            ? nOver + ' value' + (nOver === 1 ? '' : 's') + ' of its own; everything else follows the Theoretical Std'
+            : 'nothing of its own yet; it follows the Theoretical Std');
+      return `<div class="ue-dd uet-vdd"><button type="button" class="ue-dd-btn${uetVariant !== 'std' ? ' on' : ''}" title="${dica}" aria-haspopup="listbox" aria-expanded="false">` +
+        `<span>${cur[1]}</span>${uetVariant !== 'std' && nOver ? `<i title="${nOver} value${nOver === 1 ? '' : 's'} written for this fleet">${nOver}</i>` : ''}` +
         `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>` +
         `<div class="ue-dd-list" role="listbox" hidden>` +
         ops.map((o) => `<button type="button" class="ue-dd-opt${String(uetVariant) === o[0] ? ' sel' : ''}" data-v="${o[0]}"><span>${o[1]}</span></button>`).join('') +
@@ -9212,6 +9249,7 @@
           await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: fkeyCur(), line, period: p, value: Number(val), kind: 'proj' }) });
           if (uetVariant !== 'std') uetOver[k] = Number(val); else uetStd[k] = Number(val); rebuildVals(); orcTeoSujo = true;
         }
+        renderControls();   // a contagem da pílula da frota tem de acompanhar o que foi salvo
       } catch (e) {}
     }
     (async () => {

@@ -2954,6 +2954,80 @@
     return uetCell(vals, model, lineObj.label, p, maint);
   }
 
+  // ===================== ORÇADO (BUDGET) VINDO DO UE THEORIC =====================
+  // Até 03/09/2026 o budget do site vinha das abas "UE - <modelo>" da planilha, e a aba UE
+  // Theoric — onde o time realmente mexe nos números — não chegava a lugar nenhum: editar a
+  // Fleet 4 do Argo lá não movia nem a coluna cinza do Unit Economics nem a régua tracejada do
+  // Unit. Agora o Theoric é a fonte dos NÚMEROS: Std do modelo, com a MÁSCARA da frota por cima
+  // quando ela existir. A planilha continua definindo a ESTRUTURA da tabela (quais linhas, em que
+  // ordem, em que grupo) porque é ela que o UE inteiro usa de esqueleto.
+  //
+  // Três traduções entre os dois mundos:
+  //  · rótulo — o Theoric diz 'Vehicle Sell', a planilha diz 'Initial Fee / Vehicle Sell';
+  //  · moeda  — o Theoric é em R$ e o orçado trafega em US$ (o consumidor multiplica por 5,0
+  //             para exibir em R$), então dividimos por 5,0 aqui e o R$ volta idêntico;
+  //  · período— o orçado tem 13 casas (M0..M12) e guarda o M13 das linhas pontuais na ÚLTIMA
+  //             delas, que é como orcDisp() lê essas três linhas. O M13 do Theoric dobra ali.
+  const ORC_TEO_FX = 5.0;
+  const ORC_TEO_LBL = {
+    'Vehicle Sell': 'Initial Fee / Vehicle Sell',
+    'Security Deposit Refund': 'Deposit Refund',
+    'Car Preparation': 'Car Preparation (wash + delivery)',
+  };
+  const ORC_TEO_M13 = { 'Vehicle Purchase': 1, 'Initial Fee / Vehicle Sell': 1, 'Deposit Refund': 1 };
+  let orcTeoCache = null;    // promessa em voo/resolvida — a montagem roda uma vez por sessão
+  let orcTeoSujo = false;    // o Theoric foi editado: o UE precisa remontar o orçado ao voltar
+  async function orcTeoFetch(fleetKey) {
+    const out = {};
+    try {
+      const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(fleetKey), { credentials: 'include' });
+      const d = await r.json();
+      (d.values || []).forEach((v) => { const k = v.line + '@@' + v.period; if (out[k] == null) out[k] = v.value; });
+    } catch (e) {}
+    return out;
+  }
+  // { rótulo da planilha: [v0..v12] } em US$, a partir do mapa de valores de um modelo
+  function orcTeoTabela(vals, modelId) {
+    const maint = uetMaint(vals, modelId);
+    const out = {};
+    UET_LINES.forEach((l) => {
+      if (l.group !== 'inflow' && l.group !== 'outflow') return;
+      const lbl = ORC_TEO_LBL[l.label] || l.label;
+      const arr = out[lbl] || (out[lbl] = new Array(13).fill(null));
+      for (let per = 0; per < UET_PERIODS; per++) {
+        const v = uetEff(vals, modelId, l, per, maint);
+        if (v == null) continue;
+        const ultimo = per === UET_PERIODS - 1;
+        if (ultimo && !ORC_TEO_M13[lbl]) continue;   // M13 de linha recorrente não existe no orçado
+        const i = ultimo ? 12 : per;
+        arr[i] = (arr[i] || 0) + v / ORC_TEO_FX;
+      }
+    });
+    return out;
+  }
+  // monta OCN.ue.orcTeo = { <modelo>: tabela do Std, <id da frota>: tabela com a máscara }
+  function ensureOrcTeorico() {
+    if (orcTeoCache) return orcTeoCache;
+    orcTeoCache = (async () => {
+      const U2 = OCN.ue || {};
+      if (!U2.fleets || !U2.fleets.length) return null;
+      const modelos = [...new Set(U2.fleets.map((f) => f.model))];
+      const std = {};
+      await Promise.all(modelos.map(async (m) => { std[m] = await orcTeoFetch('__theoric_' + m + '__'); }));
+      const tab = {};
+      modelos.forEach((m) => { if (Object.keys(std[m] || {}).length) tab[m] = orcTeoTabela(std[m], m); });
+      // máscara por frota: só busca onde o modelo tem Std, e só entra se a máscara existir
+      await Promise.all(U2.fleets.map(async (f) => {
+        if (!tab[f.model]) return;
+        const mk = await orcTeoFetch('__theoric_' + f.model + '__f' + f.id + '__');
+        if (Object.keys(mk).length) tab[f.id] = orcTeoTabela(Object.assign({}, std[f.model], mk), f.model);
+      }));
+      U2.orcTeo = tab;
+      return tab;
+    })();
+    return orcTeoCache;
+  }
+
   // ===================== FINANCE — P&L projection (lazy init) =====================
   // Visão de CAIXA em USD, consolidada de: (1) Fleet Plan (coortes: modelo + mês + qtd),
   // (2) UE por veículo de cada modelo — vem do Unit Economics Theoric (fonte única da verdade),
@@ -8866,10 +8940,10 @@
       try {
         if (val === '' || val == null || !isFinite(Number(val))) {
           await fetch('/api/ue/value/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: fkeyCur(), line: key, period: 0 }) });
-          if (uetVariant !== 'std') delete uetOver[k]; else delete uetStd[k]; rebuildVals();
+          if (uetVariant !== 'std') delete uetOver[k]; else delete uetStd[k]; rebuildVals(); orcTeoSujo = true;
         } else {
           await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: fkeyCur(), line: key, period: 0, value: Number(val), kind: 'proj' }) });
-          if (uetVariant !== 'std') uetOver[k] = Number(val); else uetStd[k] = Number(val); rebuildVals();
+          if (uetVariant !== 'std') uetOver[k] = Number(val); else uetStd[k] = Number(val); rebuildVals(); orcTeoSujo = true;
         }
       } catch (e) {}
     }
@@ -9133,10 +9207,10 @@
       try {
         if (val === '' || val == null) {
           await fetch('/api/ue/value/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: fkeyCur(), line, period: p }) });
-          if (uetVariant !== 'std') delete uetOver[k]; else delete uetStd[k]; rebuildVals();
+          if (uetVariant !== 'std') delete uetOver[k]; else delete uetStd[k]; rebuildVals(); orcTeoSujo = true;
         } else {
           await fetch('/api/ue/value', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ fleet: fkeyCur(), line, period: p, value: Number(val), kind: 'proj' }) });
-          if (uetVariant !== 'std') uetOver[k] = Number(val); else uetStd[k] = Number(val); rebuildVals();
+          if (uetVariant !== 'std') uetOver[k] = Number(val); else uetStd[k] = Number(val); rebuildVals(); orcTeoSujo = true;
         }
       } catch (e) {}
     }
@@ -9152,7 +9226,12 @@
   // ===================== UNIT ECONOMICS (lazy init) =====================
   let unitReady = false;
   function initUnit() {
-    if (unitReady) return;
+    // já montada: se o Theoric mudou desde a última vez, o orçado tem de ser remontado —
+    // senão a edição no Theoric só apareceria depois de recarregar a página
+    if (unitReady) {
+      if (orcTeoSujo && window.__ueOrcReload) { orcTeoSujo = false; window.__ueOrcReload(); }
+      return;
+    }
     unitReady = true;
     const U = OCN.ue;
     const isAdmin = !!(OCN._meta && OCN._meta.user && (OCN._meta.user.role === 'admin' || OCN._meta.user.role === 'giga_admin'));
@@ -9250,11 +9329,17 @@
     };
     // número JS → string editável pt-BR (round-trip com parseInput)
     const toInput = (v) => (v == null ? '' : String(v).replace('.', ','));
-    const orcVal = (line, period) => {
+    // orçado de uma frota: a máscara dela no Theoric vence o Std do modelo; a planilha só
+    // responde se o modelo não tiver nada salvo no Theoric
+    const orcTeoDe = (fid, mdl) => { const T = U.orcTeo; return (T && (T[fid] || T[mdl])) || null; };
+    const orcValDe = (fid, mdl, line, period) => {
       const lbl = ORC_ALIAS[line] || line;
-      const l = (U.orcado[model] && U.orcado[model].lines.find((x) => x.label === lbl));
+      const T = orcTeoDe(fid, mdl);
+      if (T) { const a = T[lbl]; return a ? a[period] : null; }
+      const l = (U.orcado[mdl] && U.orcado[mdl].lines.find((x) => x.label === lbl));
       return l ? l.values[period] : null; // period 0..12 (M0..M12)
     };
+    const orcVal = (line, period) => orcValDe(current, model, line, period);
     const isLeaf = (g) => g === 'inflow' || g === 'outflow';
 
     const totalCarsAll = U.fleets.reduce((a, x) => a + (x.cars || 0), 0);
@@ -10262,8 +10347,7 @@
       if (allMode && !plateView) {
         let sum = 0, any = false;
         ctxFleets().forEach((ff) => {
-          const l = U.orcado[ff.model] && U.orcado[ff.model].lines.find((x) => x.label === (ORC_ALIAS[line] || line));
-          const v = l ? l.values[srcP] : null;
+          const v = orcValDe(ff.id, ff.model, line, srcP);
           if (v != null) { sum += v * ff.cars; any = true; }
         });
         return any ? Math.round((sum / (curCars || 1)) * fx * k) : null;
@@ -10951,7 +11035,10 @@
     // modelo) percorrem as 6 frotas e, sem isto, o painel piscava de frota em frota na cara do
     // usuario - parecia recarregamento quebrado. Agora elas rodam mudas e a tela so e repintada
     // no fim, uma vez.
+    // ponte para o guard de re-entrada do initUnit: só este closure sabe recarregar a tabela
+    window.__ueOrcReload = () => { orcTeoCache = null; loadFleet(true, true); };
     async function loadFleet(keepView, quiet) {
+      await ensureOrcTeorico();   // o budget vem do Theoric; sem isto a 1ª pintura sairia da planilha
       allMode = current === 'all' || String(current).startsWith('m:');
       const f = allMode ? allFleet() : U.fleets.find((x) => x.id === current);
       model = f.model;
@@ -11119,6 +11206,7 @@
       const btnR = document.getElementById('ueRefresh');
       if (btnR) btnR.addEventListener('click', async () => {
         btnR.disabled = true; btnR.classList.remove('failed'); btnR.classList.add('loading');
+        orcTeoCache = null;   // o orçado teórico é remontado junto com os dados da planilha
         btnR.title = 'Refreshing…';
         try {
           Object.keys(_fleetValsCache).forEach((x) => delete _fleetValsCache[x]);   // dados novos, cache fora

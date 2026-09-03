@@ -2926,14 +2926,48 @@
     }
     return arr;
   }
+  // ---- SEGUNDAS-FEIRAS COBRÁVEIS de uma frota no mês m do eixo ----
+  // A semanalidade é cobrada toda segunda, então um M com 5 segundas rende 25% a mais que um com
+  // 4. O eixo é ancorado na entrega mais antiga da frota, mas cada carro tem as SUAS 52 semanas
+  // contadas a partir da entrega dele: numa frota entregue ao longo de duas semanas o M1 não é
+  // inteiro, e a sobra reaparece no M13. Medido em 03/09/2026, os 6 conjuntos fecham em 52
+  // segundas exatas; o desvio para a contagem simples da frota mora só no M1 e no M13.
+  function ueMondaysFrota(f, m) {
+    const U2 = OCN.ue || {};
+    if (!f || !f.inicio) return 0;
+    const MS = 86400000, len = UET_WPM * 7 * MS;
+    const ini = new Date(f.inicio + 'T12:00:00').getTime();
+    const dur = (U2.periods || 12) * UET_WPM * 7 * MS;
+    const starts = U2.starts || {};
+    const pls = (f.placas || []);
+    const janela = (st) => {
+      const a = Math.max(ini + (m - 1) * len, st), b = Math.min(ini + m * len, st + dur);
+      if (b <= a) return 0;
+      const d0 = new Date(a);
+      let d = a + (((1 - d0.getDay()) % 7 + 7) % 7) * MS, n = 0;
+      while (d < b) { n++; d += 7 * MS; }
+      return n;
+    };
+    if (!pls.length) return janela(ini);
+    let tot = 0;
+    pls.forEach((pl) => {
+      const st = starts[pl] ? new Date(starts[pl] + 'T12:00:00').getTime() : ini;
+      tot += janela(Math.max(st, ini));
+    });
+    return tot / pls.length;
+  }
   // valor projetado (COM sinal) de uma linha na IDADE p do contrato (M0..M13), a partir dos params/sliders
-  function uetCell(vals, model, line, p, maint) {
+  // `seg` (opcional) = quantas segundas o mês p tem NAQUELA frota. Sem ele o mês é linear
+  // (4,3333 semanas), que é como o modelo — sem data de entrega — tem de ser lido.
+  function uetCell(vals, model, line, p, maint, seg) {
     const par = (k) => uetPar(vals, k);
     const PMAX = UET_PERIODS - 1;
-    const subMonthly = par('__sub_semanal__') * UET_WPM;
+    const semanas = seg ? seg(p) : ((p >= 1 && p <= UET_RECUR) ? UET_WPM : 0);
+    const subMonthly = par('__sub_semanal__') * semanas;
+    const subOk = par('__sub_semanal__') > 0 && semanas > 0 && p >= 1 && p <= (seg ? PMAX : UET_RECUR);
     switch (line) {
-      case 'Subscription': return (p >= 1 && p <= UET_RECUR && par('__sub_semanal__') > 0) ? subMonthly * (1 - par('__inadimplencia__') / 100) : null;
-      case 'Late-payment interest': return (p >= 1 && p <= UET_RECUR && par('__sub_semanal__') > 0) ? subMonthly * (par('__late_pct__') / 100) * (par('__sub_juros__') / 100) : null;
+      case 'Subscription': return subOk ? subMonthly * (1 - par('__inadimplencia__') / 100) : null;
+      case 'Late-payment interest': return subOk ? subMonthly * (par('__late_pct__') / 100) * (par('__sub_juros__') / 100) : null;
       case 'Vehicle Sell': return (p === PMAX && par('__vehicle__') > 0) ? par('__vehicle__') * 1.03 : null;
       case 'Security Deposit Refund': { const dep = par('__num_alugueis__') * par('__subrental_mensal__'); return (p === PMAX && dep > 0) ? dep * (1 + par('__refund_pct__') / 100) : null; }
       case 'Subrental fee': return (p >= 1 && p <= UET_RECUR && par('__subrental_mensal__') > 0) ? -par('__subrental_mensal__') : null;
@@ -2948,10 +2982,10 @@
     }
   }
   // valor EFETIVO: override manual da célula (magnitude) vence a projeção
-  function uetEff(vals, model, lineObj, p, maint) {
+  function uetEff(vals, model, lineObj, p, maint, seg) {
     const ov = vals[lineObj.label + '@@' + p];
     if (ov != null) return (lineObj.group === 'outflow') ? -Math.abs(Number(ov)) : Math.abs(Number(ov));
-    return uetCell(vals, model, lineObj.label, p, maint);
+    return uetCell(vals, model, lineObj.label, p, maint, seg);
   }
 
   // ===================== ORÇADO (BUDGET) VINDO DO UE THEORIC =====================
@@ -2987,19 +3021,19 @@
     return out;
   }
   // { rótulo da planilha: [v0..v12] } em US$, a partir do mapa de valores de um modelo
-  function orcTeoTabela(vals, modelId) {
+  function orcTeoTabela(vals, modelId, seg) {
     const maint = uetMaint(vals, modelId);
     const out = {};
     UET_LINES.forEach((l) => {
       if (l.group !== 'inflow' && l.group !== 'outflow') return;
       const lbl = ORC_TEO_LBL[l.label] || l.label;
-      const arr = out[lbl] || (out[lbl] = new Array(13).fill(null));
+      const arr = out[lbl] || (out[lbl] = new Array(14).fill(null));
       for (let per = 0; per < UET_PERIODS; per++) {
-        const v = uetEff(vals, modelId, l, per, maint);
+        const v = uetEff(vals, modelId, l, per, maint, seg);
         if (v == null) continue;
-        const ultimo = per === UET_PERIODS - 1;
-        if (ultimo && !ORC_TEO_M13[lbl]) continue;   // M13 de linha recorrente não existe no orçado
-        const i = ultimo ? 12 : per;
+        // as três linhas pontuais moram na ÚLTIMA casa do orçado (é de lá que orcDisp lê o M13);
+        // as demais ficam na casa do próprio mês, M13 inclusive (a cauda da Subscription)
+        const i = (per === UET_PERIODS - 1 && ORC_TEO_M13[lbl]) ? 12 : per;
         arr[i] = (arr[i] || 0) + v / ORC_TEO_FX;
       }
     });
@@ -3041,13 +3075,14 @@
         diag.modelos.push({ modelo: m, teoId: idDe[m], valores: n });
         if (n) tab[m] = orcTeoTabela(std[m], m);
       });
-      // máscara por frota: só busca onde o modelo tem Std, e só entra se a máscara existir
+      // TODA frota ganha a própria tabela, tenha ou não valores próprios: a sazonalidade da
+      // Subscription depende da data de entrega, que é da frota — o Std do modelo não a conhece
       await Promise.all(U2.fleets.map(async (f) => {
         if (!tab[f.model]) return;
         const mk = await orcTeoFetch('__theoric_' + idDe[f.model] + '__f' + f.id + '__');
         const n = Object.keys(mk).length;
         diag.frotas.push({ frota: f.id, modelo: f.model, overrides: n });
-        if (n) tab[f.id] = orcTeoTabela(Object.assign({}, std[f.model], mk), f.model);
+        tab[f.id] = orcTeoTabela(Object.assign({}, std[f.model], mk), f.model, (per) => ueMondaysFrota(f, per));
       }));
       U2.orcTeo = tab;
       U2.orcTeoDiag = diag;
@@ -8946,14 +8981,22 @@
 
     // usam o motor extraído acima (mesma lógica), agora compartilhado com o P&L do Finance
     const maintByMonth = () => uetMaint(uetVals, uetSel);
-    const cellValue = (line, p, maint) => uetCell(uetVals, uetSel, line, p, maint);
+    // frota escolhida no dropdown = tabela SAZONALIZADA: o mês vale as segundas reais dela.
+    // No "Theoretical Std" não há data de entrega, então o mês continua linear.
+    const segAtual = () => {
+      if (uetVariant === 'std') return null;
+      const f = (((OCN.ue || {}).fleets) || []).find((x) => String(x.id) === String(uetVariant));
+      return f ? ((per) => ueMondaysFrota(f, per)) : null;
+    };
+    const cellValue = (line, p, maint) => uetCell(uetVals, uetSel, line, p, maint, segAtual());
     function computeAll() {
-      const maint = maintByMonth(); const cells = {}; const ti = [], to = [], net = [], acc = []; let a = 0;
+      const maint = maintByMonth(); const seg = segAtual();
+      const cells = {}; const ti = [], to = [], net = [], acc = []; let a = 0;
       for (let p = 0; p < UET_PERIODS; p++) {
         let inf = 0, ouf = 0;
         UET_LINES.forEach((l) => {
           if (!isLeaf(l.group)) return;
-          const v = uetEff(uetVals, uetSel, l, p, maint); // override manual vence a projeção
+          const v = uetEff(uetVals, uetSel, l, p, maint, seg); // override manual vence a projeção
           cells[l.label + '@@' + p] = v;
           if (v == null) return;
           if (l.group === 'inflow') inf += v; else ouf += v;
@@ -9099,7 +9142,7 @@
             ? nOver + ' value' + (nOver === 1 ? '' : 's') + ' of its own; everything else follows the Theoretical Std'
             : 'nothing of its own yet; it follows the Theoretical Std');
       return `<div class="ue-dd uet-vdd"><button type="button" class="ue-dd-btn${uetVariant !== 'std' ? ' on' : ''}" title="${dica}" aria-haspopup="listbox" aria-expanded="false">` +
-        `<span>${cur[1]}</span>${uetVariant !== 'std' && nOver ? `<i title="${nOver} value${nOver === 1 ? '' : 's'} written for this fleet">${nOver}</i>` : ''}` +
+        `<span>${cur[1]}</span>` +
         `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>` +
         `<div class="ue-dd-list" role="listbox" hidden>` +
         ops.map((o) => `<button type="button" class="ue-dd-opt${String(uetVariant) === o[0] ? ' sel' : ''}" data-v="${o[0]}"><span>${o[1]}</span></button>`).join('') +
@@ -10373,7 +10416,10 @@
       // o orçado tem de seguir o mesmo botão: senão sai do realizado e fica na régua, e todo
       // carro pareceria melhor contra o orçado só por ter desligado o calção
       if (cauOff && (line === 'Security Deposit' || line === 'Deposit Refund')) return null;
-      if (line === 'Subscription') {
+      // A Subscription já vem SAZONALIZADA do Theoric (a tabela da frota conta as segundas
+      // reais dela), então aqui ela é uma linha como qualquer outra. O cálculo pelas segundas só
+      // sobrevive como plano B, para o caso de um modelo sem nada salvo no Theoric.
+      if (line === 'Subscription' && !orcTeoDe(current, model)) {
         const fxS = currency === 'BRL' ? 1 : 1 / ORCADO_FX;
         const kS = viewMult();
         if (allMode && !plateView) {

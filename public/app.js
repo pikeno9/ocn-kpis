@@ -10347,9 +10347,20 @@
     // mondaysAvg(p) já conta as segundas da janela de cada carro, respeitando a data de entrega da
     // placa e tirando quem virou perda total. Vale só para o UE real — o UE Teórico continua linear,
     // porque lá não existe data de início de frota.
-    const subOrcMondays = (period) => {
+    // A semanalidade do PLANO vem do UE Theoric (máscara da frota > Std do modelo): é lá que o
+    // orçado é definido. O Theoric guarda a Subscription MENSAL, então ela volta a semanal
+    // (÷ 4,3333) para casar com as segundas reais de cada M. Sem Theoric para o modelo, cai na
+    // caixinha da própria frota, como era antes.
+    const subSemanalOrc = (period, fid, mdl) => {
+      const T = orcTeoDe(fid == null ? current : fid, mdl == null ? model : mdl);
+      const a = T && T['Subscription'];
+      const v = a ? a[Math.max(1, Math.min(period, U.periods))] : null;
+      if (v != null) return (v * ORCADO_FX) / SEMANAS_MES;
+      return par('__sub_semanal__');
+    };
+    const subOrcMondays = (period, ff) => {
       if (period < 1 || period > PMAX) return null;
-      const semanal = par('__sub_semanal__');
+      const semanal = subSemanalOrc(period, ff && ff.id, ff && ff.model);
       if (!(semanal > 0)) return null;
       // ORÇADO = o PLANO daquele carro, e o plano não sabia que o carro ia bater. Contar as
       // segundas ignorando a perda total: senão a placa sinistrada ficava com orçado zero de
@@ -10369,7 +10380,7 @@
           let sum = 0, any = false;
           fleetCtx && fleetCtx.forEach((c) => {
             applyCtx(c);
-            const v = subOrcMondays(period);
+            const v = subOrcMondays(period, c.f);
             if (v != null) { sum += v * (c.f.cars || 0); any = true; }
           });
           return any ? Math.round((sum / (curCars || 1)) * fxS * kS) : null;

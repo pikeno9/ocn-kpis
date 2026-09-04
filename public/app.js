@@ -5549,7 +5549,8 @@
       pareto: { t: 'Pareto — where the COGS money goes', d: 'Every vehicle cost line sorted biggest first (each in its own colour), with the cumulative share on the right axis. Where the curve crosses the dashed 80% guide tells you how few lines concentrate almost all the cost — those are the ones worth negotiating; everything after the crossing is operational noise. CLICK any bar to open that line below, month by month and split by fleet.' },
       kmtrend: { t: 'Fleet km/week over time', d: 'The average km/week of every plate with an odometer reading, week by week (current partial week excluded). The dashed tail projects the pace of the last 8 weeks 4 weeks ahead. Why it matters: repossessions tend to take out LOW-usage drivers and their cars come back with average ones, so churn alone pushes this line up — and more km is more maintenance, parts and revisions. The PATTERN BREAKS view flips to the individual car: plates whose last-2-week average fell more than 60% against their own previous 4-week pace — the classic shape of a car slipping out of normal use (driver stopped, car sitting, or about to be repossessed). Grey bar = the pace before, red bar = now.' },
       share: { t: 'Share of COGS by month', d: 'Each month as 100%: how much of that month\'s vehicle cost each line represents — the five biggest lines in their own colours, the rest grouped as grey "Others". Months ahead of today are the PROJECTION and render lighter (the tooltip also says "projected"). Watch for a line quietly growing its slice as the fleet ramps: absolute values always grow with more cars, but the SHARE only grows when the line outpaces the others.' },
-      u_ret: { t: 'Return — each car against its budget', d: 'One thin bar per plate, and clicking any of them opens that car\'s full statement below. The tinted bands separate the cars in the black from the ones in the red, and the dotted purple line is the fleet average. Each bar is everything the car has brought in since delivery (subscriptions received, interest, fines charged to the client) minus everything it has cost (sub-rental, insurance accrued to date, GPS, preparation, sticker, maintenance, fines paid, recovery, repair, parts). Security deposit and its refund are OUT — they are cash parked, not result — and so are the car purchase/sale and termination fees. The dashed line is each car\'s BUDGET at its current age: what its fleet\'s contractual economics (weekly fee, rent, insurance, GPS) plus the pooled event rates (fines, maintenance, recovery, repair, parts by car age) say it should have accumulated by now. GREEN bars are at or above budget, RED are below. Cars of different fleets have different ages, so bars are not directly comparable to each other — always compare each bar to the dashed line at its position, or use the "Monthly IRR" chart below, which puts every car on the same scale.' },
+      u_pct: { t: 'Performance vs budget — each car as % of its own plan', d: 'Every bar is one car, and its height is how much of its own budget the car delivered: 1 + (return − budget) ÷ |budget|. A car that returned 1,000 against a budget of 800 sits at 125%; one that returned 600 sits at 75%; one that lost money sits below 0%. The dashed line at 100% is the budget itself, so bars above it beat the plan and bars below it miss it — and because every car is measured against ITS OWN plan, cars from different fleets and ages become comparable, which the Income chart below cannot do. Two rules keep the number honest. First, the denominator is the SIZE of the budget (its absolute value): when a young car still has a negative plan (heavy month-zero outlays, in the “So far” view), losing 500 against a plan of −500 is 100%, and losing only 300 is 140% — better than plan reads as a higher number, whatever the sign of the plan. Second, a budget too close to zero cannot be divided by: cars whose |budget| is under 5% of the median |budget| of the cars on screen are left out, and the legend says how many. Bars are capped at ±300% so a single odd car cannot hijack the axis; the hover box always shows the real figure. GREEN = at or above 100% (ahead of its plan); BLUE = between 0% and 100% (behind it); RED = below 0%, meaning the shortfall is bigger than the whole budget. Colours follow this ratio, not the sign of the cash — a young car with negative cash but an even more negative plan is ahead, and shows green; the Income chart below is where the cash sign lives. The purple line is the MEDIAN, which, unlike the average, is not dragged around by one outlier. “Full contract” measures the whole M0–M13 plan; “So far” measures each car at its current age.' },
+      u_ret: { t: 'Income — each car against its budget', d: 'One thin bar per plate, and clicking any of them opens that car\'s full statement below. The tinted bands separate the cars in the black from the ones in the red, and the dotted purple line is the fleet average. Each bar is everything the car has brought in since delivery (subscriptions received, interest, fines charged to the client) minus everything it has cost (sub-rental, insurance accrued to date, GPS, preparation, sticker, maintenance, fines paid, recovery, repair, parts). Security deposit and its refund are OUT — they are cash parked, not result — and so are the car purchase/sale and termination fees. The dashed line is each car\'s BUDGET at its current age: what its fleet\'s contractual economics (weekly fee, rent, insurance, GPS) plus the pooled event rates (fines, maintenance, recovery, repair, parts by car age) say it should have accumulated by now. GREEN bars are at or above budget, RED are below. Cars of different fleets have different ages, so bars are not directly comparable to each other — always compare each bar to the dashed line at its position, or use the "Monthly IRR" chart below, which puts every car on the same scale.' },
       u_ret_old: { t: 'Return per car — vs its budget', d: 'One thin bar per plate: everything the car has brought in since delivery (subscriptions received, interest, fines charged to the client) minus everything it has cost (sub-rental, insurance accrued to date, GPS, preparation, sticker, maintenance, fines paid, recovery, repair, parts). Security deposit and its refund are OUT — they are cash parked, not result — and so are the car purchase/sale and termination fees. The dashed line is each car\'s BUDGET at its current age: what its fleet\'s contractual economics (weekly fee, rent, insurance, GPS) plus the pooled event rates (fines, maintenance, recovery, repair, parts by car age) say it should have accumulated by now. GREEN bars are at or above budget, RED are below. Cars of different fleets have different ages, so bars are not directly comparable to each other — always compare each bar to the dashed line at its position.' },
       u_irr: { t: 'Monthly IRR per car', d: 'Exactly the IRR the Unit Economics panel shows for that plate — same engine, same premises, run once per car. Select any plate in the Unit Economics tab and the monthly rate there is the height of its bar here. Each car gets its own M0..M13 cashflow straight from the UE statement: M0 carries the CAPITAL TIED — the sub-rental deposit, the FULL insurance premium (the policy is signed once and covers the 12 months, so paying it in instalments is financing, not optionality), plus preparation, sticker and the GPS install — and every month after that carries what came in (subscriptions, interest, fines charged, termination fee, vehicle sale) minus what went out (sub-rental, GPS, fines paid to LM, maintenance, recovery, repair, parts, deposit refund, vehicle purchase), each entry landing in the month of life it happened, realized up to today and budgeted from there to the end of the contract. The InDrive promotion leaves the account on BOTH sides — the bonus received and the discount granted — because it was a one-off activation campaign that will not repeat in the next contract; leaving it in would make the plates that caught it look structurally better than the business is. The IRR is the rate that makes that series worth zero today, so unlike a plain multiple it weighs WHEN each real arrives: a car that pays back in month two rates higher than one that pays the same amount spread to month ten. Cars under one month of life have no bar (too little history). A car that has burned its capital with nothing coming back shows −100%. The purple line is the fleet average and the band below zero marks the cars destroying capital. Click any bar to open that car\'s full statement.' },
       u_break: { t: 'How much bad luck zeroes a car', d: 'Break-even on the two misfortunes that actually happen to a car: being repossessed and sitting idle without a paying driver. The marginal costs are MEASURED, not assumed. One repossession costs the average towing + repair bill of every real case in the base. One unpaid week costs the weekly fee that does not come in, MINUS the wear the parked car does not burn — maintenance and parts per km (fleet-wide spend divided by fleet-wide km) times the average weekly km. The base is the FULL-CONTRACT return: what the average car has already made plus what the budget says the remaining months bring, M0 to M13. A REPOSSESSION EVENT bundles what really happens together: the towing + repair bill AND one unpaid week — a car never gets repossessed while the driver is paying, so the two costs always arrive as a pair; the repossessions break-even and the slider use the full event. The unpaid-week number shows its two vectors separately: the fee that does not come in, minus the wear (maintenance + parts per km) the parked car does not burn. Break-even divides that by each marginal cost: that many repossessions over the whole cycle, or that many unpaid weeks, and the average car ends its contract at zero. The sliders combine the two — set 2 repossessions and 6 unpaid weeks and read what would be left of the average car. It responds to the filters above (fleet, model, InDrive, Rec+Rep, Deposit).' },
@@ -8052,6 +8053,7 @@
     // reescalar o eixo — sem referência fixa não dá para VER o efeito do botão. A chave ignora
     // os três toggles; mudar filtro, recorte, ordenação, visão ou moeda solta a trava.
     let unitScaleLock = null;
+    let unitPctLock = null;    // a mesma trava, para o gráfico de % do orçado
     // fotos dos modelos, carregadas uma vez; quando a imagem chega, repinta o gráfico
     const unitFotos = {};
     function unitFotoDe(model) {
@@ -8348,7 +8350,22 @@
       // as ordenações que falam de RETORNO seguem a visão ligada no botão: no contrato inteiro,
       // "lowest return" é o pior fim de contrato, não o pior caixa até hoje
       const RET = (r) => (unitFull ? (r.retFull || 0) : r.real);
-      const DLT = (r) => (unitFull ? (r.retFull || 0) - (r.budFull || 0) : r.delta);
+      const BUD = (r) => (unitFull ? (r.budFull || 0) : (r.bud || 0));
+      const DLT = (r) => RET(r) - BUD(r);
+      // ---- % DO ORÇADO: 1 + (real − orçado) / |orçado| ----
+      // É a fórmula pedida ((1000 − 800) / 800 + 1 = 125%) com UMA mudança: o denominador é o
+      // MÓDULO do orçado. Assim o sinal do desvio sempre quer dizer a mesma coisa — acima de 100%
+      // é melhor que o plano, abaixo é pior — mesmo quando o plano é negativo (um carro novo, no
+      // "So far", tem orçado negativo: perdeu 500 contra plano de −800 é 137%, MELHOR que o plano;
+      // dividir por −800 daria 62% e leria ao contrário). Real negativo contra plano positivo dá
+      // abaixo de 0%: o carro devolveu menos que nada do que deveria.
+      // Orçado quase zero não dá razão (qualquer real vira infinito): fica de fora quando o
+      // |orçado| não chega a 5% da mediana dos |orçados| do recorte, e a legenda conta quantos.
+      const pctFloor = (() => {
+        const abs = rows.map((r) => Math.abs(BUD(r))).filter((v) => v > 0).sort((a, b) => a - b);
+        return abs.length ? abs[Math.floor(abs.length / 2)] * 0.05 : 0;
+      })();
+      const PCT = (r) => { const b = Math.abs(BUD(r)); return b > pctFloor && b > 0 ? 1 + DLT(r) / b : null; };
       const sorters = {
         delta: (a, b) => DLT(b) - DLT(a),
         real: (a, b) => RET(a) - RET(b),                     // LOWEST return primeiro: o que precisa de olho
@@ -8357,6 +8374,7 @@
         age: (a, b) => b.ageM - a.ageM,
         kmwk: (a, b) => (b.kmWk || 0) - (a.kmWk || 0),       // vida inteira do carro, não o último motorista
         d15: (a, b) => (a.d15 || 0) - (b.d15 || 0),          // maiores QUEDAS primeiro, à esquerda
+        pct: (a, b) => (PCT(b) == null ? -1e9 : PCT(b)) - (PCT(a) == null ? -1e9 : PCT(a)),   // melhor % do orçado primeiro
       };
       rows.sort(sorters[unitSort] || sorters.delta);
       // ---- controles ----
@@ -8368,23 +8386,24 @@
       all.forEach((r) => { if (r.model && !modelos.includes(r.model)) modelos.push(r.model); });
       const nBack = all.filter((r) => r.recuperado || r.devolvido).length;
       const nBelow = all.filter((r) => r.delta < 0).length;
+      // as PLACAS entram no mesmo dropdown (grupo "Unitary"): com 170 barras de 9px, acertar a
+      // do carro certo no clique é difícil — e um segundo seletor só para isso estourava a linha
       const cortes = [
         ['', 'All cars', null],
         ...fleets.map((f) => ['f:' + f.id, 'Fleet ' + f.id + ' · ' + (f.cars || (f.placas || []).length) + ' cars', 'Fleets']),
         ...modelos.map((m) => ['m:' + m, m + ' · ' + all.filter((r) => r.model === m).length + ' cars', 'Models']),
+        ...all.slice().sort((a, b) => String(a.pl).localeCompare(String(b.pl)))
+          .map((r) => ['p:' + r.pl, r.pl + ' · ' + (r.driver ? r.driver.split(' ').slice(0, 2).join(' ') : 'no driver'), 'Unitary']),
       ];
-      const cortAtual = unitModel != null ? 'm:' + unitModel : (unitFleet != null ? 'f:' + unitFleet : '');
+      const cortAtual = unitPlateSel ? 'p:' + unitPlateSel : (unitModel != null ? 'm:' + unitModel : (unitFleet != null ? 'f:' + unitFleet : ''));
       let grupo = null, optHtml = '';
       cortes.forEach(([v, t, g]) => {
         if (g !== grupo) { if (grupo) optHtml += '</optgroup>'; if (g) optHtml += `<optgroup label="${escH(g)}">`; grupo = g; }
         optHtml += `<option value="${escH(v)}"${cortAtual === v ? ' selected' : ''}>${escH(t)}</option>`;
       });
       if (grupo) optHtml += '</optgroup>';
-      ctl.innerHTML = '<div class="costs-bar">' +
+      ctl.innerHTML = '<div class="costs-bar unit-bar">' +
         `<select class="costs-mini cc-sel" id="unitFleetSel">${optHtml}</select>` +
-        // atalho para o drill: com 170 barras de 9px, acertar a do carro certo no clique é difícil
-        `<select class="costs-mini cc-sel" id="unitPlateSel"><option value="">Open a car…</option>` +
-          rows.map((r) => `<option value="${escH(r.pl)}"${unitPlateSel === r.pl ? ' selected' : ''}>${escH(r.pl)} · ${escH(r.driver ? r.driver.split(' ').slice(0, 2).join(' ') : 'no driver')}</option>`).join('') + '</select>' +
         // recortes rápidos: os dois que a operação olha todo dia
         `<span class="unit-chips">` +
           `<button type="button" class="unit-chip${unitFilter === 'back' ? ' on' : ''}" data-fl="back" title="Cars repossessed or already returned">↩ Back in${nBack ? ` <i>${nBack}</i>` : ''}</button>` +
@@ -8400,11 +8419,17 @@
         finCurFlags() + '</div>';
       ctl.querySelector('#unitFleetSel').addEventListener('change', (e) => {
         const v = e.target.value;
+        if (v.startsWith('p:')) {
+          // abrir uma placa: se ela não está no recorte em tela, o recorte cai — senão a barra
+          // aberta não apareceria em lugar nenhum
+          unitPlateSel = v.slice(2);
+          if (!rows.some((r) => r.pl === unitPlateSel)) { unitFleet = null; unitModel = null; unitFilter = null; }
+          renderUnit(); return;
+        }
         unitFleet = v.startsWith('f:') ? v.slice(2) : null;
         unitModel = v.startsWith('m:') ? v.slice(2) : null;
         unitPlateSel = null; renderUnit();
       });
-      ctl.querySelector('#unitPlateSel').addEventListener('change', (e) => { unitPlateSel = e.target.value || null; renderUnit(); });
       ctl.querySelectorAll('.unit-chip').forEach((b) => b.addEventListener('click', () => {
         unitFilter = unitFilter === b.dataset.fl ? null : b.dataset.fl; unitPlateSel = null; renderUnit();
       }));
@@ -8417,14 +8442,14 @@
       // inteiro x caixa até hoje) é uma pergunta diferente de como as barras estão ordenadas.
       const viewWrap = document.getElementById('unitViewWrap');
       if (viewWrap) {
-        viewWrap.className = 'unit-seg';
+        viewWrap.className = 'unit-seg unit-seg-eq';
         viewWrap.innerHTML = [[true, 'Full contract', 'M0 to M13: realized plus this car’s own projection'], [false, 'So far', 'Cash in minus cash out up to today']]
           .map(([v, t, ti]) => `<button type="button" class="unit-seg-b${unitFull === v ? ' on' : ''}" data-v="${v ? '1' : '0'}" title="${ti}">${t}</button>`).join('');
         viewWrap.querySelectorAll('.unit-seg-b').forEach((b) => b.addEventListener('click', () => { unitFull = b.dataset.v === '1'; renderUnit(); }));
       }
       const sortWrap = document.getElementById('unitSortWrap');
       if (sortWrap) {
-        const SORTS = [['delta', 'Biggest gap vs budget'], ['real', 'Lowest return'], ['fleet', 'By fleet'], ['model', 'By model'], ['age', 'Oldest first'], ['kmwk', 'Highest km/week'], ['d15', 'Δ last 15 days']];
+        const SORTS = [['delta', 'Biggest gap vs budget'], ['pct', 'Best % of budget'], ['real', 'Lowest return'], ['fleet', 'By fleet'], ['model', 'By model'], ['age', 'Oldest first'], ['kmwk', 'Highest km/week'], ['d15', 'Δ last 15 days']];
         const atual = SORTS.find((x) => x[0] === unitSort) || SORTS[0];
         sortWrap.className = 'ue-dd ue-dd-sort';
         sortWrap.innerHTML =
@@ -8448,15 +8473,19 @@
       const above = rows.filter((r) => DLT(r) >= 0).length, below = rows.length - above;
       const positive = rows.filter((r) => RET(r) >= 0).length;
       const totD = rows.reduce((s, r) => s + DLT(r), 0);
-      const card = (t, v, sub, cl) => `<div class="costs-card${cl ? ' cc-strong' : ''}" style="--cl:${cl || '#6D28D9'}"><span>${escH(t)}</span><b>${v}</b><span class="sub">${escH(sub || '')}</span></div>`;
-      document.getElementById('unitHero').innerHTML = '<div class="costs-cards">' +
-        card('Cars evaluated', String(rows.length),
+      const pcts = rows.map(PCT).filter((v) => v != null).sort((a, b) => a - b);
+      const medPct = pcts.length ? pcts[Math.floor(pcts.length / 2)] : null;
+      const pctTxt = (v) => (v == null ? '—' : Math.round(v * 100).toLocaleString('pt-BR') + '%');
+      const kpi = (t, v, sub, cls) => `<div class="unit-kpi"><span>${escH(t)}</span><b class="${cls || ''}">${v}</b><span class="sub">${escH(sub || '')}</span></div>`;
+      document.getElementById('unitHero').innerHTML = '<div class="unit-kpis">' +
+        kpi('Cars', String(rows.length),
           (unitModel != null ? unitModel : unitFleet != null ? 'fleet ' + unitFleet : 'all fleets') +
           (unitFilter === 'back' ? ' · back in' : unitFilter === 'below' ? ' · below budget' : '')) +
-        card('Above budget', String(above), Math.round(above / Math.max(1, rows.length) * 100) + '% of the cars', '#059669') +
-        card('Below budget', String(below), 'the blue bars', '#1D4ED8') +
-        card('Cash-positive', String(positive), 'return ≥ 0 regardless of budget') +
-        card('Total Δ vs budget', (totD >= 0 ? '+' : '−') + money(Math.abs(totD)), 'sum of every car\'s delta', totD >= 0 ? '#059669' : '#DC2626') +
+        kpi('Median vs budget', pctTxt(medPct), unitFull ? 'full contract' : 'at each car\'s age', medPct == null ? '' : (medPct >= 1 ? 'up' : 'bl')) +
+        kpi('Above budget', String(above), Math.round(above / Math.max(1, rows.length) * 100) + '% of the cars', 'up') +
+        kpi('Below budget', String(below), Math.round(below / Math.max(1, rows.length) * 100) + '% of the cars', 'bl') +
+        kpi('Cash-positive', String(positive), 'return ≥ 0') +
+        kpi('Total Δ vs budget', (totD >= 0 ? '+' : '−') + money(Math.abs(totD)), 'sum of the deltas', totD >= 0 ? 'up' : 'dn') +
         '</div>';
       // ---- gráficos: barras fininhas, tooltip com o dossiê do carro ----
       const mk = (id, cfg) => { if (costsCharts[id]) { costsCharts[id].destroy(); delete costsCharts[id]; } const c = document.getElementById(id); if (!c) return; costsCharts[id] = new Chart(c.getContext('2d'), cfg); };
@@ -8517,8 +8546,7 @@
           `<i class="cc-leg-i"><span class="sw sw-dn"></span>negative return</i>` +
           `<i class="cc-leg-i cc-leg-tg${unitBudLineOff ? ' off' : ''}" id="unitBudLeg" title="${unitBudLineOff ? 'Click to bring the budget line back' : 'Click to hide the budget line'}"><span class="sw sw-bud"></span>${modoFull ? 'full-contract budget' : "budget at each car's age"}</i>` +
           `<i class="cc-leg-i"><span class="sw sw-avg"></span>average ${escH(ccK(medRet * K))}</i>` +
-        `</span>`) +
-        `<b class="cc-leg-n">${rows.length} cars · click one to open it</b>`;
+        `</span>`);
       // a legenda do orçado é um interruptor: clicou, a linha some (e volta)
       const budLeg = document.getElementById('unitBudLeg');
       if (budLeg) budLeg.addEventListener('click', () => { unitBudLineOff = !unitBudLineOff; renderUnit(); });
@@ -8553,6 +8581,90 @@
       unitScaleLock = { key: yKey, lo: yLo, hi: yHi };
       const yPad = Math.max(1, (yHi - yLo) * 0.05);
       const ySc = { min: Math.floor(yLo - yPad), max: Math.ceil(yHi + yPad) };
+      // ================= PERFORMANCE VS BUDGET (principal) =================
+      // Mesmas barras, mesma ordem, mesmo clique — mas cada carro como % do PRÓPRIO orçado, o que
+      // torna carros de frotas e idades diferentes comparáveis entre si. A barra é limitada a
+      // ±300% só para o eixo não ser sequestrado por um carro de orçado minúsculo; o valor
+      // verdadeiro fica na caixa do hover.
+      const fleetArtPlugin = __unitFleetArtDef();
+      const PCT_CAP = 3;
+      const pctVal = (r) => { const v = PCT(r); return v == null ? null : Math.max(-PCT_CAP, Math.min(PCT_CAP, v)) * 100; };
+      const pctFmt = (v) => (v == null ? '—' : Math.round(v * 100).toLocaleString('pt-BR') + '%');
+      const semPct = rows.filter((r) => PCT(r) == null).length;
+      const cortados = rows.filter((r) => { const v = PCT(r); return v != null && Math.abs(v) > PCT_CAP; }).length;
+      document.getElementById('unitPctHint').innerHTML = modo15
+        ? `<span class="cc-leg"><i class="cc-leg-i">sorted by the last 15 days — this chart still shows each car as % of its budget</i></span>`
+        : `<span class="cc-leg">` +
+          `<i class="cc-leg-i"><span class="sw sw-up"></span>≥ 100% · ahead of its plan</i>` +
+          `<i class="cc-leg-i"><span class="sw sw-bl"></span>0–100% · behind its plan</i>` +
+          `<i class="cc-leg-i" title="The shortfall is bigger than the whole budget"><span class="sw sw-dn"></span>&lt; 0% · missed by more than the plan itself</i>` +
+          `<i class="cc-leg-i"><span class="sw sw-ref"></span>100% = the car's own budget${modoFull ? ', full contract' : ' at its age'}</i>` +
+          `<i class="cc-leg-i"><span class="sw sw-avg"></span>median ${escH(pctFmt(medPct))}</i>` +
+          (semPct ? `<i class="cc-leg-i" title="Budget too close to zero to divide by — see the ? for the rule">${semPct} car${semPct === 1 ? '' : 's'} without a usable budget</i>` : '') +
+          (cortados ? `<i class="cc-leg-i" title="Bars are capped at ±300% so one car cannot hijack the axis; hover for the real figure">${cortados} capped at ±300%</i>` : '') +
+        `</span>`;
+      const corPct = (ctx) => {
+        const r = rows[ctx.dataIndex]; if (!r) return '#9CA3AF';
+        if (r.pl === unitPlateSel) return grad(ctx, '#7C3AED', '#4C1D95');
+        // a cor segue a RAZÃO, não o sinal do caixa (isso é papel do Income): no So far um carro
+        // novo tem caixa negativo e plano mais negativo ainda — está à frente do plano, é verde
+        const v = PCT(r); if (v == null) return '#E5E7EB';
+        if (v < 0) return grad(ctx, '#F87171', '#B91C1C');
+        return v >= 1 ? grad(ctx, '#34D399', '#047857') : grad(ctx, '#60A5FA', '#1D4ED8');
+      };
+      const pctVals = rows.map(pctVal).filter((v) => v != null);
+      let pLo = Math.min(0, ...(pctVals.length ? pctVals : [0])), pHi = Math.max(100, ...(pctVals.length ? pctVals : [100]));
+      const pKey = 'pct|' + [unitFleet, unitModel, unitFilter, unitSort, unitFull].join('|');
+      if (unitPctLock && unitPctLock.key === pKey) { pLo = Math.min(pLo, unitPctLock.lo); pHi = Math.max(pHi, unitPctLock.hi); }
+      unitPctLock = { key: pKey, lo: pLo, hi: pHi };
+      // eixo em múltiplos de 25%: "216%" e "−44%" nas pontas liam como número, não como régua
+      const pPad = Math.max(5, (pHi - pLo) * 0.05);
+      const pStep = (pHi - pLo) > 300 ? 50 : 25;   // faixa larga (So far) sobe o passo, senão o eixo vira poeira
+      const pMin = Math.floor((pLo - pPad) / pStep) * pStep, pMax = Math.ceil((pHi + pPad) / pStep) * pStep;
+      mk('unitPct', { data: { labels, datasets: [
+          Object.assign({ type: 'bar', label: '% of budget', data: rows.map(pctVal),
+            backgroundColor: corPct, hoverBackgroundColor: corPct, borderRadius: 3,
+            borderColor: rows.map((r) => (r.pl === unitPlateSel ? '#2E1065' : 'transparent')),
+            borderWidth: rows.map((r) => (r.pl === unitPlateSel ? 1.5 : 0)) }, thin),
+        ] },
+        plugins: [{ id: 'pctBands', beforeDatasetsDraw(ch) {
+          const { ctx, chartArea: a, scales: { y } } = ch; if (!a || !y) return;
+          const y0 = y.getPixelForValue(0), y100 = y.getPixelForValue(100);
+          ctx.save();
+          // acima do orçado: verde; entre 0 e o orçado: neutro; abaixo de zero: vermelho
+          if (y100 > a.top) { ctx.fillStyle = 'rgba(5,150,105,.045)'; ctx.fillRect(a.left, a.top, a.width, Math.min(y100, a.bottom) - a.top); }
+          if (y0 < a.bottom) { ctx.fillStyle = 'rgba(220,38,38,.05)'; ctx.fillRect(a.left, Math.max(y0, a.top), a.width, a.bottom - Math.max(y0, a.top)); }
+          if (y0 > a.top && y0 < a.bottom) { ctx.strokeStyle = 'rgba(31,41,55,.35)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(a.left, y0); ctx.lineTo(a.right, y0); ctx.stroke(); }
+          // a linha dos 100%: o orçado de cada carro, achatado numa régua só
+          if (y100 > a.top && y100 < a.bottom) {
+            ctx.strokeStyle = INK_LINE(); ctx.globalAlpha = .85; ctx.lineWidth = 1.3; ctx.setLineDash([5, 4]);   // tinta do tema: no escuro a linha preta sumia
+            ctx.beginPath(); ctx.moveTo(a.left, y100); ctx.lineTo(a.right, y100); ctx.stroke(); ctx.setLineDash([]);
+          }
+          ctx.restore();
+        } },
+        fleetArtPlugin,
+        { id: 'pctMed', afterDatasetsDraw(ch) {
+          const { ctx, chartArea: a, scales: { y } } = ch; if (!a || !y || medPct == null) return;
+          const ym = y.getPixelForValue(Math.max(-PCT_CAP, Math.min(PCT_CAP, medPct)) * 100);
+          if (!(ym > a.top + 8 && ym < a.bottom - 4)) return;
+          chartPillLine(ctx, a, ym, '#5A00F8', 'median ' + pctFmt(medPct));
+        } }],
+        options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+          onClick: (e, els, ch) => {
+            const pts = ch.getElementsAtEventForMode(e, 'index', { intersect: false }, true);
+            const i = (els && els.length) ? els[0].index : (pts && pts.length ? pts[0].index : null);
+            if (i == null || !rows[i]) return;
+            unitPlateSel = (unitPlateSel === rows[i].pl) ? null : rows[i].pl;
+            renderUnit();
+          },
+          onHover: (e) => { e.native.target.style.cursor = 'pointer'; },
+          plugins: { legend: { display: false }, datalabels: { display: false },
+            tooltip: { enabled: false, external: externalTip((r) => { const v = PCT(r);
+              return { t: v == null ? 'no usable budget' : 'of its budget' + (Math.abs(v) > PCT_CAP ? ' (bar capped)' : ''), v: pctFmt(v), cls: v == null ? '' : (v < 0 ? 'dn' : (v >= 1 ? 'up' : 'bl')) }; }) } },
+          scales: { x: { display: false },
+            y: { min: pMin, max: pMax, grid: { display: false }, border: { display: false },
+              ticks: { font: CC_FONT, color: '#6B7280', stepSize: pStep, callback: (v) => v.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + '%' } } } } });
+      // ================= INCOME =================
       mk('unitRet', { data: { labels, datasets: [
           Object.assign({ type: 'bar', label: modo15 ? 'Δ vs 15 days ago' : 'Return', data: rows.map((r) => Math.round((modo15 ? (r.d15 || 0) : (modoFull ? (r.retFull || 0) : r.real)) * K)),
             backgroundColor: corBarra, hoverBackgroundColor: corBarra, borderRadius: 3,
@@ -8586,7 +8698,28 @@
         // MODELO DE CADA FROTA: na visão By fleet as barras de uma leva ficam todas juntas, então
         // dá para marcar o bloco inteiro. Foto do carro em marca-d'água + nome do modelo por cima
         // do grupo — resolve "que carro é essa frota?" sem gastar eixo nem legenda.
-        { id: 'unitFleetArt', beforeDatasetsDraw(ch) {
+        fleetArtPlugin,
+        { id: 'unitAvg', afterDatasetsDraw(ch) {
+          const { ctx, chartArea: a, scales: { y } } = ch; if (!a || !y || !rows.length) return;
+          const med = rows.reduce((s, r) => s + (modo15 ? (r.d15 || 0) : (modoFull ? (r.retFull || 0) : r.real)), 0) / rows.length * K;
+          const ym = y.getPixelForValue(med);
+          if (!(ym > a.top + 8 && ym < a.bottom - 4)) return;
+          chartPillLine(ctx, a, ym, '#5A00F8', 'average ' + ccK(med));
+        } }],
+        options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+          onClick: (e, els, ch) => {
+            // barra fininha: usa o índice do eixo X mais próximo, senão quase nunca acerta o clique
+            const pts = ch.getElementsAtEventForMode(e, 'index', { intersect: false }, true);
+            const i = (els && els.length) ? els[0].index : (pts && pts.length ? pts[0].index : null);
+            if (i == null || !rows[i]) return;
+            unitPlateSel = (unitPlateSel === rows[i].pl) ? null : rows[i].pl;   // clicar de novo fecha
+            renderUnit();
+          },
+          onHover: (e, els, ch) => { e.native.target.style.cursor = 'pointer'; },
+          plugins: { legend: { display: false }, datalabels: { display: false }, tooltip: tip },
+          scales: { x: { display: false }, y: { min: ySc.min, max: ySc.max, grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } } } } });
+      // (plugin da arte das frotas — definido acima, usado nos dois gráficos)
+      function __unitFleetArtDef() { return { id: 'unitFleetArt', beforeDatasetsDraw(ch) {
           if (unitSort !== 'fleet' || !rows.length) return;
           const { ctx, chartArea: a, scales: { x } } = ch; if (!a || !x) return;
           const blocos = [];
@@ -8617,26 +8750,7 @@
             if (ctx.measureText(txt).width < larg) ctx.fillText(txt, meio, a.top + 6);
             ctx.restore();
           });
-        } },
-        { id: 'unitAvg', afterDatasetsDraw(ch) {
-          const { ctx, chartArea: a, scales: { y } } = ch; if (!a || !y || !rows.length) return;
-          const med = rows.reduce((s, r) => s + (modo15 ? (r.d15 || 0) : (modoFull ? (r.retFull || 0) : r.real)), 0) / rows.length * K;
-          const ym = y.getPixelForValue(med);
-          if (!(ym > a.top + 8 && ym < a.bottom - 4)) return;
-          chartPillLine(ctx, a, ym, '#5A00F8', 'average ' + ccK(med));
-        } }],
-        options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
-          onClick: (e, els, ch) => {
-            // barra fininha: usa o índice do eixo X mais próximo, senão quase nunca acerta o clique
-            const pts = ch.getElementsAtEventForMode(e, 'index', { intersect: false }, true);
-            const i = (els && els.length) ? els[0].index : (pts && pts.length ? pts[0].index : null);
-            if (i == null || !rows[i]) return;
-            unitPlateSel = (unitPlateSel === rows[i].pl) ? null : rows[i].pl;   // clicar de novo fecha
-            renderUnit();
-          },
-          onHover: (e, els, ch) => { e.native.target.style.cursor = 'pointer'; },
-          plugins: { legend: { display: false }, datalabels: { display: false }, tooltip: tip },
-          scales: { x: { display: false }, y: { min: ySc.min, max: ySc.max, grid: { display: false }, border: { display: false }, ticks: { font: CC_FONT, color: '#6B7280', callback: ccK } } } } });
+        } }; }
       renderUnitPlate(rows);
       renderUnitBreak(rows, K, money);
       // ---- TAXA MENSAL por placa: (FV/PV)^(1/n) − 1, capital empatado × caixa devolvido ----

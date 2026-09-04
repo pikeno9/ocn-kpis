@@ -2221,6 +2221,40 @@ html.dark .ub-ev { border-left-color: #F87171; }
   letter-spacing: -.01em; color: var(--muted, #737373); transition: background .14s, color .14s; }
 .unit-seg-b:hover { color: var(--ink, #0a0a0a); }
 .unit-seg-b.on { background: var(--accent, #5A00F8); color: #fff; box-shadow: 0 1px 2px #5a00f833; }
+/* Full contract / So far com a MESMA largura: a pílula não muda de tamanho ao alternar */
+.unit-seg-eq .unit-seg-b { min-width: 104px; text-align: center; }
+/* ---- aba Unit: cabeçalho dos gráficos ----
+   título com peso de título (16px) e os controles alinhados à direita; a legenda ganha uma
+   linha própria, com folga, em vez de espremida entre o título e a pílula */
+.unit-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 2px 2px 8px; }
+.unit-title { margin: 0; font-size: 16px; font-weight: 800; letter-spacing: -.02em; color: var(--text); }
+.unit-head-ctl { display: inline-flex; align-items: center; gap: 8px; }
+.unit-legrow { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin: 0 2px 10px; min-height: 22px; }
+.unit-legrow .cc-leg { gap: 6px 8px; }
+.unit-legrow .cc-leg-i { font-size: 11px; font-weight: 600; color: var(--text-2); padding: 3px 9px 3px 7px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2, var(--surface)); }
+.unit-legrow .cc-leg-i .sw { width: 10px; height: 10px; border-radius: 3px; }
+.unit-legrow .cc-leg-i .sw-bud, .unit-legrow .cc-leg-i .sw-avg, .unit-legrow .cc-leg-i .sw-ref { width: 16px; height: 0; border-radius: 0; }
+.unit-legrow .cc-leg-tg { margin: 0; padding: 3px 9px 3px 7px; }
+.unit-legrow .cc-leg-tg:hover { border-color: var(--accent-ink); }
+.cc-leg .sw-ref { border-top: 2px dashed var(--text); }
+/* ---- aba Unit: painel de números — uma faixa só, sem cores de borda nem centralização ---- */
+.unit-kpis { display: grid; grid-template-columns: repeat(6, 1fr); border: 1px solid var(--border); border-radius: 12px;
+  background: var(--surface); margin-bottom: 14px; overflow: hidden; }
+.unit-kpi { padding: 13px 16px 12px; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.unit-kpi:last-child { border-right: 0; }
+.unit-kpi > span { font-size: 9.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--text-2); white-space: nowrap; }
+.unit-kpi b { font-size: 22px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; color: var(--text); font-variant-numeric: tabular-nums; }
+.unit-kpi b.up { color: #047857; } .unit-kpi b.bl { color: #1D4ED8; } .unit-kpi b.dn { color: #B91C1C; } .unit-kpi b.ac { color: var(--accent-ink); }
+.unit-kpi .sub { font-size: 10.5px; color: var(--text-3); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: none; letter-spacing: 0; }
+@media (max-width: 1100px) { .unit-kpis { grid-template-columns: repeat(3, 1fr); } .unit-kpi:nth-child(3) { border-right: 0; } .unit-kpi:nth-child(-n+3) { border-bottom: 1px solid var(--border); } }
+/* barra de filtros da aba Unit numa linha só */
+.unit-bar { flex-wrap: nowrap; }
+.unit-bar .cc-sel { max-width: 250px; }
+.unit-bar .unit-chip { padding: 8px 11px; }
+/* numa linha só ninguém pode quebrar por dentro: o select cede largura, os botões não */
+.unit-bar .cc-sel { flex: 0 1 230px; min-width: 150px; }
+.unit-bar .unit-chip, .unit-bar .idr-btn, .unit-bar .ue-fcbtn, .unit-bar .unit-chips { white-space: nowrap; flex: none; }
 
 /* Break-even — UM número principal: eventos de recuperação que zeram o carro médio */
 .ub-hero1 { display: flex; align-items: center; gap: 14px; }

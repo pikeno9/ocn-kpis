@@ -502,11 +502,25 @@
       <div class="subsection" id="sub-finunit">
         <div id="unitCtl"></div>
         <div id="unitHero"></div>
-        <div class="costs-chart">
-          <div class="cc-head"><h4>Return</h4><span class="cc-hint" id="unitRetHint"></span><span id="unitViewWrap"></span><span id="unitSortWrap"></span><button type="button" class="costs-help" data-h="u_ret">?</button></div>
+        <!-- PRINCIPAL: cada carro como % do próprio orçado — comparável entre frotas e idades -->
+        <div class="costs-chart unit-chart">
+          <div class="unit-head">
+            <h4 class="unit-title">Performance vs budget</h4>
+            <span class="unit-head-ctl"><span id="unitViewWrap"></span><span id="unitSortWrap"></span><button type="button" class="costs-help" data-h="u_pct">?</button></span>
+          </div>
+          <div class="unit-legrow" id="unitPctHint"></div>
+          <div class="cc-cv cv-tall"><canvas id="unitPct"></canvas></div>
+        </div>
+        <!-- o mesmo recorte em VALOR: quanto cada carro devolveu -->
+        <div class="costs-chart unit-chart" style="margin-top:14px">
+          <div class="unit-head">
+            <h4 class="unit-title">Income</h4>
+            <span class="unit-head-ctl"><button type="button" class="costs-help" data-h="u_ret">?</button></span>
+          </div>
+          <div class="unit-legrow" id="unitRetHint"></div>
           <div class="cc-cv cv-tall"><canvas id="unitRet"></canvas></div>
         </div>
-        <!-- drill: o UE completo da placa clicada no gráfico acima -->
+        <!-- drill: o UE completo da placa clicada em qualquer dos dois gráficos -->
         <div id="unitPlate"></div>
         <div class="costs-chart" style="margin-top:14px">
           <div class="cc-head"><h4>Monthly IRR per car</h4><span class="cc-hint" id="unitIrrHint"></span><button type="button" class="costs-help" data-h="u_irr">?</button></div>

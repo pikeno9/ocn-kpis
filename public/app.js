@@ -2538,12 +2538,35 @@
     EZY2B42: 7500, TYZ2G56: 7500, TYZ2G55: 7500, TLB8A14: 7500, TYZ2C62: 7500, QSV8H10: 7500,
     GDV3F82: 7500, QSW4A66: 7500, GHY5I61: 7500, TYZ2G64: 3600, TJE4J05: 7500, TJH1F43: 7500,
     TYZ2D25: 7500, TYZ2G63: 3600, TYZ0I54: 3600, TYZ2D36: 3600, UDG5A66: 7500,
+    // ---- 2º repasse: 43 placas, R$ 314.700, conferido em 03/09/2026 ----
+    // A lista que a inDrive mandou vinha somada com a do 1º repasse (96 placas, R$ 677.100, com
+    // TYZ2G57 repetida). Destas 43, nenhuma estava na tabela anterior e nenhuma das 53 antigas
+    // mudou de valor — os R$ 362.400 do 1º repasse seguem exatamente como estavam.
+    CUM0J31: 7500, DVN4H52: 7500, EGX9H53: 7500, GFH8B24: 7500, QSO4G72: 7500, QSO4H65: 7500,
+    QSP3A90: 7500, QST1J06: 7500, QSU1I39: 7500, QSV7G43: 7500, QSW4J87: 7500, QSY1H64: 7500,
+    TJG7I84: 7500, TJZ2G43: 7500, TKB0F63: 7500, TKB2D93: 7500, TKU0C41: 7500, TYZ0G67: 7500,
+    TYZ0G74: 7500, TYZ0G79: 7500, TYZ0I94: 7500, TYZ0J22: 7500, TYZ2C36: 7500, TYZ2D05: 7500,
+    TYZ2D12: 7500, TYZ2D28: 7500, TYZ2D29: 7500, TYZ2D33: 7500, TYZ2D57: 7500, UDC6H92: 7500,
+    UDL3J65: 3600, UDM6C77: 7500, UDN1J23: 7500, UDP7J13: 7500, UDQ2F42: 3600, UEJ4J01: 7500,
+    UGJ7E22: 7500, UGL7F47: 7500, UOG9J70: 7500, UOT5H00: 7500, UOV9H90: 7500, UQF5I00: 7500,
+    UQY9I89: 7500,
+  };
+  // Quem entrou no 2º repasse. O bônus é 1x por placa, então isto é só a DATA em que o dinheiro
+  // andou: o UE joga o valor no M daquela data (moDoUE) e o P&L no mês do calendário (mesDe).
+  const ID_BONUS_LOTE2 = {
+    CUM0J31: 1, DVN4H52: 1, EGX9H53: 1, GFH8B24: 1, QSO4G72: 1, QSO4H65: 1, QSP3A90: 1, QST1J06: 1,
+    QSU1I39: 1, QSV7G43: 1, QSW4J87: 1, QSY1H64: 1, TJG7I84: 1, TJZ2G43: 1, TKB0F63: 1, TKB2D93: 1,
+    TKU0C41: 1, TYZ0G67: 1, TYZ0G74: 1, TYZ0G79: 1, TYZ0I94: 1, TYZ0J22: 1, TYZ2C36: 1, TYZ2D05: 1,
+    TYZ2D12: 1, TYZ2D28: 1, TYZ2D29: 1, TYZ2D33: 1, TYZ2D57: 1, UDC6H92: 1, UDL3J65: 1, UDM6C77: 1,
+    UDN1J23: 1, UDP7J13: 1, UDQ2F42: 1, UEJ4J01: 1, UGJ7E22: 1, UGL7F47: 1, UOG9J70: 1, UOT5H00: 1,
+    UOV9H90: 1, UQF5I00: 1, UQY9I89: 1,
   };
   // Fonte única da promoção por placa: a aba "indrive" quando existir (valor + DATA do bônus e do
   // desconto), senão o par antigo tabela-fixa + import_baseID, ambos sem data. Usado também pelo
   // P&L e pela aba Unit, para as três leituras contarem a mesma história.
-  // Datas confirmadas com o financeiro (20/08/2026), enquanto a aba não existe: o repasse dos
-  // R$ 362.400 de bônus caiu de uma vez em 24/07/2026, e os descontos creditados em 18/06/2026.
+  // Datas confirmadas com o financeiro, enquanto a aba não existe: o 1º repasse de bônus
+  // (R$ 362.400, 53 placas) caiu de uma vez em 24/07/2026, o 2º (R$ 314.700, 43 placas) em
+  // 01/09/2026, e os descontos foram creditados em 18/06/2026.
   // ---- PRO-RATA DA PRIMEIRA PARCELA DE SUBRENTAL, PLACA A PLACA ----
   // Conferido contra as faturas da locadora de maio/junho/julho de 2026 (medição por placa).
   // A locadora cobra dias corridos da ENTREGA DO CARRO À OCN até o fim do mês, à diária de
@@ -2580,7 +2603,11 @@
     return (ds.reduce((s, d) => s + d, 0) / ds.length) / SUBR_PRO_BASE;
   };
 
+  // Datas dos repasses, fechadas com o financeiro. Dois lotes: os R$ 362.400 do primeiro caíram
+  // de uma vez em 24/07/2026; os R$ 314.700 do segundo em 01/09/2026.
   const IDR_BONUS_EM = '2026-07-24';
+  const IDR_BONUS_EM2 = '2026-09-01';
+  const IDR_BONUS_EM_DE = (pl) => (ID_BONUS_LOTE2[pl] ? IDR_BONUS_EM2 : IDR_BONUS_EM);
   const IDR_DESC_EM = '2026-06-18';
   const IDR_DE = (pl) => {
     const T = ((OCN.ue || {}).indrive || {}).placas;
@@ -2599,7 +2626,7 @@
     const dd = A && A.desconto ? A.desconto : (primeiraRodada ? ((IB.descontos || {})[pl] || 0) : 0);
     const ddEm = A && A.descontoEm ? A.descontoEm : IDR_DESC_EM;
     if (!b && !dd) return null;
-    return { bonus: b, bonusEm: IDR_BONUS_EM, desconto: dd, descontoEm: ddEm };
+    return { bonus: b, bonusEm: IDR_BONUS_EM_DE(pl), desconto: dd, descontoEm: ddEm };
   };
   // TIR (IRR) dos fluxos M0..Mn — taxa POR PERÍODO (o "mês" de 4,333 semanas do UE).
   //

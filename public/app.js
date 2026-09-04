@@ -2983,6 +2983,82 @@
     });
     return tot / pls.length;
   }
+  // ---- PERFIL REAL DE UMA FROTA para as três linhas que o UE não resolve com uma fórmula
+  // mensal, e sim com um CALENDÁRIO. Sem isto, o budget saía liso enquanto o realizado tinha
+  // cauda, parcela e revisão em meses específicos — e a comparação punia o carro por um
+  // descasamento que era do orçado, não da operação.
+  //
+  //  · Subrental fee — 12 parcelas no dia 26, a 1ª no mês seguinte à retirada, a 1ª pro-rata dos
+  //    dias medidos na fatura (SUBR_PRO_DIAS) e o complemento fechando numa 13ª que o UE soma no
+  //    M13. Mesma conta de subrentalRSAt(), com a mensalidade que estiver no Theoric.
+  //  · Insurance — as PARCELAS REAIS da apólice (valor e vencimento, aba "insurance"), divididas
+  //    pelos carros cobertos. A frota 5 não tem apólice própria: o endosso dela vive na 4.
+  //  · Maintenance — revisões agendadas pelo km/semana do próprio Theoric, ao preço do site de
+  //    revisões COM o desconto de 25% que a OCN paga de fato (o site publica o preço de tabela).
+  //
+  // Devolve R$ POR CARRO, já com sinal (saída = negativo), ou null na linha que não der para
+  // montar — aí a fórmula antiga do Theoric continua valendo.
+  const UE_INS_UMBRELLA = { 5: '4' };
+  const UE_REV_DESC = 0.75;
+  function ueFleetPerfil(f, vals, model) {
+    const U2 = OCN.ue || {};
+    if (!f || !f.inicio) return null;
+    const PMAX = UET_PERIODS - 1;
+    const MS = 86400000, MESd = UET_WPM * 7;
+    const ini = new Date(f.inicio + 'T12:00:00');
+    const zeros = () => new Array(UET_PERIODS).fill(null);
+    const out = {};
+
+    // ---- Subrental fee ----
+    const mensal = uetPar(vals, '__subrental_mensal__');
+    if (mensal > 0) {
+      const arr = zeros();
+      const dim = new Date(ini.getFullYear(), ini.getMonth() + 1, 0).getDate();
+      const medido = subrProFrac(f.placas || []);
+      const prorata = medido != null ? medido : Math.max(0, Math.min(1, (dim - ini.getDate()) / dim));
+      for (let i = 1; i <= 13; i++) {
+        const d = new Date(ini.getFullYear(), ini.getMonth() + i, 26, 12, 0, 0);
+        let mo = Math.ceil(((d - ini) / MS) / MESd);
+        if (mo < 1) mo = 1;
+        if (mo > PMAX) mo = PMAX;
+        const parcela = mensal * (i === 1 ? prorata : (i === 13 ? 1 - prorata : 1));
+        arr[mo] = (arr[mo] || 0) - parcela;
+      }
+      out['Subrental fee'] = arr;
+    }
+
+    // ---- Insurance ----
+    const PF = ((U2.insurancePay || {}).porFrota) || null;
+    const fid = String(f.id);
+    const host = PF ? (PF[fid] ? fid : ((UE_INS_UMBRELLA[fid] && PF[UE_INS_UMBRELLA[fid]]) ? UE_INS_UMBRELLA[fid] : null)) : null;
+    if (host) {
+      let div = 0;
+      (U2.fleets || []).forEach((x) => { if (String(x.id) === host || UE_INS_UMBRELLA[String(x.id)] === host) div += x.cars || 0; });
+      div = div || 1;
+      const arr = zeros();
+      (PF[host] || []).forEach((pc) => {
+        const d = pc.venc ? new Date(pc.venc + 'T12:00:00') : ini;   // sem vencimento = à vista, na assinatura
+        const p = Math.max(1, Math.min(PMAX, Math.floor((d - ini) / MS / MESd) + 1));
+        arr[p] = (arr[p] || 0) - (pc.valor / div);
+      });
+      out.Insurance = arr;
+    }
+
+    // ---- Maintenance ----
+    const kmWeek = uetPar(vals, '__km_semana__');
+    const prices = (U2.revisoes && U2.revisoes[model]) || [];
+    if (kmWeek > 0 && prices.length) {
+      const arr = zeros();
+      const kmMes = kmWeek * UET_WPM;
+      prices.forEach((r) => {
+        const km = r.km || (r.n * 10000);
+        const mo = Math.ceil(km / kmMes);
+        if (mo >= 1 && mo <= UET_RECUR) arr[mo] = (arr[mo] || 0) - (r.valor || 0) * UE_REV_DESC;
+      });
+      out.Maintenance = arr;
+    }
+    return Object.keys(out).length ? out : null;
+  }
   // valor projetado (COM sinal) de uma linha na IDADE p do contrato (M0..M13), a partir dos params/sliders
   // `seg` (opcional) = quantas segundas o mês p tem NAQUELA frota. Sem ele o mês é linear
   // (4,3333 semanas), que é como o modelo — sem data de entrega — tem de ser lido.
@@ -3009,10 +3085,21 @@
     }
   }
   // valor EFETIVO: override manual da célula (magnitude) vence a projeção
-  function uetEff(vals, model, lineObj, p, maint, seg) {
-    const ov = vals[lineObj.label + '@@' + p];
-    if (ov != null) return (lineObj.group === 'outflow') ? -Math.abs(Number(ov)) : Math.abs(Number(ov));
-    return uetCell(vals, model, lineObj.label, p, maint, seg);
+  // `ctx` (opcional) = { seg, perfil, over } da FROTA escolhida. Nas linhas que têm perfil real,
+  // só o valor digitado NA MÁSCARA daquela frota vence o calendário — o número solto do Std não,
+  // porque ele é do modelo e não conhece nem a data de entrega nem a apólice desta frota.
+  function uetEff(vals, model, lineObj, p, maint, ctx) {
+    const lbl = lineObj.label;
+    const neg = (v) => (lineObj.group === 'outflow') ? -Math.abs(Number(v)) : Math.abs(Number(v));
+    const P = ctx && ctx.perfil && ctx.perfil[lbl];
+    if (P) {
+      const om = ctx.over && ctx.over[lbl + '@@' + p];
+      if (om != null) return neg(om);
+      return P[p] == null ? null : P[p];
+    }
+    const ov = vals[lbl + '@@' + p];
+    if (ov != null) return neg(ov);
+    return uetCell(vals, model, lbl, p, maint, ctx && ctx.seg);
   }
 
   // ===================== ORÇADO (BUDGET) VINDO DO UE THEORIC =====================
@@ -3048,7 +3135,7 @@
     return out;
   }
   // { rótulo da planilha: [v0..v12] } em US$, a partir do mapa de valores de um modelo
-  function orcTeoTabela(vals, modelId, seg) {
+  function orcTeoTabela(vals, modelId, ctx) {
     const maint = uetMaint(vals, modelId);
     const out = {};
     UET_LINES.forEach((l) => {
@@ -3056,7 +3143,7 @@
       const lbl = ORC_TEO_LBL[l.label] || l.label;
       const arr = out[lbl] || (out[lbl] = new Array(14).fill(null));
       for (let per = 0; per < UET_PERIODS; per++) {
-        const v = uetEff(vals, modelId, l, per, maint, seg);
+        const v = uetEff(vals, modelId, l, per, maint, ctx);
         if (v == null) continue;
         // as três linhas pontuais moram na ÚLTIMA casa do orçado (é de lá que orcDisp lê o M13);
         // as demais ficam na casa do próprio mês, M13 inclusive (a cauda da Subscription)
@@ -3109,7 +3196,8 @@
         const mk = await orcTeoFetch('__theoric_' + idDe[f.model] + '__f' + f.id + '__');
         const n = Object.keys(mk).length;
         diag.frotas.push({ frota: f.id, modelo: f.model, overrides: n });
-        tab[f.id] = orcTeoTabela(Object.assign({}, std[f.model], mk), f.model, (per) => ueMondaysFrota(f, per));
+        const vf = Object.assign({}, std[f.model], mk);
+        tab[f.id] = orcTeoTabela(vf, f.model, { seg: (per) => ueMondaysFrota(f, per), perfil: ueFleetPerfil(f, vf, f.model), over: mk });
       }));
       U2.orcTeo = tab;
       U2.orcTeoDiag = diag;
@@ -9124,14 +9212,15 @@
     const maintByMonth = () => uetMaint(uetVals, uetSel);
     // frota escolhida no dropdown = tabela SAZONALIZADA: o mês vale as segundas reais dela.
     // No "Theoretical Std" não há data de entrega, então o mês continua linear.
-    const segAtual = () => {
-      if (uetVariant === 'std') return null;
-      const f = (((OCN.ue || {}).fleets) || []).find((x) => String(x.id) === String(uetVariant));
-      return f ? ((per) => ueMondaysFrota(f, per)) : null;
-    };
+    const frotaAtual = () => (uetVariant === 'std' ? null
+      : (((OCN.ue || {}).fleets) || []).find((x) => String(x.id) === String(uetVariant)) || null);
+    const segAtual = () => { const f = frotaAtual(); return f ? ((per) => ueMondaysFrota(f, per)) : null; };
+    // contexto da frota: segundas reais + perfil de calendário das três linhas + a máscara dela
+    const ctxAtual = () => { const f = frotaAtual(); if (!f) return null;
+      return { seg: (per) => ueMondaysFrota(f, per), perfil: ueFleetPerfil(f, uetVals, uetSel), over: uetOver }; };
     const cellValue = (line, p, maint) => uetCell(uetVals, uetSel, line, p, maint, segAtual());
     function computeAll() {
-      const maint = maintByMonth(); const seg = segAtual();
+      const maint = maintByMonth(); const seg = ctxAtual();
       const cells = {}; const ti = [], to = [], net = [], acc = []; let a = 0;
       for (let p = 0; p < UET_PERIODS; p++) {
         let inf = 0, ouf = 0;

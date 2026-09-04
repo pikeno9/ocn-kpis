@@ -3000,6 +3000,50 @@
   // montar — aí a fórmula antiga do Theoric continua valendo.
   const UE_INS_UMBRELLA = { 5: '4' };
   const UE_REV_DESC = 0.75;
+  // ---- caixinha ⚙ Parts, por frota ----
+  // Cada frota tem os próprios intervalos e preços de troca; o que ela não define cai no padrão
+  // global (__cfg__), e o que nem lá existe cai no default do código. É a mesma cascata do
+  // mergedParts() do UE real — o budget precisa ler a MESMA régua, senão a comparação mente.
+  const UE_PART_DEF = { pastilhas: { km: 15, rs: 250 }, disco: { km: 30, rs: 350 }, pneus: { km: 50, rs: 700 } };
+  let uePartsCfg = null, uePartsProm = null;
+  function ensurePartsCfg() {
+    if (uePartsProm) return uePartsProm;
+    uePartsProm = (async () => {
+      const le = async (fleet) => {
+        const out = {};
+        try {
+          const r = await fetch('/api/ue/values?fleet=' + encodeURIComponent(fleet), { credentials: 'include' });
+          const d = await r.json();
+          (d.values || []).forEach((v) => { if (out[v.line] == null) out[v.line] = v.value; });
+        } catch (e) {}
+        return out;
+      };
+      const g = await le('__cfg__');
+      const glob = {};
+      Object.keys(UE_PART_DEF).forEach((k) => {
+        const km = g['__part_' + k + '_km__'], rs = g['__part_' + k + '_rs__'];
+        glob[k] = { km: km != null ? Number(km) : UE_PART_DEF[k].km, rs: rs != null ? Number(rs) : UE_PART_DEF[k].rs };
+      });
+      const porFrota = {};
+      const fleets = ((OCN.ue || {}).fleets) || [];
+      await Promise.all(fleets.map(async (f) => {
+        const p = await le(String(f.id));
+        const c = {};
+        Object.keys(UE_PART_DEF).forEach((k) => {
+          const km = p['__part_' + k + '_km__'], rs = p['__part_' + k + '_rs__'];
+          c[k] = { km: km != null && km !== '' ? Number(km) : glob[k].km, rs: rs != null && rs !== '' ? Number(rs) : glob[k].rs };
+        });
+        porFrota[String(f.id)] = c;
+      }));
+      uePartsCfg = { glob, porFrota };
+      return uePartsCfg;
+    })();
+    return uePartsProm;
+  }
+  const uePartsDe = (fid) => {
+    if (!uePartsCfg) return UE_PART_DEF;
+    return uePartsCfg.porFrota[String(fid)] || uePartsCfg.glob;
+  };
   function ueFleetPerfil(f, vals, model) {
     const U2 = OCN.ue || {};
     if (!f || !f.inicio) return null;
@@ -3056,6 +3100,27 @@
         if (mo >= 1 && mo <= UET_RECUR) arr[mo] = (arr[mo] || 0) - (r.valor || 0) * UE_REV_DESC;
       });
       out.Maintenance = arr;
+    }
+
+    // ---- Part Replacement ----
+    // Mesma conta do computeParts() projetado — trocas nos múltiplos do intervalo de cada peça —
+    // só que o relógio é o km/semana do Theoric, não o hodômetro de cada placa. Só o que couber
+    // DENTRO do contrato (M1..M12) entra: peça que só vence depois não é custo deste carro.
+    if (kmWeek > 0) {
+      const cfgP = uePartsDe(f.id);
+      const arr = zeros();
+      const kmMes = kmWeek * UET_WPM;
+      let algum = false;
+      Object.keys(cfgP).forEach((k) => {
+        const intervalo = (cfgP[k].km || 0) * 1000, preco = cfgP[k].rs || 0;
+        if (!(intervalo > 0) || !(preco > 0)) return;
+        for (let n = 1; n <= 60; n++) {
+          const mo = Math.ceil((n * intervalo) / kmMes);
+          if (mo > UET_RECUR) break;
+          if (mo >= 1) { arr[mo] = (arr[mo] || 0) - preco; algum = true; }
+        }
+      });
+      if (algum) out['Part Replacement'] = arr;
     }
     return Object.keys(out).length ? out : null;
   }
@@ -3177,6 +3242,7 @@
         try { const r = await fetch('/api/theoric/models', { credentials: 'include' }); lista = (await r.json()).models || []; }
         catch (e) { lista = []; }
       }
+      await ensurePartsCfg();   // o perfil de Part Replacement lê a caixinha ⚙ de cada frota
       const modelos = [...new Set(U2.fleets.map((f) => f.model))];
       const idDe = {}, rotulo = {};
       U2.fleets.forEach((f) => { if (!rotulo[f.model]) rotulo[f.model] = f.modelLabel; });
@@ -9353,6 +9419,7 @@
     async function loadValues(id) {
       // trocou de modelo (ou a frota não é deste modelo): a vista volta para o Std
       if (uetVariant !== 'std' && !fleetsDoModelo().some((f) => String(f.id) === String(uetVariant))) uetVariant = 'std';
+      await ensurePartsCfg();   // idem para a tabela do Theoric na tela
       uetStd = await fetchVals(fkey(id));
       uetOver = uetVariant !== 'std' ? await fetchVals(fkeyCur()) : {};
       rebuildVals();

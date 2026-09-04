@@ -5730,7 +5730,7 @@
       pareto: { t: 'Pareto — where the COGS money goes', d: 'Every vehicle cost line sorted biggest first (each in its own colour), with the cumulative share on the right axis. Where the curve crosses the dashed 80% guide tells you how few lines concentrate almost all the cost — those are the ones worth negotiating; everything after the crossing is operational noise. CLICK any bar to open that line below, month by month and split by fleet.' },
       kmtrend: { t: 'Fleet km/week over time', d: 'The average km/week of every plate with an odometer reading, week by week (current partial week excluded). The dashed tail projects the pace of the last 8 weeks 4 weeks ahead. Why it matters: repossessions tend to take out LOW-usage drivers and their cars come back with average ones, so churn alone pushes this line up — and more km is more maintenance, parts and revisions. The PATTERN BREAKS view flips to the individual car: plates whose last-2-week average fell more than 60% against their own previous 4-week pace — the classic shape of a car slipping out of normal use (driver stopped, car sitting, or about to be repossessed). Grey bar = the pace before, red bar = now.' },
       share: { t: 'Share of COGS by month', d: 'Each month as 100%: how much of that month\'s vehicle cost each line represents — the five biggest lines in their own colours, the rest grouped as grey "Others". Months ahead of today are the PROJECTION and render lighter (the tooltip also says "projected"). Watch for a line quietly growing its slice as the fleet ramps: absolute values always grow with more cars, but the SHARE only grows when the line outpaces the others.' },
-      u_pct: { t: 'Performance vs budget — each car as % of its own plan', d: 'Every bar is one car, and its height is how much of its own budget the car delivered: 1 + (return − budget) ÷ |budget|. A car that returned 1,000 against a budget of 800 sits at 125%; one that returned 600 sits at 75%; one that lost money sits below 0%. The dashed line at 100% is the budget itself, so bars above it beat the plan and bars below it miss it — and because every car is measured against ITS OWN plan, cars from different fleets and ages become comparable, which the Income chart below cannot do. Two rules keep the number honest. First, the denominator is the SIZE of the budget (its absolute value): when a young car still has a negative plan (heavy month-zero outlays, in the “So far” view), losing 500 against a plan of −500 is 100%, and losing only 300 is 140% — better than plan reads as a higher number, whatever the sign of the plan. Second, a budget too close to zero cannot be divided by: cars whose |budget| is under 5% of the median |budget| of the cars on screen are left out, and the legend says how many. Bars are capped at ±300% so a single odd car cannot hijack the axis; the hover box always shows the real figure. GREEN = at or above 100% (ahead of its plan); BLUE = between 0% and 100% (behind it); RED = below 0%, meaning the shortfall is bigger than the whole budget. Colours follow this ratio, not the sign of the cash — a young car with negative cash but an even more negative plan is ahead, and shows green; the Income chart below is where the cash sign lives. The purple line is the MEDIAN, which, unlike the average, is not dragged around by one outlier. “Full contract” measures the whole M0–M13 plan; “So far” measures each car at its current age.' },
+      u_pct: { t: 'Performance vs budget — each car as % of its own plan', d: 'Every bar is one car, and its height is how much of its own budget the car delivered: 1 + (return − budget) ÷ |budget|. A car that returned 1,000 against a budget of 800 sits at 125%; one that returned 600 sits at 75%; one that lost money sits below 0%. The dashed line at 100% is the budget itself, so bars above it beat the plan and bars below it miss it — and because every car is measured against ITS OWN plan, cars from different fleets and ages become comparable, which the Income chart below cannot do. Two rules keep the number honest. First, the denominator is the SIZE of the budget (its absolute value): when a young car still has a negative plan (heavy month-zero outlays, in the “So far” view), losing 500 against a plan of −500 is 100%, and losing only 300 is 140% — better than plan reads as a higher number, whatever the sign of the plan. Second, a budget too close to zero cannot be divided by: cars whose |budget| is under 5% of the median |budget| of the cars on screen are left out, and the legend says how many. GREEN = at or above 100% (ahead of its plan); BLUE = between 0% and 100% (behind it); RED = below 0%, meaning the shortfall is bigger than the whole budget. Colours follow this ratio, not the sign of the cash — a young car with negative cash but an even more negative plan is ahead, and shows green; the Income chart below is where the cash sign lives. The purple line is the MEDIAN, which, unlike the average, is not dragged around by one outlier. “Full contract” measures the whole M0–M13 plan; “So far” measures each car at its current age.' },
       u_ret: { t: 'Income — each car against its budget', d: 'One thin bar per plate, and clicking any of them opens that car\'s full statement below. The tinted bands separate the cars in the black from the ones in the red, and the dotted purple line is the fleet average. Each bar is everything the car has brought in since delivery (subscriptions received, interest, fines charged to the client) minus everything it has cost (sub-rental, insurance accrued to date, GPS, preparation, sticker, maintenance, fines paid, recovery, repair, parts). Security deposit and its refund are OUT — they are cash parked, not result — and so are the car purchase/sale and termination fees. The dashed line is each car\'s BUDGET at its current age: what its fleet\'s contractual economics (weekly fee, rent, insurance, GPS) plus the pooled event rates (fines, maintenance, recovery, repair, parts by car age) say it should have accumulated by now. GREEN bars are at or above budget, RED are below. Cars of different fleets have different ages, so bars are not directly comparable to each other — always compare each bar to the dashed line at its position, or use the "Monthly IRR" chart below, which puts every car on the same scale.' },
       u_ret_old: { t: 'Return per car — vs its budget', d: 'One thin bar per plate: everything the car has brought in since delivery (subscriptions received, interest, fines charged to the client) minus everything it has cost (sub-rental, insurance accrued to date, GPS, preparation, sticker, maintenance, fines paid, recovery, repair, parts). Security deposit and its refund are OUT — they are cash parked, not result — and so are the car purchase/sale and termination fees. The dashed line is each car\'s BUDGET at its current age: what its fleet\'s contractual economics (weekly fee, rent, insurance, GPS) plus the pooled event rates (fines, maintenance, recovery, repair, parts by car age) say it should have accumulated by now. GREEN bars are at or above budget, RED are below. Cars of different fleets have different ages, so bars are not directly comparable to each other — always compare each bar to the dashed line at its position.' },
       u_irr: { t: 'Monthly IRR per car', d: 'Exactly the IRR the Unit Economics panel shows for that plate — same engine, same premises, run once per car. Select any plate in the Unit Economics tab and the monthly rate there is the height of its bar here. Each car gets its own M0..M13 cashflow straight from the UE statement: M0 carries the CAPITAL TIED — the sub-rental deposit, the FULL insurance premium (the policy is signed once and covers the 12 months, so paying it in instalments is financing, not optionality), plus preparation, sticker and the GPS install — and every month after that carries what came in (subscriptions, interest, fines charged, termination fee, vehicle sale) minus what went out (sub-rental, GPS, fines paid to LM, maintenance, recovery, repair, parts, deposit refund, vehicle purchase), each entry landing in the month of life it happened, realized up to today and budgeted from there to the end of the contract. The InDrive promotion leaves the account on BOTH sides — the bonus received and the discount granted — because it was a one-off activation campaign that will not repeat in the next contract; leaving it in would make the plates that caught it look structurally better than the business is. The IRR is the rate that makes that series worth zero today, so unlike a plain multiple it weighs WHEN each real arrives: a car that pays back in month two rates higher than one that pays the same amount spread to month ten. Cars under one month of life have no bar (too little history). A car that has burned its capital with nothing coming back shows −100%. The purple line is the fleet average and the band below zero marks the cars destroying capital. Click any bar to open that car\'s full statement.' },
@@ -8233,6 +8233,13 @@
     // Trava de ESCALA do gráfico de retorno: clicar em InDrive/Deposit/Rec+Rep não pode
     // reescalar o eixo — sem referência fixa não dá para VER o efeito do botão. A chave ignora
     // os três toggles; mudar filtro, recorte, ordenação, visão ou moeda solta a trava.
+    // O gráfico de Income fica só para o Enrico. É esconderijo de TELA, não de dados: quem abrir
+    // o devtools ainda alcança os números (eles vêm no mesmo /api/data que a aba já usa). Serve
+    // para o gráfico não entrar em reunião, não para proteger informação.
+    const unitIncomeVisivel = () => {
+      const l = String((((OCN._meta || {}).user) || {}).login || '').toLowerCase().trim();
+      return l.split('@')[0] === 'enrico.barbato';
+    };
     let unitScaleLock = null;
     let unitPctLock = null;    // a mesma trava, para o gráfico de % do orçado
     // fotos dos modelos, carregadas uma vez; quando a imagem chega, repinta o gráfico
@@ -8768,11 +8775,12 @@
       // ±300% só para o eixo não ser sequestrado por um carro de orçado minúsculo; o valor
       // verdadeiro fica na caixa do hover.
       const fleetArtPlugin = __unitFleetArtDef();
-      const PCT_CAP = 3;
-      const pctVal = (r) => { const v = PCT(r); return v == null ? null : Math.max(-PCT_CAP, Math.min(PCT_CAP, v)) * 100; };
+      // sem teto: a barra mostra o número inteiro e o eixo se estica para caber. Um carro de
+      // orçado minúsculo pode esticar a escala, mas o filtro do pctFloor já tira os que não têm
+      // razão nenhuma — e cortar a barra escondia justamente o caso extremo que interessa ver.
+      const pctVal = (r) => { const v = PCT(r); return v == null ? null : v * 100; };
       const pctFmt = (v) => (v == null ? '—' : Math.round(v * 100).toLocaleString('pt-BR') + '%');
       const semPct = rows.filter((r) => PCT(r) == null).length;
-      const cortados = rows.filter((r) => { const v = PCT(r); return v != null && Math.abs(v) > PCT_CAP; }).length;
       document.getElementById('unitPctHint').innerHTML = modo15
         ? `<span class="cc-leg"><i class="cc-leg-i">sorted by the last 15 days — this chart still shows each car as % of its budget</i></span>`
         : `<span class="cc-leg">` +
@@ -8782,7 +8790,6 @@
           `<i class="cc-leg-i"><span class="sw sw-ref"></span>100% = the car's own budget${modoFull ? ', full contract' : ' at its age'}</i>` +
           `<i class="cc-leg-i"><span class="sw sw-avg"></span>median ${escH(pctFmt(medPct))}</i>` +
           (semPct ? `<i class="cc-leg-i" title="Budget too close to zero to divide by — see the ? for the rule">${semPct} car${semPct === 1 ? '' : 's'} without a usable budget</i>` : '') +
-          (cortados ? `<i class="cc-leg-i" title="Bars are capped at ±300% so one car cannot hijack the axis; hover for the real figure">${cortados} capped at ±300%</i>` : '') +
         `</span>`;
       const corPct = (ctx) => {
         const r = rows[ctx.dataIndex]; if (!r) return '#9CA3AF';
@@ -8800,7 +8807,14 @@
       unitPctLock = { key: pKey, lo: pLo, hi: pHi };
       // eixo em múltiplos de 25%: "216%" e "−44%" nas pontas liam como número, não como régua
       const pPad = Math.max(5, (pHi - pLo) * 0.05);
-      const pStep = (pHi - pLo) > 300 ? 50 : 25;   // faixa larga (So far) sobe o passo, senão o eixo vira poeira
+      // passo escolhido pela AMPLITUDE, mirando ~10 marcas: sem isso uma frota esticada vira uma
+      // régua de poeira e uma frota apertada fica sem marca nenhuma
+      // passo derivado da AMPLITUDE, sempre ~10 marcas. Uma escada fixa de passos travava o
+      // navegador: sem teto nas barras, um carro de orcado quase zero estica o eixo a milhoes de
+      // por cento, e o Chart.js tentava desenhar centenas de milhares de marcas.
+      const amp = Math.max(1, (pHi + pPad) - (pLo - pPad));
+      const mag = Math.pow(10, Math.floor(Math.log10(amp / 10)));
+      const pStep = Math.max(5, Math.ceil((amp / 10) / mag) * mag);
       const pMin = Math.floor((pLo - pPad) / pStep) * pStep, pMax = Math.ceil((pHi + pPad) / pStep) * pStep;
       mk('unitPct', { data: { labels, datasets: [
           Object.assign({ type: 'bar', label: '% of budget', data: rows.map(pctVal),
@@ -8826,7 +8840,7 @@
         fleetArtPlugin,
         { id: 'pctMed', afterDatasetsDraw(ch) {
           const { ctx, chartArea: a, scales: { y } } = ch; if (!a || !y || medPct == null) return;
-          const ym = y.getPixelForValue(Math.max(-PCT_CAP, Math.min(PCT_CAP, medPct)) * 100);
+          const ym = y.getPixelForValue(medPct * 100);
           if (!(ym > a.top + 8 && ym < a.bottom - 4)) return;
           chartPillLine(ctx, a, ym, '#5A00F8', 'median ' + pctFmt(medPct));
         } }],
@@ -8841,12 +8855,15 @@
           onHover: (e) => { e.native.target.style.cursor = 'pointer'; },
           plugins: { legend: { display: false }, datalabels: { display: false },
             tooltip: { enabled: false, external: externalTip((r) => { const v = PCT(r);
-              return { t: v == null ? 'no usable budget' : 'of its budget' + (Math.abs(v) > PCT_CAP ? ' (bar capped)' : ''), v: pctFmt(v), cls: v == null ? '' : (v < 0 ? 'dn' : (v >= 1 ? 'up' : 'bl')) }; }) } },
+return { t: v == null ? 'no usable budget' : 'of its budget', v: pctFmt(v), cls: v == null ? '' : (v < 0 ? 'dn' : (v >= 1 ? 'up' : 'bl')) }; }) } },
           scales: { x: { display: false },
             y: { min: pMin, max: pMax, grid: { display: false }, border: { display: false },
               ticks: { font: CC_FONT, color: '#6B7280', stepSize: pStep, callback: (v) => v.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + '%' } } } } });
       // ================= INCOME =================
-      mk('unitRet', { data: { labels, datasets: [
+      const cardInc = document.getElementById('unitIncomeCard');
+      const verInc = unitIncomeVisivel();
+      if (cardInc) cardInc.hidden = !verInc;
+      if (verInc) mk('unitRet', { data: { labels, datasets: [
           Object.assign({ type: 'bar', label: modo15 ? 'Δ vs 15 days ago' : 'Return', data: rows.map((r) => Math.round((modo15 ? (r.d15 || 0) : (modoFull ? (r.retFull || 0) : r.real)) * K)),
             backgroundColor: corBarra, hoverBackgroundColor: corBarra, borderRadius: 3,
             // a placa aberta ganha contorno escuro: acha-se ela no meio de 170 barras
@@ -10677,6 +10694,8 @@
     // linhas cujo lançamento pontual foi movido para o M13 (planilha original só vai até M12) — o orçado de
     // referência sai do M12 e passa a aparecer só no M13 (substituição, não duplicação)
     const M13_LINES = ['Vehicle Purchase', 'Vehicle Sell', 'Deposit Refund'];
+    // únicas linhas cujo orçado sobrevive a uma perda total (ver orcDisp)
+    const ORC_PT_MANTEM = { 'Insurance': 1, 'Deposit Refund': 1 };
     // a PLANILHA de orçado ainda usa o rótulo combinado — as linhas novas leem dela por alias
     const ORC_ALIAS = { 'Vehicle Sell': 'Initial Fee / Vehicle Sell' };
     // ---- orçado da SUBSCRIPTION pelas segundas-feiras reais do mês ----
@@ -10721,6 +10740,16 @@
       // limpo. Quando houver uma taxa esperada, é só apagar este bloco: o __late_pct__ da
       // máscara da frota volta a mandar sozinho.
       if (line === 'Late-payment interest') { const e = effSplit(line, period); return e ? (e.real || 0) + (e.proj || 0) : null; }
+      // PERDA TOTAL: DEPOIS do mês do sinistro o carro não gera nem consome mais nada, e o orçado
+      // tem de acompanhar — senão a placa fica eternamente "abaixo do plano" contra um plano que
+      // pressupõe um carro rodando. Sobrevivem duas linhas: o SEGURO, que a apólice segue
+      // cobrando, e a DEVOLUÇÃO DA CAUÇÃO no M13, que volta de qualquer jeito. O mês do sinistro
+      // em si fica inteiro: o carro deveria ter trabalhado aquele mês, e é isso que a comparação
+      // precisa mostrar.
+      if (plateView && !ORC_PT_MANTEM[line]) {
+        const lm = lossMonthByPlate[plateView];
+        if (lm != null && period > lm) return null;
+      }
       // A Subscription já vem SAZONALIZADA do Theoric (a tabela da frota conta as segundas
       // reais dela), então aqui ela é uma linha como qualquer outra. O cálculo pelas segundas só
       // sobrevive como plano B, para o caso de um modelo sem nada salvo no Theoric.

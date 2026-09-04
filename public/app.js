@@ -10713,6 +10713,14 @@
       // o orçado tem de seguir o mesmo botão: senão sai do realizado e fica na régua, e todo
       // carro pareceria melhor contra o orçado só por ter desligado o calção
       if (cauOff && (line === 'Security Deposit' || line === 'Deposit Refund')) return null;
+      // LATE-PAYMENT INTEREST: por ora o orçado É o realizado, célula a célula, para o efeito
+      // do juro de atraso sair da comparação em vez de distorcê-la. A linha só existe no UE real
+      // (no Theoric o __late_pct__ é 0), então todo juro recebido aparecia como ganho contra um
+      // plano que fingia que atraso não acontece — e o carro que mais atrasou parecia o melhor
+      // da frota. Igualados, a linha contribui ZERO para o delta e o resto da comparação fica
+      // limpo. Quando houver uma taxa esperada, é só apagar este bloco: o __late_pct__ da
+      // máscara da frota volta a mandar sozinho.
+      if (line === 'Late-payment interest') { const e = effSplit(line, period); return e ? (e.real || 0) + (e.proj || 0) : null; }
       // A Subscription já vem SAZONALIZADA do Theoric (a tabela da frota conta as segundas
       // reais dela), então aqui ela é uma linha como qualquer outra. O cálculo pelas segundas só
       // sobrevive como plano B, para o caso de um modelo sem nada salvo no Theoric.
